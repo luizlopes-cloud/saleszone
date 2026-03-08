@@ -14,10 +14,7 @@ const IGNORE_NAMES = new Set(["LP WordPress", "Teste Empreendimento"]);
 
 function extractLabel(campaignName: string, tipo: "lp" | "campanha"): string {
   if (tipo === "lp") return "LP WordPress";
-  // Extrair data do campaign_name: "... | DD/MM/YYYY" ou "..._DD/MM/YYYY"
-  const match = campaignName.match(/[|_]\s*(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (match) return `Campanha ${match[1]}/${match[2]}/${match[3]}`;
-  return "Campanha";
+  return campaignName;
 }
 
 export async function GET() {
