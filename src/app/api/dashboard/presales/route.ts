@@ -131,7 +131,8 @@ export async function GET() {
     const presellers: PresellerSummary[] = [];
     for (const [name, pDeals] of byPreseller) {
       const comAcao = pDeals.filter((d) => !d.is_pending);
-      const tempos = pDeals.map((d) => d.biz_minutes);
+      // Incluir todos deals EXCETO pendentes com 0 min úteis (transbordo no FDS, sem horário útil ainda)
+      const tempos = pDeals.filter((d) => !d.is_pending || d.biz_minutes > 0).map((d) => d.biz_minutes);
 
       presellers.push({
         name,
@@ -171,7 +172,10 @@ export async function GET() {
     }));
 
     // Totais globais (apenas deals com ação)
-    const allTempos = dealsWithBizTime.map((d) => d.biz_minutes);
+    // Excluir pendentes com 0 min úteis (transbordo fora de horário útil, sem tempo contável ainda)
+    const allTempos = dealsWithBizTime
+      .filter((d) => !d.is_pending || d.biz_minutes > 0)
+      .map((d) => d.biz_minutes);
 
     const result: PresalesData = {
       presellers,
