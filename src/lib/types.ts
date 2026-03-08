@@ -93,6 +93,11 @@ export interface CampanhasEmpSummary {
   cpl: number;
   criticos: number;
   alertas: number;
+  mql: number;
+  sql: number;
+  opp: number;
+  won: number;
+  cpw: number;
 }
 
 export interface CampanhasSquadSummary {
@@ -104,6 +109,11 @@ export interface CampanhasSquadSummary {
   avgCpl: number;
   criticos: number;
   alertas: number;
+  totalMql: number;
+  totalSql: number;
+  totalOpp: number;
+  totalWon: number;
+  cpw: number;
 }
 
 export interface CampanhasSummary {
@@ -113,6 +123,11 @@ export interface CampanhasSummary {
   avgCpl: number;
   criticos: number;
   alertas: number;
+  totalMql: number;
+  totalSql: number;
+  totalOpp: number;
+  totalWon: number;
+  cpw: number;
 }
 
 export interface CampanhasData {

@@ -123,7 +123,16 @@ export function PresalesView({ data, loading }: Props) {
                   onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "")}
                 >
                   <td style={{ ...tdStyle, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
-                    {d.deal_title}
+                    <a
+                      href={`https://seazone-fd92b9.pipedrive.com/deal/${d.deal_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: T.azul600, textDecoration: "none" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
+                      onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
+                    >
+                      {d.deal_title}
+                    </a>
                   </td>
                   <td style={tdStyle}>{d.preseller_name}</td>
                   <td style={{ ...tdStyle, fontSize: "12px", color: T.cinza700 }}>{formatDate(d.transbordo_at)}</td>

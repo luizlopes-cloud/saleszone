@@ -153,8 +153,14 @@ export async function GET() {
       return b.totalDeals - a.totalDeals;
     });
 
-    // Deals recentes (últimos 50)
-    const recentDeals: PresalesDealRow[] = dealsWithBizTime.slice(0, 50).map((d) => ({
+    // Deals: pendentes (mais antigos primeiro), depois com ligação (mais antigos primeiro)
+    const sorted = [...dealsWithBizTime].sort((a, b) => {
+      if (a.is_pending && !b.is_pending) return -1;
+      if (!a.is_pending && b.is_pending) return 1;
+      return new Date(a.transbordo_at).getTime() - new Date(b.transbordo_at).getTime();
+    });
+
+    const recentDeals: PresalesDealRow[] = sorted.slice(0, 50).map((d) => ({
       deal_id: d.deal_id,
       deal_title: d.deal_title || "",
       preseller_name: d.preseller_name,
