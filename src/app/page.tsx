@@ -144,6 +144,11 @@ export default function Dashboard() {
         {mainView === "balanceamento" && <BalanceamentoView data={balancData} ocioData={ocioData} loading={loading} />}
         {mainView === "campanhas" && <CampanhasView data={campData} loading={loading} />}
         {mainView === "presales" && <PresalesView data={presalesData} loading={loading} />}
+        {mainView === "diagnostico-mkt" && (
+          <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
+            <p style={{ fontSize: "16px" }}>Aba Diagnóstico Mkt — em construção</p>
+          </div>
+        )}
         {mainView === "venda" && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
             <p style={{ fontSize: "16px" }}>Aba Venda — em construção</p>

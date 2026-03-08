@@ -1,6 +1,6 @@
 "use client";
 
-import { Calendar, RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart } from "lucide-react";
+import { Calendar, RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity } from "lucide-react";
 import { T } from "@/lib/constants";
 import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 
@@ -59,6 +59,16 @@ export function Header({ mainView, setMainView, onRefresh, loading }: HeaderProp
           }}
         >
           <Megaphone size={12} /> Campanhas
+        </button>
+        <button
+          onClick={() => setMainView("diagnostico-mkt")}
+          style={{
+            ...viewBtnStyle,
+            backgroundColor: mainView === "diagnostico-mkt" ? T.fg : "transparent",
+            color: mainView === "diagnostico-mkt" ? "#FFF" : T.cinza600,
+          }}
+        >
+          <Activity size={12} /> Diagnóstico Mkt
         </button>
         <button
           onClick={() => setMainView("alinhamento")}
