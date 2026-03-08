@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { T, SQUAD_COLORS, SQUADS } from "@/lib/constants";
 import type { PresalesData, PresellerSummary } from "@/lib/types";
 
@@ -76,9 +77,7 @@ export function PresalesView({ data, loading }: Props) {
           bg={totals.pctSub30 >= 70 ? "#dcfce7" : totals.pctSub30 >= 40 ? "#fef3c7" : "#fee2e2"}
         />
         <SummaryPill label="Pendentes" value={String(totals.dealsPendentes)} color="#dc2626" bg="#fee2e2" />
-        <span style={{ fontSize: "11px", color: T.cinza400, marginLeft: "auto", alignSelf: "center" }}>
-          Horário útil (8h-18h seg-sex) · Últimos 30 dias
-        </span>
+        <CalcDisclaimer />
       </div>
 
       {/* 4 Cards grandes — PVs principais */}
@@ -172,6 +171,65 @@ export function PresalesView({ data, loading }: Props) {
         </table>
       </div>
     </>
+  );
+}
+
+// --- Disclaimer regras do cálculo ---
+function CalcDisclaimer() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginLeft: "auto", alignSelf: "center", position: "relative" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          background: "none",
+          border: `1px solid ${T.border}`,
+          borderRadius: "8px",
+          padding: "6px 12px",
+          cursor: "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          fontSize: "11px",
+          color: T.cinza600,
+        }}
+      >
+        <span style={{ fontSize: "13px" }}>i</span>
+        Regras do cálculo
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            right: 0,
+            marginTop: "6px",
+            width: "360px",
+            backgroundColor: T.card,
+            border: `1px solid ${T.border}`,
+            borderRadius: "10px",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+            padding: "14px 16px",
+            zIndex: 100,
+            fontSize: "12px",
+            color: T.cinza700,
+            lineHeight: "1.5",
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: "8px", color: T.fg, fontSize: "13px" }}>Como a mediana é calculada</div>
+          <ol style={{ margin: 0, paddingLeft: "18px" }}>
+            <li style={{ marginBottom: "4px" }}>Horário útil: 8h-18h seg-sex (almoço 12h-13h descontado)</li>
+            <li style={{ marginBottom: "4px" }}>Transbordo fora do expediente: conta a partir do próximo horário útil</li>
+            <li style={{ marginBottom: "4px" }}><strong>Mediana base</strong> = deals COM ligação (tempo definitivo)</li>
+            <li style={{ marginBottom: "4px" }}>Pendentes só entram se tempo de espera &gt; mediana base</li>
+            <li>Deals do FDS/fora de horário com 0 min nunca entram no cálculo</li>
+          </ol>
+          <div style={{ marginTop: "10px", fontSize: "10px", color: T.cinza400 }}>
+            Últimos 30 dias · Pendentes usam now - transbordo
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
