@@ -9,18 +9,14 @@ interface Props {
   loading: boolean;
 }
 
-function formatBRL(v: number): string {
-  return `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 function pct(v: number): string {
   return `${v.toFixed(2)}%`;
 }
 
 const SEV_COLORS = {
-  CRITICO: { border: T.destructive, bg: "#FEF2F2", text: T.destructive },
-  ALERTA: { border: T.laranja500, bg: "#FFFBEB", text: "#92400E" },
-  OK: { border: T.verde600, bg: T.verde50, text: T.verde700 },
+  CRITICO: { border: T.destructive, bg: "#FEF2F2", text: T.destructive, cardBg: "#DC2626" },
+  ALERTA: { border: T.laranja500, bg: "#FFFBEB", text: "#92400E", cardBg: "#F59E0B" },
+  OK: { border: T.verde600, bg: T.verde50, text: T.verde700, cardBg: T.verde600 },
 } as const;
 
 export function DiagnosticoMktView({ data, loading }: Props) {
@@ -36,7 +32,7 @@ export function DiagnosticoMktView({ data, loading }: Props) {
         if (emp.ads > 0) emps.push(emp);
       }
     }
-    return emps.sort((a, b) => b.spend - a.spend);
+    return emps.sort((a, b) => b.criticos - a.criticos || b.alertas - a.alertas);
   }, [data]);
 
   // Flatten all ads with diagnostico for the full table
@@ -87,34 +83,31 @@ export function DiagnosticoMktView({ data, loading }: Props) {
   }
 
   const { summary, top10 } = data;
+  const okCount = summary.totalAds - summary.criticos - summary.alertas;
 
   return (
     <>
-      {/* Summary pills */}
+      {/* Summary pills — 3 cards */}
       <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
         <SummaryCard
-          label="Investimento"
-          value={formatBRL(summary.totalSpend)}
-          sub={`${summary.totalAds} ads ativos`}
+          label="Total Ads"
+          value={String(summary.totalAds)}
+          sub={`${okCount} OK`}
           color={T.azul600}
-        />
-        <SummaryCard
-          label="Leads"
-          value={String(summary.totalLeads)}
-          sub={`CPL médio ${formatBRL(summary.avgCpl)}`}
-          color={T.verde600}
         />
         <SummaryCard
           label="Críticos"
           value={String(summary.criticos)}
           sub="Requerem ação imediata"
-          color={T.destructive}
+          color="#FFF"
+          bgColor={T.destructive}
         />
         <SummaryCard
           label="Alertas"
           value={String(summary.alertas)}
           sub="Monitorar de perto"
-          color={T.laranja500}
+          color="#FFF"
+          bgColor={T.laranja500}
         />
       </div>
 
@@ -125,41 +118,42 @@ export function DiagnosticoMktView({ data, loading }: Props) {
             <tr>
               <th style={{ ...thStyle, textAlign: "left" }}>Empreendimento</th>
               <th style={{ ...thStyle, textAlign: "right" }}>Ads</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Gasto</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Leads</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>CPL</th>
-              <th style={{ ...thStyle, textAlign: "right", color: T.destructive }}>Crit.</th>
-              <th style={{ ...thStyle, textAlign: "right", color: T.laranja500 }}>Alert.</th>
+              <th style={{ ...thStyle, textAlign: "right", color: T.destructive }}>Críticos</th>
+              <th style={{ ...thStyle, textAlign: "right", color: T.laranja500 }}>Alertas</th>
+              <th style={{ ...thStyle, textAlign: "right", color: T.verde600 }}>OK</th>
             </tr>
           </thead>
           <tbody>
-            {allEmps.map((emp) => (
-              <tr
-                key={emp.emp}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = T.cinza50)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "")}
-              >
-                <td style={{ ...tdStyle }}>{emp.emp}</td>
-                <td style={{ ...tdStyle, textAlign: "right" }}>{emp.ads}</td>
-                <td style={{ ...tdStyle, textAlign: "right" }}>{formatBRL(emp.spend)}</td>
-                <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>{emp.leads}</td>
-                <td style={{ ...tdStyle, textAlign: "right" }}>{emp.cpl > 0 ? formatBRL(emp.cpl) : "-"}</td>
-                <td style={{ ...tdStyle, textAlign: "right", color: emp.criticos > 0 ? T.destructive : T.cinza300, fontWeight: emp.criticos > 0 ? 700 : 400 }}>
-                  {emp.criticos}
-                </td>
-                <td style={{ ...tdStyle, textAlign: "right", color: emp.alertas > 0 ? T.laranja500 : T.cinza300, fontWeight: emp.alertas > 0 ? 700 : 400 }}>
-                  {emp.alertas}
-                </td>
-              </tr>
-            ))}
+            {allEmps.map((emp) => {
+              const ok = emp.ads - emp.criticos - emp.alertas;
+              return (
+                <tr
+                  key={emp.emp}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = T.cinza50)}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "")}
+                >
+                  <td style={{ ...tdStyle }}>{emp.emp}</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>{emp.ads}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: emp.criticos > 0 ? T.destructive : T.cinza300, fontWeight: emp.criticos > 0 ? 700 : 400 }}>
+                    {emp.criticos}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: emp.alertas > 0 ? T.laranja500 : T.cinza300, fontWeight: emp.alertas > 0 ? 700 : 400 }}>
+                    {emp.alertas}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: ok > 0 ? T.verde600 : T.cinza300 }}>
+                    {ok}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </Section>
 
-      {/* Top 10 — Ação Imediata */}
+      {/* Top 12 — Ação Imediata */}
       {top10.length > 0 && (
         <Section title={`Top ${top10.length} — Ação Imediata`}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(420px, 1fr))", gap: "12px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", padding: "12px" }}>
             {top10.map((ad) => {
               const sev = SEV_COLORS[ad.severidade] || SEV_COLORS.OK;
               const diagnosticos = ad.diagnostico ? ad.diagnostico.split(" | ") : [];
@@ -167,23 +161,24 @@ export function DiagnosticoMktView({ data, loading }: Props) {
                 <div
                   key={ad.ad_id}
                   style={{
-                    backgroundColor: "#FFF",
-                    border: "1px solid #E6E7EA",
-                    borderLeft: `4px solid ${sev.border}`,
-                    borderRadius: "8px",
+                    backgroundColor: sev.cardBg,
+                    borderRadius: "10px",
                     padding: "14px 16px",
-                    boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                    boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
+                    color: "#FFF",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "6px",
                   }}
                 >
                   {/* Header */}
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "6px" }}>
-                    <span style={{ fontSize: "11px", color: T.cinza600 }}>{ad.empreendimento}</span>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <span style={{ fontSize: "11px", opacity: 0.85 }}>{ad.empreendimento}</span>
                     <span
                       style={{
                         fontSize: "10px",
-                        fontWeight: 600,
-                        color: sev.text,
-                        backgroundColor: sev.bg,
+                        fontWeight: 700,
+                        backgroundColor: "rgba(255,255,255,0.25)",
                         padding: "2px 8px",
                         borderRadius: "9999px",
                         textTransform: "uppercase",
@@ -195,24 +190,16 @@ export function DiagnosticoMktView({ data, loading }: Props) {
                   </div>
                   {/* Ad name */}
                   <div
-                    style={{ fontSize: "13px", fontWeight: 600, color: T.fg, marginBottom: "8px", lineHeight: 1.3 }}
+                    style={{ fontSize: "13px", fontWeight: 600, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}
                     title={ad.ad_name}
                   >
                     {ad.ad_name}
                   </div>
-                  {/* Stats inline */}
-                  <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", marginBottom: "8px" }}>
-                    <MiniStat label="Gasto" value={formatBRL(ad.spend)} />
-                    <MiniStat label="Leads" value={String(ad.leads)} />
-                    <MiniStat label="CPL" value={ad.cpl > 0 ? formatBRL(ad.cpl) : "-"} />
-                    <MiniStat label="CTR" value={pct(ad.ctr)} />
-                    <MiniStat label="Freq" value={ad.frequency.toFixed(1)} />
-                  </div>
                   {/* Diagnósticos */}
                   {diagnosticos.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginTop: "2px" }}>
                       {diagnosticos.map((d, i) => (
-                        <div key={i} style={{ fontSize: "11px", color: sev.text, lineHeight: 1.4 }}>
+                        <div key={i} style={{ fontSize: "11px", opacity: 0.9, lineHeight: 1.4 }}>
                           • {d.trim()}
                         </div>
                       ))}
@@ -228,7 +215,7 @@ export function DiagnosticoMktView({ data, loading }: Props) {
       {/* Tabela Completa */}
       <Section title="Todos os Ads">
         {/* Filtros */}
-        <div style={{ display: "flex", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: "12px", marginBottom: "12px", flexWrap: "wrap", padding: "12px 16px 0" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: T.cinza700 }}>
             Empreendimento
             <select
@@ -261,19 +248,14 @@ export function DiagnosticoMktView({ data, loading }: Props) {
         </div>
 
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1100px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "800px" }}>
             <thead>
               <tr>
                 <th style={{ ...thStyle, textAlign: "left", minWidth: 130 }}>Empreendimento</th>
-                <th style={{ ...thStyle, textAlign: "left", minWidth: 160 }}>Campanha</th>
-                <th style={{ ...thStyle, textAlign: "left", minWidth: 180 }}>Ad</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>Gasto</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>Leads</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>CPL</th>
+                <th style={{ ...thStyle, textAlign: "left", minWidth: 200 }}>Ad</th>
                 <th style={{ ...thStyle, textAlign: "right" }}>CTR</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>CPM</th>
                 <th style={{ ...thStyle, textAlign: "right" }}>Freq</th>
-                <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>Sev</th>
+                <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>Severidade</th>
                 <th style={{ ...thStyle, textAlign: "left", minWidth: 200 }}>Diagnóstico</th>
               </tr>
             </thead>
@@ -288,17 +270,10 @@ export function DiagnosticoMktView({ data, loading }: Props) {
                     onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
                   >
                     <td style={{ ...tdStyle, fontSize: "12px" }}>{ad.empreendimento}</td>
-                    <td style={{ ...tdStyle, fontSize: "11px", color: T.cinza600, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis" }} title={ad.campaign_name}>
-                      {ad.campaign_name}
-                    </td>
-                    <td style={{ ...tdStyle, fontSize: "12px", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }} title={ad.ad_name}>
+                    <td style={{ ...tdStyle, fontSize: "12px", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis" }} title={ad.ad_name}>
                       {ad.ad_name}
                     </td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px" }}>{formatBRL(ad.spend)}</td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", fontWeight: ad.leads > 0 ? 600 : 400 }}>{ad.leads > 0 ? ad.leads : "-"}</td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px" }}>{ad.cpl > 0 ? formatBRL(ad.cpl) : "-"}</td>
                     <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px" }}>{pct(ad.ctr)}</td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px" }}>{formatBRL(ad.cpm)}</td>
                     <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px" }}>{ad.frequency.toFixed(1)}</td>
                     <td style={{ ...tdStyle, textAlign: "center" }}>
                       <span
@@ -331,35 +306,26 @@ export function DiagnosticoMktView({ data, loading }: Props) {
 
 /* ---- Subcomponents ---- */
 
-function SummaryCard({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
+function SummaryCard({ label, value, sub, color, bgColor }: { label: string; value: string; sub: string; color: string; bgColor?: string }) {
   return (
     <div
       style={{
-        backgroundColor: "#FFF",
-        border: "1px solid #E6E7EA",
+        backgroundColor: bgColor || "#FFF",
+        border: bgColor ? "none" : "1px solid #E6E7EA",
         borderRadius: "12px",
         padding: "14px 20px",
         minWidth: "180px",
         flex: "1 1 180px",
-        boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
+        boxShadow: bgColor ? "0 2px 8px rgba(0,0,0,0.15)" : "0 1px 2px rgba(0,0,0,0.06)",
       }}
     >
-      <div style={{ fontSize: "10px", fontWeight: 500, color: T.cinza600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
+      <div style={{ fontSize: "10px", fontWeight: 500, color: bgColor ? "rgba(255,255,255,0.8)" : T.cinza600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "4px" }}>
         {label}
       </div>
       <div style={{ fontSize: "22px", fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>
         {value}
       </div>
-      <div style={{ fontSize: "11px", color: T.cinza400, marginTop: "2px" }}>{sub}</div>
-    </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <span style={{ fontSize: "9px", color: T.cinza400, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label} </span>
-      <span style={{ fontSize: "12px", fontWeight: 600, color: T.fg, fontVariantNumeric: "tabular-nums" }}>{value}</span>
+      <div style={{ fontSize: "11px", color: bgColor ? "rgba(255,255,255,0.7)" : T.cinza400, marginTop: "2px" }}>{sub}</div>
     </div>
   );
 }

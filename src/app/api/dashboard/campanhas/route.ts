@@ -206,7 +206,7 @@ export async function GET(req: NextRequest) {
         if (diff !== 0) return diff;
         return Number(b.spend) - Number(a.spend);
       })
-      .slice(0, 10);
+      .slice(0, 12);
 
     const top10: MetaAdRow[] = problemAds.map((r) => {
       const funnel = adFunnel.get(r.ad_id) || { mql: 0, sql: 0, opp: 0, won: 0 };
