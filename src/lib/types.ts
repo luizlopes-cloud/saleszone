@@ -192,6 +192,44 @@ export interface RegrasMqlData {
   squads: RegrasMqlSquad[];
 }
 
+// Funil Ponta a Ponta — Impressões → Clicks → Leads → MQL → SQL → OPP → WON
+export interface FunilEmpreendimento {
+  emp: string;
+  impressions: number;
+  clicks: number;
+  leads: number;
+  mql: number;
+  sql: number;
+  opp: number;
+  won: number;
+  spend: number;
+  // Custos
+  cpl: number;   // spend / leads
+  cmql: number;  // spend / mql
+  csql: number;  // spend / sql
+  cpw: number;   // spend / won (Custo por Ganho)
+  // Taxas de conversão
+  ctr: number;          // clicks / impressions
+  clickToLead: number;  // leads / clicks
+  leadToMql: number;    // mql / leads
+  mqlToSql: number;     // sql / mql
+  sqlToOpp: number;     // opp / sql
+  oppToWon: number;     // won / opp
+}
+
+export interface FunilSquad {
+  id: number;
+  name: string;
+  empreendimentos: FunilEmpreendimento[];
+  totals: FunilEmpreendimento; // totais agregados do squad
+}
+
+export interface FunilData {
+  month: string; // YYYY-MM
+  squads: FunilSquad[];
+  grand: FunilEmpreendimento; // totais globais
+}
+
 // Pré-Venda — Tempo de resposta dos pré-vendedores
 export interface PresalesDealRow {
   deal_id: number;
@@ -221,7 +259,9 @@ export interface PresalesData {
   totals: {
     totalDeals: number;
     dealsComAcao: number;
+    dealsPendentes: number;
     avgMinutes: number;
     medianMinutes: number;
+    pctSub30: number;
   };
 }
