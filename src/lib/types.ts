@@ -261,6 +261,8 @@ export interface PresalesDealRow {
   first_action_at: string | null;
   response_time_minutes: number | null;
   action_type: string | null;
+  deal_add_time: string | null;
+  last_mia_at: string | null;
 }
 
 export interface PresellerSummary {

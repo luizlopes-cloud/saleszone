@@ -105,9 +105,9 @@ export function PresalesView({ data, loading }: Props) {
             <tr style={{ backgroundColor: "#f8f8fa" }}>
               <th style={{ ...thStyle, textAlign: "left", minWidth: 180 }}>Deal</th>
               <th style={{ ...thStyle, textAlign: "left", minWidth: 130 }}>Pré-Vendedor</th>
+              <th style={{ ...thStyle, textAlign: "left", minWidth: 120 }}>Criação Deal</th>
               <th style={{ ...thStyle, textAlign: "left", minWidth: 120 }}>Transbordo</th>
-              <th style={{ ...thStyle, textAlign: "left", minWidth: 120 }}>1ª Ligação</th>
-              <th style={{ ...thStyle, textAlign: "center", minWidth: 100 }}>Tempo Útil</th>
+              <th style={{ ...thStyle, textAlign: "left", minWidth: 120 }}>Última MIA</th>
               <th style={{ ...thStyle, textAlign: "center", minWidth: 80 }}>Status</th>
             </tr>
           </thead>
@@ -134,20 +134,12 @@ export function PresalesView({ data, loading }: Props) {
                     </a>
                   </td>
                   <td style={tdStyle}>{d.preseller_name}</td>
-                  <td style={{ ...tdStyle, fontSize: "12px", color: T.cinza700 }}>{formatDate(d.transbordo_at)}</td>
-                  <td style={{ ...tdStyle, fontSize: "12px", color: isPending ? T.cinza400 : T.cinza700 }}>
-                    {d.first_action_at ? formatDate(d.first_action_at) : "—"}
+                  <td style={{ ...tdStyle, fontSize: "12px", color: T.cinza700 }}>
+                    {d.deal_add_time ? formatDate(d.deal_add_time) : "—"}
                   </td>
-                  <td
-                    style={{
-                      ...tdStyle,
-                      textAlign: "center",
-                      fontWeight: 700,
-                      fontSize: "13px",
-                      color: isPending ? T.cinza400 : statusColor(mins),
-                    }}
-                  >
-                    {isPending ? "—" : mins != null ? formatMinutes(mins) : "—"}
+                  <td style={{ ...tdStyle, fontSize: "12px", color: T.cinza700 }}>{formatDate(d.transbordo_at)}</td>
+                  <td style={{ ...tdStyle, fontSize: "12px", color: T.cinza700 }}>
+                    {d.last_mia_at ? formatDate(d.last_mia_at) : "—"}
                   </td>
                   <td style={{ ...tdStyle, textAlign: "center" }}>
                     <span

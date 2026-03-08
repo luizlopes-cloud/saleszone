@@ -134,6 +134,20 @@ export async function GET() {
     const deals = (rows || []).filter((d) => MAIN_PVS.includes(d.preseller_name));
     const now = new Date();
 
+    // Buscar add_time dos deals e última atividade MIA (transbordo)
+    const dealIds = deals.map((d) => d.deal_id);
+    const [{ data: dealsExtra }, { data: miaRows }] = await Promise.all([
+      supabase.from("nekt_pipedrive_deals_v2").select("id, add_time").in("id", dealIds),
+      supabase.from("nekt_transbordo_mia").select("deal_id, webhook_received_at_br").in("deal_id", dealIds),
+    ]);
+    const addTimeMap = new Map((dealsExtra || []).map((d) => [d.id, d.add_time]));
+    // Última atividade MIA por deal (pode ter múltiplas entradas, pegar a mais recente)
+    const miaMap = new Map<number, string>();
+    for (const m of miaRows || []) {
+      const prev = miaMap.get(m.deal_id);
+      if (!prev || m.webhook_received_at_br > prev) miaMap.set(m.deal_id, m.webhook_received_at_br);
+    }
+
     // Calcular tempo em horário útil para cada deal
     const dealsWithBizTime = deals.map((d) => {
       const transbordo = new Date(d.transbordo_at);
@@ -200,6 +214,8 @@ export async function GET() {
       first_action_at: d.first_action_at,
       response_time_minutes: d.biz_minutes,
       action_type: d.action_type,
+      deal_add_time: addTimeMap.get(d.deal_id) || null,
+      last_mia_at: miaMap.get(d.deal_id) || null,
     }));
 
     // Totais globais: mediana progressiva (pendentes só entram se > mediana base)
