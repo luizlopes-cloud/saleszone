@@ -108,8 +108,9 @@ export default function Dashboard() {
       fetchAlinh();
     } else if (mainView === "ociosidade" && !ocioData) {
       fetchOcio();
-    } else if (mainView === "balanceamento" && !balancData) {
-      fetchBalanc();
+    } else if (mainView === "balanceamento") {
+      if (!balancData) fetchBalanc();
+      if (!ocioData) fetchOcio();
     } else if (mainView === "campanhas" && !campData) {
       fetchCamp();
     } else if (mainView === "presales" && !presalesData) {
@@ -140,7 +141,7 @@ export default function Dashboard() {
         )}
         {mainView === "alinhamento" && <AlinhamentoView data={alinhData} loading={loading} />}
         {mainView === "ociosidade" && <OciosidadeView data={ocioData} loading={loading} />}
-        {mainView === "balanceamento" && <BalanceamentoView data={balancData} loading={loading} />}
+        {mainView === "balanceamento" && <BalanceamentoView data={balancData} ocioData={ocioData} loading={loading} />}
         {mainView === "campanhas" && <CampanhasView data={campData} loading={loading} />}
         {mainView === "presales" && <PresalesView data={presalesData} loading={loading} />}
       </div>
