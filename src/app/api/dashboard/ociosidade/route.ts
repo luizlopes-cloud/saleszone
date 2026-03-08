@@ -1,0 +1,220 @@
+import { NextResponse } from "next/server";
+import { supabase } from "@/lib/supabase";
+import type { OciosidadeCloser, OciosidadeDay, OciosidadeData, OciosidadeDate } from "@/lib/types";
+import { MONTHS_PT, WEEKDAYS_PT } from "@/lib/constants";
+
+export const dynamic = "force-dynamic";
+
+const JORNADA_MIN = 480; // 8h úteis
+
+// Squad mapping by closer name
+const CLOSER_SQUADS: Record<string, number> = {
+  laura: 1,
+  camila: 2,
+  filipe: 2,
+  luana: 3,
+  priscila: 3,
+};
+
+function getSquadId(name: string): number {
+  const lower = name.toLowerCase();
+  for (const [key, id] of Object.entries(CLOSER_SQUADS)) {
+    if (lower.includes(key)) return id;
+  }
+  return 0;
+}
+
+function isWeekday(d: Date): boolean {
+  const day = d.getDay();
+  return day !== 0 && day !== 6;
+}
+
+function formatDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+function getBusinessDays(start: Date, end: Date): string[] {
+  const days: string[] = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    if (isWeekday(cur)) days.push(formatDate(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return days;
+}
+
+function isoWeekLabel(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  const jan4 = new Date(d.getFullYear(), 0, 4);
+  const dayOfYear = Math.floor((d.getTime() - jan4.getTime()) / 86400000) + 4;
+  const week = Math.ceil(dayOfYear / 7);
+  return `${d.getFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+export async function GET() {
+  try {
+    // 1. Get SZI closers
+    const { data: closers, error: closerErr } = await supabase
+      .from("squad_closer_rules")
+      .select("closer_email, closer_name")
+      .eq("setor", "SZI");
+
+    if (closerErr) throw closerErr;
+    if (!closers || closers.length === 0) {
+      return NextResponse.json({ closers: [], dates: [], syncedAt: new Date().toISOString() });
+    }
+
+    const emails = closers.map((c) => c.closer_email);
+
+    // 2. Date window: 21 business days back + 14 business days forward
+    const today = new Date();
+    today.setHours(12, 0, 0, 0);
+
+    const windowStart = new Date(today);
+    windowStart.setDate(windowStart.getDate() - 30); // ~21 business days
+    const windowEnd = new Date(today);
+    windowEnd.setDate(windowEnd.getDate() + 20); // ~14 business days
+
+    // 3. Query events
+    const { data: events, error: evtErr } = await supabase
+      .from("squad_calendar_events")
+      .select("closer_email, dia, duracao_min, cancelou")
+      .in("closer_email", emails)
+      .eq("cancelou", false)
+      .gte("dia", formatDate(windowStart))
+      .lte("dia", formatDate(windowEnd));
+
+    if (evtErr) throw evtErr;
+
+    // 4. Build aggregation: email → date → { totalMin, count }
+    const agg = new Map<string, Map<string, { totalMin: number; count: number }>>();
+    for (const e of emails) agg.set(e, new Map());
+
+    for (const evt of events || []) {
+      const emailMap = agg.get(evt.closer_email);
+      if (!emailMap) continue;
+      const existing = emailMap.get(evt.dia) || { totalMin: 0, count: 0 };
+      existing.totalMin += evt.duracao_min || 0;
+      existing.count += 1;
+      emailMap.set(evt.dia, existing);
+    }
+
+    // 5. Build business days for display (7 past + today + 7 future = ~15 days)
+    const todayStr = formatDate(today);
+
+    // Get 7 past business days
+    const pastDays: string[] = [];
+    const cur = new Date(today);
+    cur.setDate(cur.getDate() - 1);
+    while (pastDays.length < 7) {
+      if (isWeekday(cur)) pastDays.unshift(formatDate(cur));
+      cur.setDate(cur.getDate() - 1);
+    }
+
+    // Get 7 future business days
+    const futureDays: string[] = [];
+    const cur2 = new Date(today);
+    cur2.setDate(cur2.getDate() + 1);
+    while (futureDays.length < 7) {
+      if (isWeekday(cur2)) futureDays.push(formatDate(cur2));
+      cur2.setDate(cur2.getDate() + 1);
+    }
+
+    const displayDays = isWeekday(today) ? [...pastDays, todayStr, ...futureDays] : [...pastDays, ...futureDays];
+
+    const dates: OciosidadeDate[] = displayDays.map((ds) => {
+      const d = new Date(ds + "T12:00:00");
+      const day = d.getDate();
+      const mon = MONTHS_PT[d.getMonth()];
+      const wd = WEEKDAYS_PT[d.getDay()];
+      return {
+        date: ds,
+        label: `${day} ${mon}`,
+        weekday: wd,
+        isWeekend: !isWeekday(d),
+        isPast: ds < todayStr,
+        isToday: ds === todayStr,
+      };
+    });
+
+    // 6. All business days in the window (for historical calculations)
+    const allBizDays = getBusinessDays(windowStart, windowEnd);
+
+    // 7. Build closer data
+    const result: OciosidadeCloser[] = closers.map((c) => {
+      const emailMap = agg.get(c.closer_email) || new Map();
+      const squadId = getSquadId(c.closer_name);
+
+      // Days for display
+      const days: OciosidadeDay[] = displayDays.map((ds) => {
+        const info = emailMap.get(ds) || { totalMin: 0, count: 0 };
+        return {
+          date: ds,
+          occupancyPct: Math.round((info.totalMin / JORNADA_MIN) * 100),
+          eventCount: info.count,
+          totalMinutes: info.totalMin,
+        };
+      });
+
+      // Past 7 business days avg
+      const past7Days = pastDays.slice(-7);
+      const past7Vals = past7Days.map((ds) => {
+        const info = emailMap.get(ds) || { totalMin: 0, count: 0 };
+        return (info.totalMin / JORNADA_MIN) * 100;
+      });
+      const avgPast7 = past7Vals.length > 0 ? Math.round(past7Vals.reduce((a, b) => a + b, 0) / past7Vals.length) : 0;
+
+      // Next 7 business days avg
+      const next7Days = futureDays.slice(0, 7);
+      const next7Vals = next7Days.map((ds) => {
+        const info = emailMap.get(ds) || { totalMin: 0, count: 0 };
+        return (info.totalMin / JORNADA_MIN) * 100;
+      });
+      const avgNext7 = next7Vals.length > 0 ? Math.round(next7Vals.reduce((a, b) => a + b, 0) / next7Vals.length) : 0;
+
+      // Historical avg (all business days with data)
+      const allVals = allBizDays
+        .filter((ds) => ds <= todayStr)
+        .map((ds) => {
+          const info = emailMap.get(ds) || { totalMin: 0, count: 0 };
+          return (info.totalMin / JORNADA_MIN) * 100;
+        });
+      const avgHistorical = allVals.length > 0 ? Math.round(allVals.reduce((a, b) => a + b, 0) / allVals.length) : 0;
+
+      // Week max/min
+      const weekMap = new Map<string, number[]>();
+      for (const ds of allBizDays.filter((d) => d <= todayStr)) {
+        const wk = isoWeekLabel(ds);
+        const info = emailMap.get(ds) || { totalMin: 0, count: 0 };
+        if (!weekMap.has(wk)) weekMap.set(wk, []);
+        weekMap.get(wk)!.push((info.totalMin / JORNADA_MIN) * 100);
+      }
+
+      let maxWeek = { weekLabel: "-", avg: 0 };
+      let minWeek = { weekLabel: "-", avg: 100 };
+      for (const [wk, vals] of weekMap) {
+        if (vals.length < 3) continue; // skip partial weeks
+        const avg = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+        if (avg > maxWeek.avg) maxWeek = { weekLabel: wk, avg };
+        if (avg < minWeek.avg) minWeek = { weekLabel: wk, avg };
+      }
+      if (minWeek.weekLabel === "-") minWeek = { weekLabel: "-", avg: 0 };
+
+      return { email: c.closer_email, name: c.closer_name, squadId, days, avgPast7, avgNext7, avgHistorical, maxWeek, minWeek };
+    });
+
+    // Sort by squad, then name
+    result.sort((a, b) => a.squadId - b.squadId || a.name.localeCompare(b.name));
+
+    const response: OciosidadeData = {
+      closers: result,
+      dates,
+      syncedAt: new Date().toISOString(),
+    };
+
+    return NextResponse.json(response);
+  } catch (err) {
+    console.error("Ociosidade API error:", err);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}

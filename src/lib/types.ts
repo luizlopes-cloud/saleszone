@@ -122,6 +122,41 @@ export interface CampanhasData {
   top10: MetaAdRow[];
 }
 
+// Ociosidade — Ocupação dos closers via Google Calendar
+export interface OciosidadeDay {
+  date: string; // YYYY-MM-DD
+  occupancyPct: number;
+  eventCount: number;
+  totalMinutes: number;
+}
+
+export interface OciosidadeCloser {
+  email: string;
+  name: string;
+  squadId: number;
+  days: OciosidadeDay[];
+  avgPast7: number;
+  avgNext7: number;
+  avgHistorical: number;
+  maxWeek: { weekLabel: string; avg: number };
+  minWeek: { weekLabel: string; avg: number };
+}
+
+export interface OciosidadeDate {
+  date: string;
+  label: string;
+  weekday: string;
+  isWeekend: boolean;
+  isPast: boolean;
+  isToday: boolean;
+}
+
+export interface OciosidadeData {
+  closers: OciosidadeCloser[];
+  dates: OciosidadeDate[];
+  syncedAt: string;
+}
+
 // Balanceamento — Regras MQL por Empreendimento
 export interface RegrasMqlEmp {
   nome: string;
