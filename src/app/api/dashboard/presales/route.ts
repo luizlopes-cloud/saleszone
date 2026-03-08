@@ -39,11 +39,37 @@ function workMinutesInDay(startMin: number, endMin: number): number {
   return Math.max(0, mins);
 }
 
+/** Clamp date to next business start (BRT). Ex: domingo → segunda 08:00, sexta 19h → segunda 08:00 */
+function clampToNextBusinessStart(brt: Date): Date {
+  const dow = brt.getDay();
+  const minOfDay = brt.getHours() * 60 + brt.getMinutes();
+
+  // Dentro do horário útil em dia útil → sem ajuste
+  if (dow >= 1 && dow <= 5 && minOfDay >= WORK_START * 60 && minOfDay < WORK_END * 60) {
+    return brt;
+  }
+
+  const next = new Date(brt);
+  // Após expediente em dia útil → próximo dia
+  if (dow >= 1 && dow <= 5 && minOfDay >= WORK_END * 60) {
+    next.setDate(next.getDate() + 1);
+  }
+  // Antes do expediente em dia útil → mesmo dia (será setado 08:00 abaixo)
+  // Pular fim de semana
+  while (next.getDay() === 0 || next.getDay() === 6) {
+    next.setDate(next.getDate() + 1);
+  }
+  next.setHours(WORK_START, 0, 0, 0);
+  return next;
+}
+
 /** Calculate business minutes between two Date objects (BRT-aware) */
 function calcBusinessMinutes(start: Date, end: Date): number {
   // Convert to BRT (UTC-3)
   const BRT_OFFSET = -3 * 60;
-  const startBrt = new Date(start.getTime() + (BRT_OFFSET + start.getTimezoneOffset()) * 60000);
+  const startBrt = clampToNextBusinessStart(
+    new Date(start.getTime() + (BRT_OFFSET + start.getTimezoneOffset()) * 60000)
+  );
   const endBrt = new Date(end.getTime() + (BRT_OFFSET + end.getTimezoneOffset()) * 60000);
 
   if (endBrt <= startBrt) return 0;
