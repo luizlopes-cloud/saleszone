@@ -5,6 +5,82 @@ import type { PresalesData, PresellerSummary, PresalesDealRow } from "@/lib/type
 
 export const dynamic = "force-dynamic";
 
+// --- Horário útil: 08:00-18:00 seg-sex, almoço 12:00-13:00 ---
+const WORK_START = 8; // 08:00
+const WORK_END = 18;  // 18:00
+const LUNCH_START = 12;
+const LUNCH_END = 13;
+const WORK_MINUTES_PER_DAY = (WORK_END - WORK_START) * 60 - (LUNCH_END - LUNCH_START) * 60; // 540
+
+function isWeekday(d: Date): boolean {
+  const day = d.getDay();
+  return day >= 1 && day <= 5;
+}
+
+/** Clamp timestamp to work hours boundary (returns minutes from midnight in BRT) */
+function clampToWork(minutesFromMidnight: number): number {
+  if (minutesFromMidnight < WORK_START * 60) return WORK_START * 60;
+  if (minutesFromMidnight > WORK_END * 60) return WORK_END * 60;
+  return minutesFromMidnight;
+}
+
+/** Work minutes in a single day between two times (in minutes from midnight), already clamped */
+function workMinutesInDay(startMin: number, endMin: number): number {
+  const s = clampToWork(startMin);
+  const e = clampToWork(endMin);
+  if (e <= s) return 0;
+  let mins = e - s;
+  // Subtract lunch overlap
+  const lunchS = LUNCH_START * 60;
+  const lunchE = LUNCH_END * 60;
+  const overlapStart = Math.max(s, lunchS);
+  const overlapEnd = Math.min(e, lunchE);
+  if (overlapEnd > overlapStart) mins -= (overlapEnd - overlapStart);
+  return Math.max(0, mins);
+}
+
+/** Calculate business minutes between two Date objects (BRT-aware) */
+function calcBusinessMinutes(start: Date, end: Date): number {
+  // Convert to BRT (UTC-3)
+  const BRT_OFFSET = -3 * 60;
+  const startBrt = new Date(start.getTime() + (BRT_OFFSET + start.getTimezoneOffset()) * 60000);
+  const endBrt = new Date(end.getTime() + (BRT_OFFSET + end.getTimezoneOffset()) * 60000);
+
+  if (endBrt <= startBrt) return 0;
+
+  // Same day
+  const startDay = new Date(startBrt.getFullYear(), startBrt.getMonth(), startBrt.getDate());
+  const endDay = new Date(endBrt.getFullYear(), endBrt.getMonth(), endBrt.getDate());
+  const startMinOfDay = startBrt.getHours() * 60 + startBrt.getMinutes();
+  const endMinOfDay = endBrt.getHours() * 60 + endBrt.getMinutes();
+
+  if (startDay.getTime() === endDay.getTime()) {
+    return isWeekday(startDay) ? workMinutesInDay(startMinOfDay, endMinOfDay) : 0;
+  }
+
+  let total = 0;
+
+  // First day
+  if (isWeekday(startDay)) {
+    total += workMinutesInDay(startMinOfDay, WORK_END * 60);
+  }
+
+  // Full days in between
+  const cursor = new Date(startDay);
+  cursor.setDate(cursor.getDate() + 1);
+  while (cursor.getTime() < endDay.getTime()) {
+    if (isWeekday(cursor)) total += WORK_MINUTES_PER_DAY;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  // Last day
+  if (isWeekday(endDay)) {
+    total += workMinutesInDay(WORK_START * 60, endMinOfDay);
+  }
+
+  return total;
+}
+
 function median(arr: number[]): number {
   if (arr.length === 0) return 0;
   const sorted = [...arr].sort((a, b) => a - b);
@@ -28,11 +104,25 @@ export async function GET() {
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    const deals = rows || [];
+    const MAIN_PVS = ["Luciana Patrício", "Luciana Patricio", "Natália Saramago", "Hellen Dias", "Jeniffer Correa"];
+    const deals = (rows || []).filter((d) => MAIN_PVS.includes(d.preseller_name));
+    const now = new Date();
+
+    // Calcular tempo em horário útil para cada deal
+    const dealsWithBizTime = deals.map((d) => {
+      const transbordo = new Date(d.transbordo_at);
+      const actionTime = d.first_action_at ? new Date(d.first_action_at) : now;
+      const bizMinutes = calcBusinessMinutes(transbordo, actionTime);
+      return {
+        ...d,
+        biz_minutes: bizMinutes,
+        is_pending: d.first_action_at == null,
+      };
+    });
 
     // Agrupar por pré-vendedor
-    const byPreseller = new Map<string, typeof deals>();
-    for (const d of deals) {
+    const byPreseller = new Map<string, typeof dealsWithBizTime>();
+    for (const d of dealsWithBizTime) {
       const key = d.preseller_name;
       if (!byPreseller.has(key)) byPreseller.set(key, []);
       byPreseller.get(key)!.push(d);
@@ -40,10 +130,8 @@ export async function GET() {
 
     const presellers: PresellerSummary[] = [];
     for (const [name, pDeals] of byPreseller) {
-      const comAcao = pDeals.filter((d) => d.first_action_at != null);
-      const tempos = comAcao
-        .map((d) => d.response_time_minutes as number)
-        .filter((m) => m != null && m >= 0);
+      const comAcao = pDeals.filter((d) => !d.is_pending);
+      const tempos = comAcao.map((d) => d.biz_minutes);
 
       presellers.push({
         name,
@@ -66,29 +154,31 @@ export async function GET() {
     });
 
     // Deals recentes (últimos 50)
-    const recentDeals: PresalesDealRow[] = deals.slice(0, 50).map((d) => ({
+    const recentDeals: PresalesDealRow[] = dealsWithBizTime.slice(0, 50).map((d) => ({
       deal_id: d.deal_id,
       deal_title: d.deal_title || "",
       preseller_name: d.preseller_name,
       transbordo_at: d.transbordo_at,
       first_action_at: d.first_action_at,
-      response_time_minutes: d.response_time_minutes,
+      response_time_minutes: d.biz_minutes,
       action_type: d.action_type,
     }));
 
-    // Totais globais
-    const allTempos = deals
-      .map((d) => d.response_time_minutes as number)
-      .filter((m) => m != null && m >= 0);
+    // Totais globais (apenas deals com ação)
+    const allTempos = dealsWithBizTime
+      .filter((d) => !d.is_pending)
+      .map((d) => d.biz_minutes);
 
     const result: PresalesData = {
       presellers,
       recentDeals,
       totals: {
         totalDeals: deals.length,
-        dealsComAcao: deals.filter((d) => d.first_action_at != null).length,
+        dealsComAcao: dealsWithBizTime.filter((d) => !d.is_pending).length,
+        dealsPendentes: dealsWithBizTime.filter((d) => d.is_pending).length,
         avgMinutes: allTempos.length > 0 ? Math.round(allTempos.reduce((a, b) => a + b, 0) / allTempos.length) : 0,
         medianMinutes: Math.round(median(allTempos)),
+        pctSub30: allTempos.length > 0 ? Math.round((allTempos.filter((m) => m <= 30).length / allTempos.length) * 100) : 0,
       },
     };
 

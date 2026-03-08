@@ -1,8 +1,7 @@
 "use client";
 
-import { T, SQUAD_COLORS } from "@/lib/constants";
-import type { PresalesData } from "@/lib/types";
-import { StatPill } from "./ui";
+import { T, SQUAD_COLORS, SQUADS } from "@/lib/constants";
+import type { PresalesData, PresellerSummary } from "@/lib/types";
 
 interface Props {
   data: PresalesData | null;
@@ -10,32 +9,34 @@ interface Props {
 }
 
 function formatMinutes(m: number): string {
-  if (m < 60) return `${m} min`;
+  if (m < 60) return `${m}min`;
   const h = Math.floor(m / 60);
   const min = m % 60;
-  return min > 0 ? `${h}h ${min}min` : `${h}h`;
+  return min > 0 ? `${h}h${min}` : `${h}h`;
 }
 
-function responseColor(minutes: number | null): string {
+function statusColor(minutes: number | null): string {
   if (minutes == null) return T.cinza400;
-  if (minutes <= 30) return T.verde600;
-  if (minutes <= 60) return T.laranja500;
-  return T.destructive;
+  if (minutes <= 30) return "#16a34a";
+  if (minutes <= 60) return "#d97706";
+  return "#dc2626";
 }
 
-function responseBg(minutes: number | null): string {
-  if (minutes == null) return T.cinza50;
-  if (minutes <= 30) return T.verde50;
-  if (minutes <= 60) return "#FEF3C7";
-  return T.vermelho50;
+function statusBg(minutes: number | null): string {
+  if (minutes == null) return "#f3f4f6";
+  if (minutes <= 30) return "#dcfce7";
+  if (minutes <= 60) return "#fef3c7";
+  return "#fee2e2";
 }
 
-function responseLabel(minutes: number | null): string {
+function statusLabel(minutes: number | null): string {
   if (minutes == null) return "Pendente";
   if (minutes <= 30) return "Rápido";
   if (minutes <= 60) return "Aceitável";
   return "Lento";
 }
+
+const MAIN_PVS = ["Luciana Patrício", "Luciana Patricio", "Natália Saramago", "Hellen Dias", "Jeniffer Correa"];
 
 export function PresalesView({ data, loading }: Props) {
   if (loading && !data) {
@@ -55,74 +56,40 @@ export function PresalesView({ data, loading }: Props) {
   }
 
   const { presellers, recentDeals, totals } = data;
+  const mainPVs = presellers.filter((p) => MAIN_PVS.includes(p.name));
 
   return (
     <>
-      {/* Summary cards */}
-      <div style={{ display: "flex", gap: "12px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center" }}>
-        <StatPill label="Deals Transbordo" value={totals.totalDeals} />
-        <StatPill label="Com Ação" value={totals.dealsComAcao} color={T.verde600} />
-        <TimePill label="Tempo Médio" minutes={totals.avgMinutes} />
-        <TimePill label="Mediana" minutes={totals.medianMinutes} />
-        <span style={{ fontSize: "11px", color: T.cinza400, marginLeft: "auto" }}>
-          Últimos 30 dias · Pipeline 28
+      {/* Summary pills */}
+      <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap", alignItems: "stretch" }}>
+        <SummaryPill
+          label="Mediana Global"
+          value={formatMinutes(totals.medianMinutes)}
+          color={statusColor(totals.medianMinutes)}
+          bg={statusBg(totals.medianMinutes)}
+        />
+        <SummaryPill label="Deals Open" value={String(totals.totalDeals)} color={T.azul600} bg={T.azul50} />
+        <SummaryPill
+          label="≤30min"
+          value={`${totals.pctSub30}%`}
+          color={totals.pctSub30 >= 70 ? "#16a34a" : totals.pctSub30 >= 40 ? "#d97706" : "#dc2626"}
+          bg={totals.pctSub30 >= 70 ? "#dcfce7" : totals.pctSub30 >= 40 ? "#fef3c7" : "#fee2e2"}
+        />
+        <SummaryPill label="Pendentes" value={String(totals.dealsPendentes)} color="#dc2626" bg="#fee2e2" />
+        <span style={{ fontSize: "11px", color: T.cinza400, marginLeft: "auto", alignSelf: "center" }}>
+          Horário útil (8h-18h seg-sex) · Últimos 30 dias
         </span>
       </div>
 
-      {/* Cards por pré-vendedor */}
-      <h3 style={{ fontSize: "15px", fontWeight: 600, color: T.fg, marginBottom: "12px" }}>
-        Tempo de Resposta por Pré-Vendedor
-      </h3>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: "12px", marginBottom: "20px" }}>
-        {presellers.map((ps) => {
-          const clr = ps.squadId ? SQUAD_COLORS[ps.squadId] || T.azul600 : T.cinza600;
-          return (
-            <div
-              key={ps.name}
-              style={{
-                backgroundColor: T.card,
-                borderRadius: "12px",
-                border: `1px solid ${T.border}`,
-                boxShadow: T.elevSm,
-                overflow: "hidden",
-              }}
-            >
-              <div
-                style={{
-                  padding: "10px 16px",
-                  backgroundColor: clr,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                }}
-              >
-                <span style={{ color: "#FFF", fontWeight: 600, fontSize: "14px" }}>{ps.name}</span>
-                {ps.squadId && (
-                  <span style={{ color: "rgba(255,255,255,0.8)", fontSize: "11px" }}>Squad {ps.squadId}</span>
-                )}
-              </div>
-              <div style={{ padding: "14px 16px" }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginBottom: "10px" }}>
-                  <MetricBox label="Mediana" value={formatMinutes(ps.medianMinutes)} color={responseColor(ps.medianMinutes)} />
-                  <MetricBox label="Média" value={formatMinutes(ps.avgMinutes)} color={responseColor(ps.avgMinutes)} />
-                </div>
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", marginBottom: "8px" }}>
-                  <MiniChip label="Total" value={ps.totalDeals} />
-                  <MiniChip label="Com ação" value={ps.dealsComAcao} color={T.verde600} />
-                  <MiniChip label="Pendentes" value={ps.dealsPendentes} color={ps.dealsPendentes > 0 ? T.laranja500 : T.cinza400} />
-                </div>
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <BarIndicator label="≤30min" pct={ps.pctSub30} color={T.verde600} />
-                  <BarIndicator label="≤60min" pct={ps.pctSub60} color={T.laranja500} />
-                </div>
-              </div>
-            </div>
-          );
-        })}
+      {/* 4 Cards grandes — PVs principais */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "14px", marginBottom: "20px" }}>
+        {mainPVs.map((ps) => (
+          <BigPVCard key={ps.name} ps={ps} />
+        ))}
       </div>
 
-      {/* Tabela de deals recentes */}
-      <h3 style={{ fontSize: "15px", fontWeight: 600, color: T.fg, marginBottom: "12px" }}>
+      {/* Tabela deals recentes */}
+      <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
         Deals Recentes
       </h3>
       <div
@@ -136,65 +103,181 @@ export function PresalesView({ data, loading }: Props) {
       >
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ backgroundColor: T.cinza50 }}>
+            <tr style={{ backgroundColor: "#f8f8fa" }}>
               <th style={{ ...thStyle, textAlign: "left", minWidth: 180 }}>Deal</th>
-              <th style={{ ...thStyle, textAlign: "left", minWidth: 140 }}>Pré-Vendedor</th>
-              <th style={{ ...thStyle, textAlign: "left", minWidth: 140 }}>Transbordo</th>
-              <th style={{ ...thStyle, textAlign: "left", minWidth: 140 }}>1ª Ação</th>
-              <th style={{ ...thStyle, textAlign: "right", minWidth: 100 }}>Tempo</th>
-              <th style={{ ...thStyle, textAlign: "center", minWidth: 80 }}>Tipo</th>
+              <th style={{ ...thStyle, textAlign: "left", minWidth: 130 }}>Pré-Vendedor</th>
+              <th style={{ ...thStyle, textAlign: "left", minWidth: 120 }}>Transbordo</th>
+              <th style={{ ...thStyle, textAlign: "left", minWidth: 120 }}>1ª Ligação</th>
+              <th style={{ ...thStyle, textAlign: "center", minWidth: 100 }}>Tempo Útil</th>
               <th style={{ ...thStyle, textAlign: "center", minWidth: 80 }}>Status</th>
             </tr>
           </thead>
           <tbody>
-            {recentDeals.map((d) => (
-              <tr
-                key={d.deal_id}
-                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = T.cinza50)}
-                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "")}
-              >
-                <td style={{ ...tdStyle, color: T.cinza800, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {d.deal_title}
-                </td>
-                <td style={tdStyle}>{d.preseller_name}</td>
-                <td style={{ ...tdStyle, fontSize: "12px" }}>{formatDate(d.transbordo_at)}</td>
-                <td style={{ ...tdStyle, fontSize: "12px" }}>
-                  {d.first_action_at ? formatDate(d.first_action_at) : "-"}
-                </td>
-                <td
-                  style={{
-                    ...tdStyle,
-                    textAlign: "right",
-                    fontWeight: 600,
-                    color: responseColor(d.response_time_minutes),
-                  }}
+            {recentDeals.map((d) => {
+              const isPending = d.first_action_at == null;
+              const mins = d.response_time_minutes;
+              return (
+                <tr
+                  key={d.deal_id}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#f8f8fa")}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "")}
                 >
-                  {d.response_time_minutes != null ? formatMinutes(d.response_time_minutes) : "-"}
-                </td>
-                <td style={{ ...tdStyle, textAlign: "center", fontSize: "11px" }}>
-                  {d.action_type || "-"}
-                </td>
-                <td style={{ ...tdStyle, textAlign: "center" }}>
-                  <span
+                  <td style={{ ...tdStyle, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {d.deal_title}
+                  </td>
+                  <td style={tdStyle}>{d.preseller_name}</td>
+                  <td style={{ ...tdStyle, fontSize: "12px", color: T.cinza700 }}>{formatDate(d.transbordo_at)}</td>
+                  <td style={{ ...tdStyle, fontSize: "12px", color: isPending ? T.cinza400 : T.cinza700 }}>
+                    {d.first_action_at ? formatDate(d.first_action_at) : "—"}
+                  </td>
+                  <td
                     style={{
-                      display: "inline-block",
-                      padding: "2px 8px",
-                      borderRadius: "6px",
-                      fontSize: "10px",
-                      fontWeight: 600,
-                      backgroundColor: responseBg(d.response_time_minutes),
-                      color: responseColor(d.response_time_minutes),
+                      ...tdStyle,
+                      textAlign: "center",
+                      fontWeight: 700,
+                      fontSize: "13px",
+                      color: isPending ? T.cinza400 : statusColor(mins),
                     }}
                   >
-                    {responseLabel(d.response_time_minutes)}
-                  </span>
-                </td>
-              </tr>
-            ))}
+                    {isPending ? "—" : mins != null ? formatMinutes(mins) : "—"}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "center" }}>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        padding: "3px 10px",
+                        borderRadius: "20px",
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        backgroundColor: isPending ? "#f3f4f6" : statusBg(mins),
+                        color: isPending ? T.cinza400 : statusColor(mins),
+                      }}
+                    >
+                      {isPending ? "Pendente" : statusLabel(mins)}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
     </>
+  );
+}
+
+// --- Card grande PV dos squads ---
+function BigPVCard({ ps }: { ps: PresellerSummary }) {
+  const squad = SQUADS.find((s) => s.preVenda === ps.name);
+  const sqColor = ps.squadId ? SQUAD_COLORS[ps.squadId] || T.azul600 : T.cinza600;
+  const medColor = statusColor(ps.medianMinutes);
+  const medBg = statusBg(ps.medianMinutes);
+
+  return (
+    <div
+      style={{
+        backgroundColor: T.card,
+        borderRadius: "14px",
+        border: `1px solid ${T.border}`,
+        boxShadow: T.elevSm,
+        overflow: "hidden",
+      }}
+    >
+      {/* Header */}
+      <div style={{ padding: "10px 16px", backgroundColor: sqColor, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ color: "#fff", fontWeight: 700, fontSize: "14px" }}>{ps.name}</span>
+        {squad && <span style={{ color: "rgba(255,255,255,0.75)", fontSize: "11px" }}>{squad.name}</span>}
+      </div>
+
+      {/* Mediana central */}
+      <div style={{ textAlign: "center", padding: "18px 16px 10px" }}>
+        <div style={{ fontSize: "10px", color: T.cinza600, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" }}>
+          Mediana
+        </div>
+        <div
+          style={{
+            display: "inline-block",
+            padding: "6px 20px",
+            borderRadius: "12px",
+            backgroundColor: medBg,
+            color: medColor,
+            fontSize: "28px",
+            fontWeight: 800,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {formatMinutes(ps.medianMinutes)}
+        </div>
+      </div>
+
+      {/* Barra ≤30min */}
+      <div style={{ padding: "0 16px 12px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+          <span style={{ fontSize: "11px", color: T.cinza600 }}>≤30min</span>
+          <span style={{ fontSize: "11px", fontWeight: 700, color: ps.pctSub30 >= 70 ? "#16a34a" : ps.pctSub30 >= 40 ? "#d97706" : "#dc2626" }}>
+            {ps.pctSub30}%
+          </span>
+        </div>
+        <div style={{ height: "8px", backgroundColor: "#f3f4f6", borderRadius: "4px", overflow: "hidden" }}>
+          <div
+            style={{
+              height: "100%",
+              width: `${ps.pctSub30}%`,
+              backgroundColor: ps.pctSub30 >= 70 ? "#16a34a" : ps.pctSub30 >= 40 ? "#d97706" : "#dc2626",
+              borderRadius: "4px",
+              transition: "width 0.3s ease",
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Stats footer */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          borderTop: `1px solid ${T.border}`,
+          backgroundColor: "#fafafa",
+        }}
+      >
+        <FooterStat label="Total" value={ps.totalDeals} />
+        <FooterStat label="Com ligação" value={ps.dealsComAcao} color="#16a34a" />
+        <FooterStat label="Pendentes" value={ps.dealsPendentes} color={ps.dealsPendentes > 5 ? "#dc2626" : ps.dealsPendentes > 0 ? "#d97706" : T.cinza400} />
+      </div>
+    </div>
+  );
+}
+
+function FooterStat({ label, value, color }: { label: string; value: number; color?: string }) {
+  return (
+    <div style={{ textAlign: "center", padding: "10px 6px" }}>
+      <div style={{ fontSize: "9px", color: T.cinza600, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: "2px" }}>{label}</div>
+      <div style={{ fontSize: "16px", fontWeight: 700, color: color || T.fg, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+    </div>
+  );
+}
+
+// --- Summary pill ---
+function SummaryPill({ label, value, color, bg }: { label: string; value: string; color: string; bg: string }) {
+  return (
+    <div
+      style={{
+        backgroundColor: bg,
+        borderRadius: "12px",
+        padding: "10px 18px",
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        border: `1px solid ${color}22`,
+      }}
+    >
+      <span style={{ fontSize: "10px", fontWeight: 500, color: T.cinza600, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+        {label}
+      </span>
+      <span style={{ fontSize: "22px", fontWeight: 800, color, fontVariantNumeric: "tabular-nums" }}>
+        {value}
+      </span>
+    </div>
   );
 }
 
@@ -208,75 +291,6 @@ function formatDate(iso: string): string {
   });
 }
 
-function TimePill({ label, minutes }: { label: string; minutes: number }) {
-  return (
-    <div
-      style={{
-        backgroundColor: "#FFF",
-        border: "1px solid #E6E7EA",
-        borderRadius: "12px",
-        padding: "10px 18px",
-        display: "flex",
-        alignItems: "center",
-        gap: "10px",
-        boxShadow: "0 1px 2px rgba(0,0,0,0.06)",
-      }}
-    >
-      <span style={{ fontSize: "10px", fontWeight: 500, color: "#6B6E84", textTransform: "uppercase", letterSpacing: "0.03em" }}>
-        {label}
-      </span>
-      <span
-        style={{
-          fontSize: "20px",
-          fontWeight: 700,
-          color: responseColor(minutes),
-          fontVariantNumeric: "tabular-nums",
-        }}
-      >
-        {formatMinutes(minutes)}
-      </span>
-    </div>
-  );
-}
-
-function MetricBox({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <div
-      style={{
-        textAlign: "center",
-        padding: "8px",
-        backgroundColor: T.cinza50,
-        borderRadius: "8px",
-      }}
-    >
-      <div style={{ fontSize: "10px", color: T.cinza600, textTransform: "uppercase", marginBottom: "4px" }}>{label}</div>
-      <div style={{ fontSize: "18px", fontWeight: 700, color, fontVariantNumeric: "tabular-nums" }}>{value}</div>
-    </div>
-  );
-}
-
-function MiniChip({ label, value, color }: { label: string; value: number; color?: string }) {
-  return (
-    <span style={{ fontSize: "11px", color: color || T.cinza700 }}>
-      {label}: <strong>{value}</strong>
-    </span>
-  );
-}
-
-function BarIndicator({ label, pct, color }: { label: string; pct: number; color: string }) {
-  return (
-    <div style={{ flex: 1 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "2px" }}>
-        <span style={{ fontSize: "10px", color: T.cinza600 }}>{label}</span>
-        <span style={{ fontSize: "10px", fontWeight: 600, color }}>{pct}%</span>
-      </div>
-      <div style={{ height: "4px", backgroundColor: T.cinza100, borderRadius: "2px", overflow: "hidden" }}>
-        <div style={{ height: "100%", width: `${pct}%`, backgroundColor: color, borderRadius: "2px" }} />
-      </div>
-    </div>
-  );
-}
-
 const thStyle: React.CSSProperties = {
   padding: "8px 10px",
   fontSize: "10px",
@@ -286,7 +300,6 @@ const thStyle: React.CSSProperties = {
   letterSpacing: "0.04em",
   textTransform: "uppercase",
   whiteSpace: "nowrap",
-  backgroundColor: "#F3F3F5",
 };
 
 const tdStyle: React.CSSProperties = {
