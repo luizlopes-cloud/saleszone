@@ -28,7 +28,7 @@ export const SQUADS = [
 
 // Pre-venda and Venda people for alignment view
 export const PV_COLS = ["Luciana Patrício", "Natália Saramago", "Hellen Dias"];
-export const V_COLS = ["Laura", "Camila Santos", "Filipe Padoveze", "Luana Schaikoski", "Priscila Pestana", "Perrone"];
+export const V_COLS = ["Laura", "Camila Santos", "Filipe Padoveze", "Luana Schaikoski", "Priscila Pestana Perrone"];
 
 // UI Tokens
 export const T = {
