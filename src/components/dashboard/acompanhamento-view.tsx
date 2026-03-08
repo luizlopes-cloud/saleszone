@@ -6,6 +6,30 @@ import { T, TABS, SQUAD_COLORS, TAB_COLORS, NUM_DAYS, MONTHS_PT } from "@/lib/co
 import type { TabKey, AcompanhamentoData } from "@/lib/types";
 import { Pill, Tag, TH, cellStyle, cellRightStyle, hdrBaseStyle } from "./ui";
 
+function heatColor(value: number, min: number, max: number): string | undefined {
+  if (value === 0) return undefined;
+  if (min === max) return "rgba(34,197,94,0.15)";
+  const ratio = (value - min) / (max - min);
+  if (ratio <= 0.5) {
+    const t = ratio * 2;
+    const r = Math.round(239 + (234 - 239) * t);
+    const g = Math.round(68 + (179 - 68) * t);
+    const b = Math.round(68 + (8 - 68) * t);
+    return `rgba(${r},${g},${b},0.18)`;
+  }
+  const t = (ratio - 0.5) * 2;
+  const r = Math.round(234 + (34 - 234) * t);
+  const g = Math.round(179 + (197 - 179) * t);
+  const b = Math.round(8 + (94 - 8) * t);
+  return `rgba(${r},${g},${b},0.18)`;
+}
+
+function rowMinMax(daily: number[]): { min: number; max: number } {
+  const nonZero = daily.filter(v => v > 0);
+  if (nonZero.length === 0) return { min: 0, max: 0 };
+  return { min: Math.min(...nonZero), max: Math.max(...nonZero) };
+}
+
 interface Props {
   data: AcompanhamentoData | null;
   activeTab: TabKey;
@@ -259,21 +283,24 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading }: P
                     <td style={{ ...cellStyle, fontWeight: 600, color: T.cinza600 }}>TOTAL</td>
                     <td style={{ ...cellRightStyle, fontWeight: 700, color: "#FFF", backgroundColor: sqTm >= sq.metaToDate ? T.verde600 : T.destructive, borderRadius: "4px" }}>{sqTm}</td>
                     <td style={{ ...cellRightStyle, fontWeight: 600 }}>{Math.round(sq.metaToDate)}</td>
-                    {sqD.map((v, i) => (
-                      <td
-                        key={i}
-                        style={{
-                          ...cellRightStyle,
-                          fontWeight: 600,
-                          backgroundColor: cellBg(i),
-                          borderLeft: weekStarts.has(i) ? `2px solid ${T.cinza200}` : undefined,
-                        }}
-                        onMouseEnter={() => setHCol(i)}
-                        onMouseLeave={() => setHCol(null)}
-                      >
-                        {v}
-                      </td>
-                    ))}
+                    {(() => {
+                      const { min: sqMin, max: sqMax } = rowMinMax(sqD);
+                      return sqD.map((v, i) => (
+                        <td
+                          key={i}
+                          style={{
+                            ...cellRightStyle,
+                            fontWeight: 600,
+                            backgroundColor: heatColor(v, sqMin, sqMax) || cellBg(i),
+                            borderLeft: weekStarts.has(i) ? `2px solid ${T.cinza200}` : undefined,
+                          }}
+                          onMouseEnter={() => setHCol(i)}
+                          onMouseLeave={() => setHCol(null)}
+                        >
+                          {v}
+                        </td>
+                      ));
+                    })()}
                   </tr>,
                   ...(isOpen
                     ? sq.rows.map((r, ri) => (
@@ -295,21 +322,24 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading }: P
                           <td style={{ ...cellStyle, paddingLeft: "28px", color: T.cinza800 }}>{r.emp}</td>
                           <td style={cellRightStyle}>{r.totalMes}</td>
                           <td style={cellRightStyle} />
-                          {r.daily.map((v, i) => (
-                            <td
-                              key={i}
-                              style={{
-                                ...cellRightStyle,
-                                color: v === 0 ? T.cinza300 : T.cardFg,
-                                backgroundColor: cellBg(i),
-                                borderLeft: weekStarts.has(i) ? `2px solid ${T.cinza200}` : undefined,
-                              }}
-                              onMouseEnter={() => setHCol(i)}
-                              onMouseLeave={() => setHCol(null)}
-                            >
-                              {v}
-                            </td>
-                          ))}
+                          {(() => {
+                            const { min: rMin, max: rMax } = rowMinMax(r.daily);
+                            return r.daily.map((v, i) => (
+                              <td
+                                key={i}
+                                style={{
+                                  ...cellRightStyle,
+                                  color: v === 0 ? T.cinza300 : T.cardFg,
+                                  backgroundColor: heatColor(v, rMin, rMax) || cellBg(i),
+                                  borderLeft: weekStarts.has(i) ? `2px solid ${T.cinza200}` : undefined,
+                                }}
+                                onMouseEnter={() => setHCol(i)}
+                                onMouseLeave={() => setHCol(null)}
+                              >
+                                {v}
+                              </td>
+                            ));
+                          })()}
                         </tr>
                       ))
                     : []),
