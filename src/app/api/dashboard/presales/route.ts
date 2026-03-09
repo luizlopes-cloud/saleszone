@@ -123,9 +123,15 @@ function findSquadId(name: string): number | null {
 
 export async function GET() {
   try {
+    // Filtrar deals dos últimos 3 dias (ex: segunda mostra desde sexta)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 3);
+    const cutoffISO = cutoff.toISOString();
+
     const { data: rows, error } = await supabase
       .from("squad_presales_response")
       .select("deal_id, deal_title, preseller_name, transbordo_at, first_action_at, response_time_minutes, action_type")
+      .gte("transbordo_at", cutoffISO)
       .order("transbordo_at", { ascending: false });
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
