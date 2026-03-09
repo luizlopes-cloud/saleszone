@@ -56,6 +56,7 @@ export function CampanhasView({ data, loading }: Props) {
           <span style={{ color: T.cinza300, fontSize: "16px", fontWeight: 300 }}>|</span>
           <BrlPillWithTip label="CPW" value={lifetimeCpw} tip="Gasto lifetime ÷ WONs lifetime" />
         </div>
+        <Disclaimer />
         <span style={{ fontSize: "11px", color: T.cinza400, marginLeft: "auto" }}>
           {summary.totalAds} ads ativos · {monthLabel(snapshotDate)}
         </span>
@@ -260,6 +261,62 @@ export function CampanhasView({ data, loading }: Props) {
         </span>
       </div>
     </>
+  );
+}
+
+function Disclaimer() {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ position: "relative", display: "inline-block" }}>
+      <button
+        onClick={() => setOpen((p) => !p)}
+        style={{
+          background: "#F3F4F6",
+          border: "1px solid #D1D3DB",
+          borderRadius: "6px",
+          padding: "4px 8px",
+          fontSize: "11px",
+          color: "#6B6E84",
+          cursor: "pointer",
+          fontWeight: 500,
+        }}
+      >
+        Como ler os dados
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: "100%",
+            marginTop: "6px",
+            backgroundColor: "#1F2937",
+            color: "#E5E7EB",
+            fontSize: "12px",
+            fontWeight: 400,
+            padding: "12px 16px",
+            borderRadius: "8px",
+            width: "380px",
+            zIndex: 30,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.3)",
+            lineHeight: "1.5",
+          }}
+        >
+          <p style={{ margin: "0 0 8px", fontWeight: 600, color: "#FFF" }}>CPL e CPW</p>
+          <p style={{ margin: "0 0 10px" }}>
+            Calculados com dados <b>lifetime</b> (gasto acumulado desde jun/2024 ÷ volume acumulado). Investimento, Leads, MQL e WON nos cards acima referem-se ao <b>mês atual</b>.
+          </p>
+          <p style={{ margin: "0 0 8px", fontWeight: 600, color: "#FFF" }}>Tabela por empreendimento</p>
+          <p style={{ margin: "0 0 10px" }}>
+            Todos os valores da tabela (volume e custos) são <b>lifetime</b>. Se o total de WON do empreendimento não bater com a soma dos WONs dos ads expandidos, é porque parte dos ganhos veio de <b>campanhas já desativadas</b> que não aparecem mais na lista de ads ativos.
+          </p>
+          <p style={{ margin: "0 0 8px", fontWeight: 600, color: "#FFF" }}>Coluna WON*</p>
+          <p style={{ margin: 0 }}>
+            Mostra WONs onde o lead entrou por um ad deste empreendimento, mas o deal foi <b>ganho em outro empreendimento</b> no Pipedrive. Ex: lead de Ponta das Canas que fechou em Natal Spot.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
