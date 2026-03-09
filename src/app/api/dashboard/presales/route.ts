@@ -141,7 +141,7 @@ export async function GET() {
     const now = new Date();
 
     // Buscar add_time dos deals, transbordo MIA e última atividade MIA real
-    const dealIds = deals.map((d) => d.deal_id);
+    const dealIds = deals.map((d) => Number(d.deal_id));
     const [{ data: dealsExtra }, { data: miaRows }, { data: miaActivityRows }] = await Promise.all([
       supabase.from("nekt_pipedrive_deals_v2").select("id, add_time").in("id", dealIds),
       supabase.from("nekt_transbordo_mia").select("deal_id, webhook_received_at_br").in("deal_id", dealIds),
@@ -151,19 +151,21 @@ export async function GET() {
         .in("deal_id", dealIds)
         .order("add_time", { ascending: false }),
     ]);
-    const addTimeMap = new Map((dealsExtra || []).map((d) => [d.id, d.add_time]));
+    const addTimeMap = new Map((dealsExtra || []).map((d) => [Number(d.id), d.add_time]));
     // Transbordo MIA (fallback)
     const miaMap = new Map<number, string>();
     for (const m of miaRows || []) {
-      const prev = miaMap.get(m.deal_id);
-      if (!prev || m.webhook_received_at_br > prev) miaMap.set(m.deal_id, m.webhook_received_at_br);
+      const did = Number(m.deal_id);
+      const prev = miaMap.get(did);
+      if (!prev || m.webhook_received_at_br > prev) miaMap.set(did, m.webhook_received_at_br);
     }
     // Última atividade MIA real por deal (filtrar subject no JS)
     const MIA_PATTERNS = [/mia/i, /nutrição/i, /tempo do lead/i];
     const lastMiaMap = new Map<number, string>();
     for (const m of miaActivityRows || []) {
-      if (m.deal_id && !lastMiaMap.has(m.deal_id) && MIA_PATTERNS.some((p) => p.test(m.subject || ""))) {
-        lastMiaMap.set(m.deal_id, m.add_time);
+      const did = Number(m.deal_id);
+      if (did && !lastMiaMap.has(did) && MIA_PATTERNS.some((p) => p.test(m.subject || ""))) {
+        lastMiaMap.set(did, m.add_time);
       }
     }
 
@@ -233,8 +235,8 @@ export async function GET() {
       first_action_at: d.first_action_at,
       response_time_minutes: d.biz_minutes,
       action_type: d.action_type,
-      deal_add_time: addTimeMap.get(d.deal_id) || null,
-      last_mia_at: lastMiaMap.get(d.deal_id) || miaMap.get(d.deal_id) || null,
+      deal_add_time: addTimeMap.get(Number(d.deal_id)) || null,
+      last_mia_at: lastMiaMap.get(Number(d.deal_id)) || miaMap.get(Number(d.deal_id)) || null,
     }));
 
     // Totais globais: mediana progressiva (pendentes só entram se > mediana base)
