@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { T, SQUAD_COLORS, SQUADS } from "@/lib/constants";
 import type { PresalesData, PresellerSummary } from "@/lib/types";
 
@@ -70,6 +70,53 @@ export function PresalesView({ data, loading }: Props) {
   }
 
   const { presellers, recentDeals, totals } = data;
+
+  // Filtros e ordenação da tabela de deals
+  const [filtroPV, setFiltroPV] = useState("todos");
+  const [filtroDe, setFiltroDe] = useState("");
+  const [filtroAte, setFiltroAte] = useState("");
+
+  type DealSortKey = "deal_title" | "preseller_name" | "deal_add_time" | "transbordo_at" | "last_mia_at" | "status";
+  type SortDir = "asc" | "desc";
+  const [sortKey, setSortKey] = useState<DealSortKey>("transbordo_at");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const toggleSort = (key: DealSortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
+  };
+
+  const pvNames = useMemo(() => {
+    const names = new Set(recentDeals.map((d) => d.preseller_name));
+    return Array.from(names).sort();
+  }, [recentDeals]);
+
+  const filteredDeals = useMemo(() => {
+    let list = recentDeals;
+    if (filtroPV !== "todos") list = list.filter((d) => d.preseller_name === filtroPV);
+    if (filtroDe) {
+      const de = new Date(filtroDe + "T00:00:00");
+      list = list.filter((d) => new Date(d.transbordo_at) >= de);
+    }
+    if (filtroAte) {
+      const ate = new Date(filtroAte + "T23:59:59");
+      list = list.filter((d) => new Date(d.transbordo_at) <= ate);
+    }
+    return [...list].sort((a, b) => {
+      let va: number | string;
+      let vb: number | string;
+      if (sortKey === "status") {
+        va = a.first_action_at == null ? Infinity : (a.response_time_minutes ?? 0);
+        vb = b.first_action_at == null ? Infinity : (b.response_time_minutes ?? 0);
+      } else {
+        va = (a as unknown as Record<string, string>)[sortKey] ?? "";
+        vb = (b as unknown as Record<string, string>)[sortKey] ?? "";
+      }
+      if (va < vb) return sortDir === "asc" ? -1 : 1;
+      if (va > vb) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [recentDeals, filtroPV, filtroDe, filtroAte, sortKey, sortDir]);
   const pvOrder = ["Luciana Patrício", "Luciana Patricio", "Natália Saramago", "Hellen Dias", "Jeniffer Correa"];
   const mainPVs = pvOrder
     .map((n) => presellers.find((p) => p.name === n))
@@ -168,6 +215,32 @@ export function PresalesView({ data, loading }: Props) {
       <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
         Deals Recentes
       </h3>
+      <div style={{ display: "flex", gap: "10px", marginBottom: "10px", flexWrap: "wrap", alignItems: "center" }}>
+        <select
+          value={filtroPV}
+          onChange={(e) => setFiltroPV(e.target.value)}
+          style={{ border: `1px solid ${T.border}`, borderRadius: "8px", fontSize: "12px", padding: "6px 10px", color: T.cinza700, background: T.card }}
+        >
+          <option value="todos">Todos Pré-Vendedores</option>
+          {pvNames.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        <label style={{ fontSize: "11px", color: T.cinza600, display: "flex", alignItems: "center", gap: "4px" }}>
+          De
+          <input type="date" value={filtroDe} onChange={(e) => setFiltroDe(e.target.value)} style={{ border: `1px solid ${T.border}`, borderRadius: "8px", fontSize: "12px", padding: "5px 8px", color: T.cinza700 }} />
+        </label>
+        <label style={{ fontSize: "11px", color: T.cinza600, display: "flex", alignItems: "center", gap: "4px" }}>
+          Até
+          <input type="date" value={filtroAte} onChange={(e) => setFiltroAte(e.target.value)} style={{ border: `1px solid ${T.border}`, borderRadius: "8px", fontSize: "12px", padding: "5px 8px", color: T.cinza700 }} />
+        </label>
+        {(filtroPV !== "todos" || filtroDe || filtroAte) && (
+          <button
+            onClick={() => { setFiltroPV("todos"); setFiltroDe(""); setFiltroAte(""); }}
+            style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: "8px", fontSize: "11px", padding: "5px 10px", cursor: "pointer", color: T.cinza600 }}
+          >
+            Limpar
+          </button>
+        )}
+      </div>
       <div
         style={{
           backgroundColor: T.card,
@@ -180,16 +253,16 @@ export function PresalesView({ data, loading }: Props) {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ backgroundColor: "#f8f8fa" }}>
-              <th style={{ ...thStyle, textAlign: "left", minWidth: 180 }}>Deal</th>
-              <th style={{ ...thStyle, textAlign: "left", minWidth: 130 }}>Pré-Vendedor</th>
-              <th style={{ ...thStyle, textAlign: "left", minWidth: 120 }}>Criação Deal</th>
-              <th style={{ ...thStyle, textAlign: "left", minWidth: 120 }}>Transbordo</th>
-              <th style={{ ...thStyle, textAlign: "left", minWidth: 120 }}>Última MIA</th>
-              <th style={{ ...thStyle, textAlign: "center", minWidth: 80 }}>Status</th>
+              <DealSortTh label="Deal" col="deal_title" align="left" minW={180} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <DealSortTh label="Pré-Vendedor" col="preseller_name" align="left" minW={130} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <DealSortTh label="Criação Deal" col="deal_add_time" align="left" minW={120} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <DealSortTh label="Transbordo" col="transbordo_at" align="left" minW={120} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <DealSortTh label="Última MIA" col="last_mia_at" align="left" minW={120} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              <DealSortTh label="Status" col="status" align="center" minW={80} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </tr>
           </thead>
           <tbody>
-            {recentDeals.map((d) => {
+            {filteredDeals.map((d) => {
               const isPending = d.first_action_at == null;
               const mins = d.response_time_minutes;
               return (
@@ -347,6 +420,25 @@ const thStyle: React.CSSProperties = {
   textTransform: "uppercase",
   whiteSpace: "nowrap",
 };
+
+type DealSortKeyType = "deal_title" | "preseller_name" | "deal_add_time" | "transbordo_at" | "last_mia_at" | "status";
+type SortDirType = "asc" | "desc";
+
+function DealSortTh({ label, col, align, minW, sortKey, sortDir, onSort }: {
+  label: string; col: DealSortKeyType; align: "left" | "right" | "center"; minW?: number;
+  sortKey: DealSortKeyType; sortDir: SortDirType; onSort: (k: DealSortKeyType) => void;
+}) {
+  const active = sortKey === col;
+  const arrow = active ? (sortDir === "asc" ? " ▲" : " ▼") : "";
+  return (
+    <th
+      style={{ ...thStyle, textAlign: align, minWidth: minW, cursor: "pointer", userSelect: "none" }}
+      onClick={() => onSort(col)}
+    >
+      {label}{arrow}
+    </th>
+  );
+}
 
 const tdStyle: React.CSSProperties = {
   padding: "7px 10px",
