@@ -148,6 +148,7 @@ export interface CampanhasSummary {
   totalWon: number;
   cpw: number;
   totalSpendMonth: number;
+  totalLeadsMonth: number;
 }
 
 export interface CampanhasData {

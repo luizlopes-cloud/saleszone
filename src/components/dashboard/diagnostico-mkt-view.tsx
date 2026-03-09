@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { T, SQUAD_COLORS, SQUADS } from "@/lib/constants";
 import type { CampanhasData, MetaAdRow, CampanhasEmpSummary } from "@/lib/types";
 
@@ -24,7 +24,7 @@ function metaAdLink(adId: string): string {
 
 const SEV_ORDER: Record<string, number> = { CRITICO: 0, ALERTA: 1, OK: 2 };
 
-type SortKey = "empreendimento" | "ad_name" | "spend" | "ctr" | "frequency" | "severidade";
+type SortKey = "empreendimento" | "ad_name" | "spend" | "ctr" | "frequency" | "severidade" | "squad_id";
 type SortDir = "asc" | "desc";
 
 const SEV_COLORS = {
@@ -94,6 +94,7 @@ export function DiagnosticoMktView({ data, loading }: Props) {
         case "spend":
         case "ctr":
         case "frequency":
+        case "squad_id":
           cmp = a[sortKey] - b[sortKey];
           break;
       }
@@ -148,38 +149,42 @@ export function DiagnosticoMktView({ data, loading }: Props) {
 
       {/* Resumo por Empreendimento — agrupado por Squad */}
       <Section title="Resumo por Empreendimento">
-        {data.squads.map((sq) => {
-          const emps = sq.empreendimentos.filter((e) => e.ads > 0).sort((a, b) => b.criticos - a.criticos || b.alertas - a.alertas);
-          if (emps.length === 0) return null;
-          const sqCriticos = emps.reduce((s, e) => s + e.criticos, 0);
-          const sqAlertas = emps.reduce((s, e) => s + e.alertas, 0);
-          const sqColor = SQUAD_COLORS[sq.id] || T.cinza600;
-          return (
-            <div key={sq.id}>
-              <div style={{ backgroundColor: sqColor, color: "#FFF", padding: "8px 16px", display: "flex", alignItems: "center", gap: "12px" }}>
-                <span style={{ fontSize: "13px", fontWeight: 600 }}>{sq.name}</span>
-                {sqCriticos > 0 && (
-                  <span style={{ fontSize: "11px", backgroundColor: "rgba(255,255,255,0.25)", padding: "2px 8px", borderRadius: "9999px" }}>
-                    {sqCriticos} crítico{sqCriticos > 1 ? "s" : ""}
-                  </span>
-                )}
-                {sqAlertas > 0 && (
-                  <span style={{ fontSize: "11px", backgroundColor: "rgba(255,255,255,0.2)", padding: "2px 8px", borderRadius: "9999px" }}>
-                    {sqAlertas} alerta{sqAlertas > 1 ? "s" : ""}
-                  </span>
-                )}
-              </div>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={{ ...thStyle, textAlign: "left" }}>Empreendimento</th>
+              <th style={{ ...thStyle, textAlign: "right", width: 70 }}>Ads</th>
+              <th style={{ ...thStyle, textAlign: "right", width: 70, color: T.destructive }}>Críticos</th>
+              <th style={{ ...thStyle, textAlign: "right", width: 70, color: T.laranja500 }}>Alertas</th>
+              <th style={{ ...thStyle, textAlign: "right", width: 70, color: T.verde600 }}>OK</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.squads.map((sq) => {
+              const emps = sq.empreendimentos.filter((e) => e.ads > 0).sort((a, b) => b.criticos - a.criticos || b.alertas - a.alertas);
+              if (emps.length === 0) return null;
+              const sqCriticos = emps.reduce((s, e) => s + e.criticos, 0);
+              const sqAlertas = emps.reduce((s, e) => s + e.alertas, 0);
+              const sqColor = SQUAD_COLORS[sq.id] || T.cinza600;
+              return (
+                <Fragment key={sq.id}>
                   <tr>
-                    <th style={{ ...thStyle, textAlign: "left" }}>Empreendimento</th>
-                    <th style={{ ...thStyle, textAlign: "right" }}>Ads</th>
-                    <th style={{ ...thStyle, textAlign: "right", color: T.destructive }}>Críticos</th>
-                    <th style={{ ...thStyle, textAlign: "right", color: T.laranja500 }}>Alertas</th>
-                    <th style={{ ...thStyle, textAlign: "right", color: T.verde600 }}>OK</th>
+                    <td colSpan={5} style={{ backgroundColor: sqColor, color: "#FFF", padding: "8px 16px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <span style={{ fontSize: "13px", fontWeight: 600 }}>{sq.name}</span>
+                        {sqCriticos > 0 && (
+                          <span style={{ fontSize: "11px", backgroundColor: "rgba(255,255,255,0.25)", padding: "2px 8px", borderRadius: "9999px" }}>
+                            {sqCriticos} crítico{sqCriticos > 1 ? "s" : ""}
+                          </span>
+                        )}
+                        {sqAlertas > 0 && (
+                          <span style={{ fontSize: "11px", backgroundColor: "rgba(255,255,255,0.2)", padding: "2px 8px", borderRadius: "9999px" }}>
+                            {sqAlertas} alerta{sqAlertas > 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
                   {emps.map((emp) => {
                     const ok = emp.ads - emp.criticos - emp.alertas;
                     return (
@@ -202,11 +207,11 @@ export function DiagnosticoMktView({ data, loading }: Props) {
                       </tr>
                     );
                   })}
-                </tbody>
-              </table>
-            </div>
-          );
-        })}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </Section>
 
       {/* Top 12 — Ação Imediata */}
@@ -336,9 +341,10 @@ export function DiagnosticoMktView({ data, loading }: Props) {
         </div>
 
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "900px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "960px" }}>
             <thead>
               <tr>
+                <SortTh label="Squad" col="squad_id" align="left" minW={60} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Empreendimento" col="empreendimento" align="left" minW={130} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Ad" col="ad_name" align="left" minW={180} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Gasto" col="spend" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -359,7 +365,22 @@ export function DiagnosticoMktView({ data, loading }: Props) {
                     onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
                     onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
                   >
-                    <td style={{ ...tdStyle, fontSize: "12px", borderLeft: `3px solid ${SQUAD_COLORS[ad.squad_id] || T.cinza300}` }}>{ad.empreendimento}</td>
+                    <td style={{ ...tdStyle, fontSize: "12px", borderLeft: `3px solid ${SQUAD_COLORS[ad.squad_id] || T.cinza300}` }}>
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 600,
+                          color: "#FFF",
+                          backgroundColor: SQUAD_COLORS[ad.squad_id] || T.cinza600,
+                          padding: "2px 7px",
+                          borderRadius: "9999px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {SQUADS.find((s) => s.id === ad.squad_id)?.name?.replace("Squad ", "Sq ") || "—"}
+                      </span>
+                    </td>
+                    <td style={{ ...tdStyle, fontSize: "12px" }}>{ad.empreendimento}</td>
                     <td style={{ ...tdStyle, fontSize: "12px", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }} title={ad.ad_name}>
                       {ad.ad_name}
                     </td>

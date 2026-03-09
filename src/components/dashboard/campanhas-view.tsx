@@ -48,13 +48,13 @@ export function CampanhasView({ data, loading }: Props) {
       {/* Summary cards */}
       <div style={{ display: "flex", gap: "12px", marginBottom: "16px", flexWrap: "wrap", alignItems: "center" }}>
         <BrlPillWithTip label="Investimento" value={summary.totalSpendMonth} tip={`Gasto em ${monthLabel(snapshotDate)}`} />
-        <StatPillWithTip label="Leads" value={summary.totalLeads} color={T.verde600} tip={`Leads de ${monthLabel(snapshotDate)}`} />
+        <StatPillWithTip label="Leads" value={summary.totalLeadsMonth} color={T.verde600} tip={`Leads de ${monthLabel(snapshotDate)}`} />
         <StatPillWithTip label="MQL" value={summary.totalMql} tip={`MQLs de ${monthLabel(snapshotDate)} (Pipedrive)`} />
         <StatPillWithTip label="WON" value={summary.totalWon} color={T.verde600} tip={`WONs de ${monthLabel(snapshotDate)} (Pipedrive)`} />
         <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
-          <BrlPillWithTip label="CPL" value={lifetimeCpl} tip="Gasto lifetime ÷ Leads do mês" />
+          <BrlPillWithTip label="CPL" value={lifetimeCpl} tip="Gasto lifetime ÷ Leads lifetime" />
           <span style={{ color: T.cinza300, fontSize: "16px", fontWeight: 300 }}>|</span>
-          <BrlPillWithTip label="CPW" value={lifetimeCpw} tip={`Gasto lifetime ÷ WONs de ${monthLabel(snapshotDate)}. Combina investimento acumulado com resultado do mês.`} />
+          <BrlPillWithTip label="CPW" value={lifetimeCpw} tip="Gasto lifetime ÷ WONs lifetime" />
         </div>
         <span style={{ fontSize: "11px", color: T.cinza400, marginLeft: "auto" }}>
           {summary.totalAds} ads ativos · {monthLabel(snapshotDate)}
@@ -138,10 +138,9 @@ export function CampanhasView({ data, loading }: Props) {
                 gap: "16px",
                 flexWrap: "wrap",
               }}>
-                <span><b>Gasto, Leads, WON:</b> {monthLabel(snapshotDate)}</span>
-                <span><b>Tabela (Impr, Clicks, Gasto):</b> lifetime</span>
-                <span><b>MQL/SQL/OPP/WON:</b> {monthLabel(snapshotDate)} (Pipedrive)</span>
-                <span><b>CMQL, CSQL, CPW:</b> gasto lifetime ÷ funil do mês</span>
+                <span><b>Gasto, Leads, WON (header):</b> {monthLabel(snapshotDate)}</span>
+                <span><b>Tabela (tudo):</b> lifetime</span>
+                <span><b>CPL, CPW:</b> lifetime (gasto ÷ volume acumulado)</span>
               </div>
             )}
 
