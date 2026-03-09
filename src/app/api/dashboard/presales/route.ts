@@ -214,16 +214,12 @@ export async function GET() {
       return b.totalDeals - a.totalDeals;
     });
 
-    // Deals recentes: pendentes sempre aparecem, respondidos só últimos 3 dias
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() - 3);
-    const sorted = [...dealsWithBizTime]
-      .filter((d) => d.is_pending || new Date(d.transbordo_at) >= cutoff)
-      .sort((a, b) => {
-        if (a.is_pending && !b.is_pending) return -1;
-        if (!a.is_pending && b.is_pending) return 1;
-        return new Date(a.transbordo_at).getTime() - new Date(b.transbordo_at).getTime();
-      });
+    // Deals: pendentes primeiro (mais antigo no topo), depois respondidos
+    const sorted = [...dealsWithBizTime].sort((a, b) => {
+      if (a.is_pending && !b.is_pending) return -1;
+      if (!a.is_pending && b.is_pending) return 1;
+      return new Date(a.transbordo_at).getTime() - new Date(b.transbordo_at).getTime();
+    });
 
     const recentDeals: PresalesDealRow[] = sorted.slice(0, 50).map((d) => ({
       deal_id: d.deal_id,
