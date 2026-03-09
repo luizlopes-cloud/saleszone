@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
     const monthPrefix = snapshotDate!.substring(0, 7);
     const startDate = `${monthPrefix}-01`;
 
-    // Queries paralelas: Meta Ads + Funil por ad + Contagens diárias + WON cross-empreendimento
+    // Queries paralelas: Meta Ads + Funil por ad + Contagens agregadas (RPC) + WON cross-empreendimento
     const [metaRes, funnelRes, countsRes, crossWonRes] = await Promise.all([
       supabase
         .from("squad_meta_ads")
@@ -39,42 +39,33 @@ export async function GET(req: NextRequest) {
         .eq("snapshot_date", snapshotDate)
         .order("spend", { ascending: false }),
       supabase.rpc("get_ad_funnel_counts", { start_date: startDate }),
-      supabase
-        .from("squad_daily_counts")
-        .select("tab, empreendimento, count, date"),
+      supabase.rpc("get_emp_counts_summary", { p_start_date: startDate }),
       supabase.rpc("get_ad_won_cross_emp"),
     ]);
 
     if (metaRes.error) throw new Error(`Supabase error: ${metaRes.error.message}`);
     if (funnelRes.error) console.warn(`Funnel query error (non-fatal): ${funnelRes.error.message}`);
-    if (countsRes.error) console.warn(`Counts query error (non-fatal): ${countsRes.error.message}`);
+    if (countsRes.error) console.warn(`Counts RPC error (non-fatal): ${countsRes.error.message}`);
     if (crossWonRes.error) console.warn(`Cross-emp WON query error (non-fatal): ${crossWonRes.error.message}`);
 
     const ads = metaRes.data || [];
 
-    // 2 maps: countsMapAll (lifetime, para tabela) e countsMapMonth (mês atual, para KPIs/header)
+    // Maps pré-agregados pela RPC (lifetime + mês)
     const countsMapAll = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
     const countsMapMonth = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
     for (const row of countsRes.data || []) {
-      const emp = row.empreendimento;
-      const tab = row.tab?.toLowerCase();
-      const c = Number(row.count) || 0;
-      // Lifetime (todos os dados)
-      if (!countsMapAll.has(emp)) countsMapAll.set(emp, { mql: 0, sql: 0, opp: 0, won: 0 });
-      const all = countsMapAll.get(emp)!;
-      if (tab === "mql") all.mql += c;
-      else if (tab === "sql") all.sql += c;
-      else if (tab === "opp") all.opp += c;
-      else if (tab === "won") all.won += c;
-      // Mês atual
-      if (row.date >= startDate) {
-        if (!countsMapMonth.has(emp)) countsMapMonth.set(emp, { mql: 0, sql: 0, opp: 0, won: 0 });
-        const month = countsMapMonth.get(emp)!;
-        if (tab === "mql") month.mql += c;
-        else if (tab === "sql") month.sql += c;
-        else if (tab === "opp") month.opp += c;
-        else if (tab === "won") month.won += c;
-      }
+      countsMapAll.set(row.empreendimento, {
+        mql: Number(row.mql_life) || 0,
+        sql: Number(row.sql_life) || 0,
+        opp: Number(row.opp_life) || 0,
+        won: Number(row.won_life) || 0,
+      });
+      countsMapMonth.set(row.empreendimento, {
+        mql: Number(row.mql_month) || 0,
+        sql: Number(row.sql_month) || 0,
+        opp: Number(row.opp_month) || 0,
+        won: Number(row.won_month) || 0,
+      });
     }
 
     // Map<ad_id, {mql, sql, opp, won}> do funil rastreado (lifetime)
