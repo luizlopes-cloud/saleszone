@@ -335,13 +335,18 @@ function AdRows({ ads }: { ads: MetaAdRow[] }) {
             onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "#F0F1F4")}
             onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "#FAFBFC")}
           >
-            {/* Nome com bolinha de severidade */}
+            {/* Nome com bolinha de severidade + ID */}
             <td
-              style={{ ...adTd, paddingLeft: "32px", color: T.cinza700, maxWidth: "260px", overflow: "hidden", textOverflow: "ellipsis" }}
-              title={ad.ad_name}
+              style={{ ...adTd, paddingLeft: "32px", color: T.cinza700, maxWidth: "280px", overflow: "hidden", textOverflow: "ellipsis" }}
+              title={`${ad.ad_name}\nID: ${ad.ad_id}`}
             >
-              <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: sevColor, marginRight: "6px", verticalAlign: "middle" }} />
-              {ad.ad_name}
+              <div>
+                <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: sevColor, marginRight: "6px", verticalAlign: "middle" }} />
+                {ad.ad_name}
+              </div>
+              <div style={{ fontSize: "10px", color: T.cinza400, fontFamily: "monospace", marginTop: "2px", paddingLeft: "14px" }}>
+                ID: {ad.ad_id}
+              </div>
             </td>
             {/* Gasto */}
             <td style={{ ...adTd, textAlign: "right" }}>{ad.spend > 0 ? formatBRL(ad.spend) : "-"}</td>

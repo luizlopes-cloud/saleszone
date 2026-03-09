@@ -275,6 +275,13 @@ export function DiagnosticoMktView({ data, loading }: Props) {
                   >
                     {ad.ad_name}
                   </div>
+                  {/* Ad ID */}
+                  <div
+                    style={{ fontSize: "10px", opacity: 0.7, fontFamily: "monospace", letterSpacing: "0.02em" }}
+                    title={ad.ad_id}
+                  >
+                    ID: {ad.ad_id}
+                  </div>
                   {/* Diagnósticos */}
                   {diagnosticos.length > 0 && (
                     <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginTop: "2px" }}>
