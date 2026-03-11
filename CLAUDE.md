@@ -117,7 +117,8 @@ ETL principal. Roda em 5 modos separados (cada um fica dentro do limite de 150MB
 ### sync-squad-presales
 - Busca deals + atividades (calls) por pre-vendedor do Pipedrive
 - Calcula `first_action_at` (primeira call done=true) e `response_time_minutes`
-- `transbordo_at` = `add_time` do deal (entrada no pipeline)
+- **transbordo_at** (prioridade): 1) `nekt_transbordo_mia.webhook_received_at_br` → 2) primeira atividade MIA em `nekt_pipedrive_activities` → 3) `deal.add_time` (fallback)
+- REGRA: transbordo NAO e o add_time do deal — e o momento em que a MIA transferiu o lead para o pre-vendedor
 - Pre-vendedores lidos de `config_pre_vendedores`
 - Snapshot completo: deleta tudo e insere (30 dias lookback)
 
