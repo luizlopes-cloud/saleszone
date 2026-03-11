@@ -2,11 +2,19 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-const FUNCTION_MAP: Record<string, { name: string; body?: Record<string, unknown> }> = {
-  "meta-ads": { name: "sync-squad-meta-ads" },
-  dashboard: { name: "sync-squad-dashboard", body: { mode: "all" } },
-  calendar: { name: "sync-squad-calendar" },
-  presales: { name: "sync-squad-presales" },
+// Each step runs as a separate Edge Function call to stay within 150MB memory limit.
+// Order matters: daily-open replaces counts, won/lost merge into existing.
+const FUNCTION_MAP: Record<string, Array<{ name: string; body?: Record<string, unknown> }>> = {
+  "meta-ads": [{ name: "sync-squad-meta-ads" }],
+  dashboard: [
+    { name: "sync-squad-dashboard", body: { mode: "daily-open" } },
+    { name: "sync-squad-dashboard", body: { mode: "daily-won" } },
+    { name: "sync-squad-dashboard", body: { mode: "daily-lost" } },
+    { name: "sync-squad-dashboard", body: { mode: "alignment" } },
+    { name: "sync-squad-dashboard", body: { mode: "metas" } },
+  ],
+  calendar: [{ name: "sync-squad-calendar" }],
+  presales: [{ name: "sync-squad-presales" }],
 };
 
 interface SyncRequest {
@@ -53,37 +61,35 @@ export async function POST(request: Request) {
     );
   }
 
-  const results: FunctionResult[] = await Promise.all(
-    body.functions.map(async (fn): Promise<FunctionResult> => {
-      const mapping = FUNCTION_MAP[fn];
+  const results: FunctionResult[] = [];
+  for (const fn of body.functions) {
+    const steps = FUNCTION_MAP[fn];
+    for (const step of steps) {
+      const label = `${fn}:${step.body?.mode || step.name}`;
       try {
-        const response = await fetch(
-          `${supabaseUrl}/functions/v1/${mapping.name}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${supabaseKey}`,
-            },
-            body: mapping.body ? JSON.stringify(mapping.body) : undefined,
+        const response = await fetch(`${supabaseUrl}/functions/v1/${step.name}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${supabaseKey}`,
           },
-        );
-
+          body: step.body ? JSON.stringify(step.body) : undefined,
+        });
         if (!response.ok) {
           const text = await response.text();
-          return { function: fn, status: "error", error: `${response.status}: ${text}` };
+          results.push({ function: label, status: "error", error: `${response.status}: ${text}` });
+        } else {
+          results.push({ function: label, status: "success" });
         }
-
-        return { function: fn, status: "success" };
       } catch (err) {
-        return {
-          function: fn,
+        results.push({
+          function: label,
           status: "error",
           error: err instanceof Error ? err.message : "Unknown error",
-        };
+        });
       }
-    }),
-  );
+    }
+  }
 
   const hasErrors = results.some((r) => r.status === "error");
   return NextResponse.json({ results }, { status: hasErrors ? 207 : 200 });
