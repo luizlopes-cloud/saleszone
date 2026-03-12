@@ -58,7 +58,7 @@ src/
       dashboard/planejamento/route.ts        — Conversao midia paga vs historico
       dashboard/orcamento/route.ts           — GET/POST orcamento mensal + gasto diario
   components/dashboard/
-    header.tsx                               — Navegacao, usuario, botao Atualizar
+    header.tsx                               — Navegacao, usuario, botao Atualizar. Dropdown "Meta Ads" agrupa Campanhas/Diagnostico Mkt/Orcamento/Planejamento
     acompanhamento-view.tsx                  — Heatmap 28 dias + metas
     alinhamento-view.tsx                     — Matriz pre-venda x closer + deals desalinhados por squad
     campanhas-view.tsx                       — Summary cards Meta Ads + tabelas por squad
@@ -271,6 +271,14 @@ Toggle global no header, visivel em todas as abas (exceto Venda). `?filter=paid`
 - **CUIDADO Vault + JSON:** ao inserir JSON com `\n` (como private_key da SA), usar `convert_from(decode('BASE64_STRING', 'base64'), 'UTF8')` — single quotes e dollar quoting corrompem as newlines
 - Edge Functions tem limite de ~150MB memoria — por isso os 5 modos separados
 - `tsconfig.json` DEVE excluir `supabase/` (Deno URL imports quebram build Next.js no Vercel)
+
+## Navegacao Header
+Ordem dos botoes: `Resultados | Meta Ads ▼ | Alinhamento Squad | Acompanhamento | Pré-Venda | Ociosidade | Balanceamento | Venda`
+
+- **Meta Ads** e um dropdown que agrupa: Campanhas, Diagnostico Mkt, Orcamento, Planejamento
+- Dropdown usa `useState` + `useRef` + `useEffect` (click outside listener) em `header.tsx`
+- Constante `META_ADS_VIEWS` define os 4 view keys agrupados
+- Botao fica ativo (dark bg) quando `mainView` e qualquer um dos 4 valores
 
 ## Botao "Atualizar" (sync)
 O botao no header chama `POST /api/sync` com `{"functions":["dashboard"]}` que executa sequencialmente:
