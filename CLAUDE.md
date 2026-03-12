@@ -135,9 +135,14 @@ ETL principal. Roda em 5 modos separados (cada um fica dentro do limite de 150MB
 
 ### sync-squad-calendar (deploy separado, codigo nao no repo)
 - Google Service Account com Domain-wide Delegation (scope: calendar.events.readonly)
+- **Service Account:** `conta-do-ambrosi@seazone-bi-windows.iam.gserviceaccount.com` (Client ID: `100525915104498129919`)
+- **Domain-wide Delegation** configurada no Google Workspace Admin Console (Security > API Controls)
+- **Vault secret:** `GOOGLE_SERVICE_ACCOUNT` — JSON da SA armazenado via base64 encode para preservar `\n` da private key
 - Impersona cada closer, sync eventos D-2 a D+7
-- Filtra por prefixo, extrai empreendimento
+- Filtra por prefixo ("Apresentação" para SZI/MKTP/SZS/Expansao/Decor; "Seazone" para Construtoras)
+- Extrai empreendimento do titulo (apos "|") ou da descricao
 - Cancelamento: attendee com responseStatus=declined
+- **Sync manual alternativo:** comando Claude Code `/agenda-check-supabase` (usa Google Calendar MCP ao inves da SA)
 
 ## pg_cron
 ### Dashboard (a cada 2h)
@@ -209,8 +214,9 @@ Total: 5 closers. Metas WON divididas por closer e distribuidas proporcionalment
 - Auth: service_role JWT (via Bearer token) para Edge Functions
 - Token Pipedrive: `vault_read_secret('PIPEDRIVE_API_TOKEN')`
 - Token Meta: `vault_read_secret('META_ACCESS_TOKEN')`
-- Google SA: `vault_read_secret('GOOGLE_SERVICE_ACCOUNT')`
+- Google SA: `vault_read_secret('GOOGLE_SERVICE_ACCOUNT')` — JSON da Service Account Google
 - `vault.create_secret(secret, name, description)` — 1o param e o VALOR, 2o e o NOME
+- **CUIDADO Vault + JSON:** ao inserir JSON com `\n` (como private_key da SA), usar `convert_from(decode('BASE64_STRING', 'base64'), 'UTF8')` — single quotes e dollar quoting corrompem as newlines
 - Edge Functions tem limite de ~150MB memoria — por isso os 5 modos separados
 - `tsconfig.json` DEVE excluir `supabase/` (Deno URL imports quebram build Next.js no Vercel)
 
