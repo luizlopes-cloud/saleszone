@@ -1,8 +1,11 @@
 "use client";
 
-import { Calendar, RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Calendar, RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown } from "lucide-react";
 import { T } from "@/lib/constants";
 import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
+
+const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento"] as const;
 
 const SeazoneIcon = () => (
   <svg width="28" height="29" viewBox="0 0 48 49" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -29,6 +32,22 @@ interface HeaderProps {
 
 export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated, user, onLogout, mediaFilter, setMediaFilter }: HeaderProps) {
   const showMediaFilter = mainView !== "venda";
+  const [metaDropdownOpen, setMetaDropdownOpen] = useState(false);
+  const metaDropdownRef = useRef<HTMLDivElement>(null);
+  const isMetaAdsView = (META_ADS_VIEWS as readonly string[]).includes(mainView);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (metaDropdownRef.current && !metaDropdownRef.current.contains(e.target as Node)) {
+        setMetaDropdownOpen(false);
+      }
+    }
+    if (metaDropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [metaDropdownOpen]);
+
   return (
     <header
       style={{
@@ -69,26 +88,66 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
         >
           <TrendingUp size={12} /> Resultados
         </button>
-        <button
-          onClick={() => setMainView("campanhas")}
-          style={{
-            ...viewBtnStyle,
-            backgroundColor: mainView === "campanhas" ? T.fg : "transparent",
-            color: mainView === "campanhas" ? "#FFF" : T.cinza600,
-          }}
-        >
-          <Megaphone size={12} /> Campanhas
-        </button>
-        <button
-          onClick={() => setMainView("diagnostico-mkt")}
-          style={{
-            ...viewBtnStyle,
-            backgroundColor: mainView === "diagnostico-mkt" ? T.fg : "transparent",
-            color: mainView === "diagnostico-mkt" ? "#FFF" : T.cinza600,
-          }}
-        >
-          <Activity size={12} /> Diagnóstico Mkt
-        </button>
+        <div ref={metaDropdownRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setMetaDropdownOpen((v) => !v)}
+            style={{
+              ...viewBtnStyle,
+              backgroundColor: isMetaAdsView ? T.fg : "transparent",
+              color: isMetaAdsView ? "#FFF" : T.cinza600,
+              gap: "4px",
+            }}
+          >
+            <Megaphone size={12} /> Meta Ads <ChevronDown size={10} style={{ transition: "transform 0.2s", transform: metaDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
+          </button>
+          {metaDropdownOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                left: 0,
+                backgroundColor: "#FFF",
+                border: `1px solid ${T.border}`,
+                borderRadius: "8px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                zIndex: 50,
+                minWidth: "180px",
+                padding: "4px",
+              }}
+            >
+              {([
+                { key: "campanhas", label: "Campanhas", icon: <Megaphone size={13} /> },
+                { key: "diagnostico-mkt", label: "Diagnóstico Mkt", icon: <Activity size={13} /> },
+                { key: "orcamento", label: "Orçamento", icon: <Wallet size={13} /> },
+                { key: "planejamento", label: "Planejamento", icon: <Target size={13} /> },
+              ] as const).map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => { setMainView(item.key); setMetaDropdownOpen(false); }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "none",
+                    borderRadius: "6px",
+                    backgroundColor: mainView === item.key ? T.azul50 : "transparent",
+                    color: mainView === item.key ? T.fg : T.cinza600,
+                    fontWeight: mainView === item.key ? 600 : 400,
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => { if (mainView !== item.key) (e.currentTarget.style.backgroundColor = T.cinza50); }}
+                  onMouseLeave={(e) => { if (mainView !== item.key) (e.currentTarget.style.backgroundColor = "transparent"); }}
+                >
+                  {item.icon} {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           onClick={() => setMainView("alinhamento")}
           style={{
@@ -148,26 +207,6 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
           }}
         >
           <ShoppingCart size={12} /> Venda
-        </button>
-        <button
-          onClick={() => setMainView("orcamento")}
-          style={{
-            ...viewBtnStyle,
-            backgroundColor: mainView === "orcamento" ? T.fg : "transparent",
-            color: mainView === "orcamento" ? "#FFF" : T.cinza600,
-          }}
-        >
-          <Wallet size={12} /> Orçamento
-        </button>
-        <button
-          onClick={() => setMainView("planejamento")}
-          style={{
-            ...viewBtnStyle,
-            backgroundColor: mainView === "planejamento" ? T.fg : "transparent",
-            color: mainView === "planejamento" ? "#FFF" : T.cinza600,
-          }}
-        >
-          <Target size={12} /> Planejamento
         </button>
       </div>
       {showMediaFilter && (
