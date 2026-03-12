@@ -60,7 +60,7 @@ src/
     acompanhamento-view.tsx                  — Heatmap 28 dias + metas
     alinhamento-view.tsx                     — Matriz pre-venda x closer + deals desalinhados por squad
     campanhas-view.tsx                       — Summary cards Meta Ads + tabelas por squad
-    diagnostico-mkt-view.tsx                 — Outliers CPL/CTR/CPM, acoes imediatas
+    diagnostico-mkt-view.tsx                 — Outliers CPL/CTR/CPM, acoes imediatas, oportunidades de escala
     ociosidade-view.tsx                      — Ocupacao closers (passado/futuro)
     balanceamento-view.tsx                   — Taxas de qualificacao por empreendimento/fonte
     resultados-view.tsx                      — Funil comercial Leads→WON + Reserva/Contrato
@@ -139,10 +139,13 @@ ETL principal. Roda em 5 modos separados (cada um fica dentro do limite de 150MB
 - **CUIDADO:** buscar todos os status numa unica chamada lifetime causa erro 400 "numero excessivo de linhas". Separar por status resolve.
 - **CUIDADO:** filtrar somente ACTIVE faz com que campanhas pausadas no meio do mes sumam do investimento total. Sempre incluir PAUSED no mes.
 - Para Lead Ads usar `onsite_conversion.lead_grouped` (formularios reais). `action_type === "lead"` inclui pixel leads e infla ~3-4x
-- Diagnosticos: CRITICO (CPL >2x mediana, CTR <0.5%, gasto >R$200 sem lead, freq >3.5) / ALERTA (CPL >P75, CTR <P25, CPM >2x mediana)
+- Diagnosticos: CRITICO (CPL >2x mediana, CTR <0.5%, gasto >R$200 sem lead, freq >3.5) / ALERTA (CPL >P75, CTR <P25, CPM >2x mediana) / OPORTUNIDADE (ads OK com 2+ criterios: CPL < mediana, CTR > mediana, freq < 2.0, leads >= 10; requer leads >= 3 e spend >= 100)
+- **CHECK constraint** na coluna `severidade`: deve incluir `OPORTUNIDADE` (constraint `squad_meta_ads_severidade_check`). Se adicionar nova severidade, atualizar a constraint no banco ou o insert falha silenciosamente
 - Armazena `effective_status` por ad (ACTIVE ou PAUSED) no banco
 - Loga unmatched_campaigns para detectar novos empreendimentos/aliases
 - **Diagnostico MKT** filtra somente ads ACTIVE — campanhas pausadas nao precisam de diagnostico
+- **Diagnostico MKT** tem 4 secoes: summary cards (Criticos/Alertas/Oportunidades/OK), Resumo por Emp, Top N Acao Imediata (criticos+alertas), Top 4 Oportunidades de Escala, Todos os Ads (tabela completa com sort)
+- **SevDot** (campanhas-view): bolinha colorida por severidade com tooltip hover mostrando diagnosticos. Cores: vermelho=CRITICO, laranja=ALERTA, azul=OPORTUNIDADE, verde=OK
 
 ### sync-baserow-forms
 - Busca dados do Baserow (api-baserow.seazone.com.br) e popula `squad_baserow_forms` e `squad_baserow_empreendimentos`
@@ -234,6 +237,8 @@ Toggle global no header, visivel em todas as abas (exceto Venda). `?filter=paid`
 - Edge Function faz 2 chamadas: `fetchAllInsights(lifetime)` + `fetchAllInsights(month)` em paralelo
 - **NUNCA filtrar somente `effective_status=ACTIVE`** — campanhas pausadas no meio do mes perdem o gasto acumulado. Buscar PAUSED separadamente (somente month) e combinar
 - Meta API retorna erro 400 "numero excessivo de linhas" se buscar ACTIVE+PAUSED juntos no lifetime. Separar as chamadas por status
+- **CHECK constraints no banco**: `squad_meta_ads_severidade_check` limita valores validos de `severidade`. Se adicionar nova severidade na Edge Function, DEVE atualizar a constraint no banco primeiro — caso contrario o insert falha silenciosamente (Edge Function nao faz throw no erro de insert, apenas loga)
+- Edge Function `applyDiagnostics` roda na ordem: CRITICO → ALERTA → OPORTUNIDADE. OPORTUNIDADE so e avaliada em ads que permaneceram OK apos todas as checagens negativas
 
 ## Pipedrive API — Armadilhas Conhecidas
 - `/deals` endpoint **IGNORA** `pipeline_id` param silenciosamente — retorna TODOS os pipelines
