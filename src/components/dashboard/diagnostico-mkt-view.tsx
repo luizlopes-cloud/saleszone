@@ -25,7 +25,7 @@ function metaAdLink(adId: string): string {
 
 const SEV_ORDER: Record<string, number> = { CRITICO: 0, ALERTA: 1, OK: 2 };
 
-type SortKey = "empreendimento" | "ad_name" | "spend" | "ctr" | "frequency" | "severidade" | "squad_id";
+type SortKey = "empreendimento" | "ad_name" | "spend" | "leads" | "mql" | "opp" | "won" | "cpl" | "cmql" | "copp" | "cpw" | "ctr" | "frequency" | "severidade" | "squad_id";
 type SortDir = "asc" | "desc";
 
 const SEV_COLORS = {
@@ -93,6 +93,14 @@ export function DiagnosticoMktView({ data, loading }: Props) {
           cmp = a[sortKey].localeCompare(b[sortKey], "pt-BR");
           break;
         case "spend":
+        case "leads":
+        case "mql":
+        case "opp":
+        case "won":
+        case "cpl":
+        case "cmql":
+        case "copp":
+        case "cpw":
         case "ctr":
         case "frequency":
         case "squad_id":
@@ -371,17 +379,21 @@ export function DiagnosticoMktView({ data, loading }: Props) {
         </div>
 
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1150px" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1500px" }}>
             <thead>
               <tr>
                 <SortTh label="Squad" col="squad_id" align="left" minW={60} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Empreendimento" col="empreendimento" align="left" minW={130} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Ad" col="ad_name" align="left" minW={180} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Gasto" col="spend" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                <th style={{ ...thStyle, textAlign: "right" }}>Leads</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>MQL</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>OPP</th>
-                <th style={{ ...thStyle, textAlign: "right" }}>WON</th>
+                <SortTh label="Leads" col="leads" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="MQL" col="mql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="OPP" col="opp" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="WON" col="won" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="CPL" col="cpl" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="CMQL" col="cmql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="COPP" col="copp" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label="CPW" col="cpw" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="CTR" col="ctr" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Freq" col="frequency" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Severidade" col="severidade" align="center" minW={60} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -424,6 +436,10 @@ export function DiagnosticoMktView({ data, loading }: Props) {
                     <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", fontWeight: ad.mql > 0 ? 600 : 400, color: ad.mql > 0 ? T.cardFg : T.cinza300 }}>{ad.mql > 0 ? ad.mql : "-"}</td>
                     <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", color: ad.opp > 0 ? T.cardFg : T.cinza300 }}>{ad.opp > 0 ? ad.opp : "-"}</td>
                     <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", fontWeight: ad.won > 0 ? 700 : 400, color: ad.won > 0 ? T.verde700 : T.cinza300 }}>{ad.won > 0 ? ad.won : "-"}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", color: ad.cpl > 0 ? T.cardFg : T.cinza300 }}>{ad.cpl > 0 ? formatBRL(ad.cpl) : "-"}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", color: ad.cmql > 0 ? T.cardFg : T.cinza300 }}>{ad.cmql > 0 ? formatBRL(ad.cmql) : "-"}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", color: ad.copp > 0 ? T.cardFg : T.cinza300 }}>{ad.copp > 0 ? formatBRL(ad.copp) : "-"}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", fontWeight: ad.cpw > 0 ? 600 : 400, color: ad.cpw > 0 ? T.cardFg : T.cinza300 }}>{ad.cpw > 0 ? formatBRL(ad.cpw) : "-"}</td>
                     <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px" }}>{pct(ad.ctr)}</td>
                     <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px" }}>{ad.frequency.toFixed(1)}</td>
                     <td style={{ ...tdStyle, textAlign: "center" }}>
