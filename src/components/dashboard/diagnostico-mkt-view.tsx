@@ -350,6 +350,104 @@ export function DiagnosticoMktView({ data, loading }: Props) {
         </Section>
       )}
 
+      {/* Top 4 — Oportunidades */}
+      {(() => {
+        const topOpp = allAds
+          .filter((a) => a.severidade === "OPORTUNIDADE")
+          .sort((a, b) => b.leads - a.leads || a.cpl - b.cpl)
+          .slice(0, 4);
+        if (topOpp.length === 0) return null;
+        return (
+          <Section title={`Top ${topOpp.length} — Oportunidades de Escala`}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px", padding: "12px" }}>
+              {topOpp.map((ad) => {
+                const diagnosticos = ad.diagnostico ? ad.diagnostico.split(" | ") : [];
+                return (
+                  <a
+                    key={ad.ad_id}
+                    href={metaAdLink(ad.ad_id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Abrir no Meta Ads Manager"
+                    style={{
+                      backgroundColor: T.primary,
+                      borderRadius: "10px",
+                      borderTop: `4px solid ${SQUAD_COLORS[ad.squad_id] || T.cinza600}`,
+                      padding: "14px 16px",
+                      boxShadow: "0 2px 6px rgba(0,0,0,0.12)",
+                      color: "#FFF",
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "6px",
+                      overflow: "hidden",
+                      textDecoration: "none",
+                      transition: "transform 0.15s, box-shadow 0.15s",
+                      cursor: "pointer",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.2)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = "0 2px 6px rgba(0,0,0,0.12)"; }}
+                  >
+                    {/* Header */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          fontWeight: 600,
+                          backgroundColor: SQUAD_COLORS[ad.squad_id] || T.cinza600,
+                          color: "#FFF",
+                          padding: "1px 6px",
+                          borderRadius: "9999px",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {SQUADS.find((s) => s.id === ad.squad_id)?.name || "—"}
+                      </span>
+                      <span style={{ fontSize: "11px", opacity: 0.85, flex: 1 }}>{ad.empreendimento}</span>
+                      <span
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: 700,
+                          backgroundColor: "rgba(255,255,255,0.25)",
+                          padding: "2px 8px",
+                          borderRadius: "9999px",
+                          letterSpacing: "0.04em",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        OPORTUNIDADE
+                      </span>
+                    </div>
+                    {/* Ad name */}
+                    <div
+                      style={{ fontSize: "13px", fontWeight: 600, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}
+                      title={ad.ad_name}
+                    >
+                      {ad.ad_name}
+                    </div>
+                    {/* Métricas-chave */}
+                    <div style={{ display: "flex", gap: "10px", fontSize: "11px", opacity: 0.9 }}>
+                      <span>{ad.leads} leads</span>
+                      <span>CPL {formatBRL(ad.cpl)}</span>
+                      <span>CTR {pct(ad.ctr)}</span>
+                    </div>
+                    {/* Diagnósticos */}
+                    {diagnosticos.length > 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", gap: "2px", marginTop: "2px" }}>
+                        {diagnosticos.map((d, i) => (
+                          <div key={i} style={{ fontSize: "11px", opacity: 0.9, lineHeight: 1.4 }}>
+                            • {d.trim()}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </a>
+                );
+              })}
+            </div>
+          </Section>
+        );
+      })()}
+
       {/* Tabela Completa */}
       <Section title="Todos os Ads">
         {/* Filtros */}
