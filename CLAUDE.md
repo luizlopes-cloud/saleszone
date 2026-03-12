@@ -49,6 +49,7 @@ src/
       dashboard/route.ts                     — API principal (daily counts por tab)
       dashboard/acompanhamento/route.ts      — Heatmap diario por empreendimento
       dashboard/alinhamento/route.ts         — Distribuicao deals por owner/squad
+      dashboard/alinhamento/deals/route.ts   — Deals desalinhados por pessoa (com links Pipedrive)
       dashboard/campanhas/route.ts           — Meta Ads por squad/empreendimento
       dashboard/funil/route.ts               — Funil Leads→MQL→SQL→OPP→Reserva→Contrato→WON
       dashboard/ociosidade/route.ts          — Disponibilidade closers (Google Calendar)
@@ -57,7 +58,7 @@ src/
   components/dashboard/
     header.tsx                               — Navegacao, usuario, botao Atualizar
     acompanhamento-view.tsx                  — Heatmap 28 dias + metas
-    alinhamento-view.tsx                     — Matriz pre-venda x closer
+    alinhamento-view.tsx                     — Matriz pre-venda x closer + deals desalinhados por squad
     campanhas-view.tsx                       — Summary cards Meta Ads + tabelas por squad
     diagnostico-mkt-view.tsx                 — Outliers CPL/CTR/CPM, acoes imediatas
     ociosidade-view.tsx                      — Ocupacao closers (passado/futuro)
@@ -90,6 +91,7 @@ supabase/
 | `squad_calendar_events` | Eventos Google Calendar dos closers |
 | `squad_closer_rules` | Regras dos 15 closers (email, prefixo, setor) |
 | `squad_meta_ads` | Snapshot diario de ads Meta Ads SZI com diagnosticos. Campos `spend`/`leads` sao lifetime; usar `spend_month`/`leads_month` para dados do mes. |
+| `squad_alignment_deals` | Deals individuais do alinhamento (deal_id, title, empreendimento, owner_name) para listar desalinhados |
 | `squad_presales_response` | Deals com tempo de resposta dos pre-vendedores (30 dias) |
 | `config_pre_vendedores` | Configuracao de pre-vendedores (user_id, user_name, pipeline_id) |
 | `nekt_meta26_metas` | Metas mensais WON (fonte externa, campo `data` formato DD/MM/YYYY) |
