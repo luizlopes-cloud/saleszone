@@ -321,14 +321,57 @@ function Disclaimer() {
   );
 }
 
+function SevDot({ ad }: { ad: MetaAdRow }) {
+  const [show, setShow] = useState(false);
+  const sevColor =
+    ad.severidade === "CRITICO" ? T.destructive : ad.severidade === "ALERTA" ? T.laranja500 : T.verde600;
+  const sevLabel = ad.severidade === "CRITICO" ? "Crítico" : ad.severidade === "ALERTA" ? "Alerta" : "OK";
+  const diagnosticos = ad.diagnostico ? ad.diagnostico.split(" | ") : [];
+
+  return (
+    <span
+      style={{ position: "relative", display: "inline-block", verticalAlign: "middle", marginRight: "6px", cursor: diagnosticos.length > 0 ? "help" : "default" }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: sevColor }} />
+      {show && diagnosticos.length > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "calc(100% + 8px)",
+            left: "50%",
+            transform: "translateX(-50%)",
+            backgroundColor: "#1a1a2e",
+            color: "#fff",
+            padding: "10px 14px",
+            borderRadius: "8px",
+            fontSize: "11px",
+            lineHeight: 1.5,
+            whiteSpace: "nowrap",
+            zIndex: 50,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.25)",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ fontWeight: 700, color: sevColor, marginBottom: "4px", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            {sevLabel}
+          </div>
+          {diagnosticos.map((d, i) => (
+            <div key={i} style={{ marginBottom: i < diagnosticos.length - 1 ? "3px" : 0 }}>• {d.trim()}</div>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 function AdRows({ ads }: { ads: MetaAdRow[] }) {
   const adTd: React.CSSProperties = { ...tdStyle, fontSize: "12px", backgroundColor: "#FAFBFC" };
 
   return (
     <>
       {ads.map((ad) => {
-        const sevColor =
-          ad.severidade === "CRITICO" ? T.destructive : ad.severidade === "ALERTA" ? T.laranja500 : T.verde600;
         return (
           <tr
             key={ad.ad_id}
@@ -342,7 +385,7 @@ function AdRows({ ads }: { ads: MetaAdRow[] }) {
               title={`${ad.ad_name}\nID: ${ad.ad_id}`}
             >
               <div>
-                <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: sevColor, marginRight: "6px", verticalAlign: "middle" }} />
+                <SevDot ad={ad} />
                 {ad.ad_name}
               </div>
               <div style={{ fontSize: "10px", color: T.cinza400, fontFamily: "monospace", marginTop: "2px", paddingLeft: "14px" }}>
