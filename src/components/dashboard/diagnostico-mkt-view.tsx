@@ -50,7 +50,7 @@ export function DiagnosticoMktView({ data, loading }: Props) {
     }
   };
 
-  // Flatten all ads with diagnostico for the full table
+  // Flatten all ACTIVE ads for diagnostics (paused ads don't need diagnosis)
   const allAds = useMemo(() => {
     if (!data) return [];
     const ads: MetaAdRow[] = [];
@@ -58,7 +58,7 @@ export function DiagnosticoMktView({ data, loading }: Props) {
       for (const emp of sq.empreendimentos) {
         if (emp.adsDetail) {
           for (const ad of emp.adsDetail) {
-            ads.push(ad);
+            if (ad.effective_status !== "PAUSED") ads.push(ad);
           }
         }
       }
@@ -119,29 +119,33 @@ export function DiagnosticoMktView({ data, loading }: Props) {
     );
   }
 
-  const { summary, top10 } = data;
-  const okCount = summary.totalAds - summary.criticos - summary.alertas;
+  const { summary } = data;
+  const top10 = data.top10.filter((ad) => ad.effective_status !== "PAUSED");
+  const totalActiveAds = allAds.length;
+  const activeCriticos = allAds.filter((a) => a.severidade === "CRITICO").length;
+  const activeAlertas = allAds.filter((a) => a.severidade === "ALERTA").length;
+  const okCount = totalActiveAds - activeCriticos - activeAlertas;
 
   return (
     <>
       {/* Summary pills — 3 cards */}
       <div style={{ display: "flex", gap: "12px", marginBottom: "20px", flexWrap: "wrap" }}>
         <SummaryCard
-          label="Total Ads"
-          value={String(summary.totalAds)}
+          label="Ads Ativos"
+          value={String(totalActiveAds)}
           sub={`${okCount} OK`}
           color={T.azul600}
         />
         <SummaryCard
           label="Críticos"
-          value={String(summary.criticos)}
+          value={String(activeCriticos)}
           sub="Requerem ação imediata"
           color="#FFF"
           bgColor={T.destructive}
         />
         <SummaryCard
           label="Alertas"
-          value={String(summary.alertas)}
+          value={String(activeAlertas)}
           sub="Monitorar de perto"
           color="#FFF"
           bgColor={T.laranja500}
@@ -162,7 +166,16 @@ export function DiagnosticoMktView({ data, loading }: Props) {
           </thead>
           <tbody>
             {data.squads.map((sq) => {
-              const emps = sq.empreendimentos.filter((e) => e.ads > 0).sort((a, b) => b.criticos - a.criticos || b.alertas - a.alertas);
+              // Filter to active ads only for diagnostics summary
+              const emps = sq.empreendimentos.map((e) => {
+                const activeAds = (e.adsDetail || []).filter((a) => a.effective_status !== "PAUSED");
+                return {
+                  ...e,
+                  ads: activeAds.length,
+                  criticos: activeAds.filter((a) => a.severidade === "CRITICO").length,
+                  alertas: activeAds.filter((a) => a.severidade === "ALERTA").length,
+                };
+              }).filter((e) => e.ads > 0).sort((a, b) => b.criticos - a.criticos || b.alertas - a.alertas);
               if (emps.length === 0) return null;
               const sqCriticos = emps.reduce((s, e) => s + e.criticos, 0);
               const sqAlertas = emps.reduce((s, e) => s + e.alertas, 0);

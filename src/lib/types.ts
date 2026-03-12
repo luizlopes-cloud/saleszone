@@ -99,6 +99,7 @@ export interface MetaAdRow {
   cpc: number;
   severidade: "OK" | "ALERTA" | "CRITICO";
   diagnostico: string | null;
+  effective_status: "ACTIVE" | "PAUSED";
   // Funil por ad (rastreamento ad → deal)
   mql: number;
   sql: number;

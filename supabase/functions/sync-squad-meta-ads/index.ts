@@ -219,6 +219,8 @@ Deno.serve(async (req)=>{
       fetchAllInsights(metaToken, sinceMonth, until, PAUSED_STATUSES),
     ]);
     console.log(`  lifetime(active): ${lifetimeInsights.length}, month(active): ${monthActiveInsights.length}, month(paused): ${monthPausedInsights.length}`);
+    // Track paused ad IDs for effective_status column
+    const pausedAdIds = new Set(monthPausedInsights.map((i) => i.ad_id));
     // Merge paused ads into lifetime (use month data as their lifetime since they're paused)
     const activeAdIds = new Set(lifetimeInsights.map((i) => i.ad_id));
     for (const ins of monthPausedInsights) {
@@ -277,7 +279,8 @@ Deno.serve(async (req)=>{
         severidade: "OK",
         diagnostico: "",
         spend_month: monthData.spend,
-        leads_month: monthData.leads
+        leads_month: monthData.leads,
+        effective_status: pausedAdIds.has(ins.ad_id) ? "PAUSED" : "ACTIVE"
       });
     }
     console.log(`  ${rows.length} matched, ${unmatched} unmatched`);
@@ -310,7 +313,8 @@ Deno.serve(async (req)=>{
             severidade: r.severidade,
             diagnostico: r.diagnostico || null,
             spend_month: r.spend_month,
-            leads_month: r.leads_month
+            leads_month: r.leads_month,
+            effective_status: r.effective_status
           }));
         const { error } = await supabase.from("squad_meta_ads").insert(batch);
         if (error) console.error(`Insert error batch ${i}:`, error.message);
