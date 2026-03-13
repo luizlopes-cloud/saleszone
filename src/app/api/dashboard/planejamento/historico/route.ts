@@ -83,15 +83,15 @@ async function getMetaToken(): Promise<string> {
   return token;
 }
 
-/** Generate 3-month windows from startDate to endDate */
-function generateQuarterlyWindows(startDate: string, endDate: string): Array<{ since: string; until: string }> {
+/** Generate 1-month windows from startDate to endDate */
+function generateMonthlyWindows(startDate: string, endDate: string): Array<{ since: string; until: string }> {
   const windows: Array<{ since: string; until: string }> = [];
   let current = new Date(startDate + "T00:00:00Z");
   const end = new Date(endDate + "T00:00:00Z");
 
-  while (current < end) {
+  while (current <= end) {
     const windowEnd = new Date(current);
-    windowEnd.setUTCMonth(windowEnd.getUTCMonth() + 3);
+    windowEnd.setUTCMonth(windowEnd.getUTCMonth() + 1);
     windowEnd.setUTCDate(windowEnd.getUTCDate() - 1);
     const actualEnd = windowEnd > end ? end : windowEnd;
 
@@ -113,8 +113,8 @@ export async function GET() {
     const until = new Date().toISOString().split("T")[0];
     const since = "2024-06-01";
 
-    // Break into 3-month windows to avoid Meta API "excessive rows" error
-    const windows = generateQuarterlyWindows(since, until);
+    // Break into 1-month windows to avoid Meta API "excessive rows" error
+    const windows = generateMonthlyWindows(since, until);
 
     // Fetch each window sequentially (parallel would hit rate limits)
     // For each window, fetch ACTIVE and PAUSED separately (combining causes Meta 400)
