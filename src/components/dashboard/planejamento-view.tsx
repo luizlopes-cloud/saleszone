@@ -292,7 +292,9 @@ function HistoricoCampanhasSection() {
         if (!res.ok) {
           const text = await res.text();
           console.error("Historico fetch error:", res.status, text);
-          if (!cancelled) setHistError(`Erro ${res.status}`);
+          let detail = "";
+          try { detail = JSON.parse(text).error || text; } catch { detail = text; }
+          if (!cancelled) setHistError(`Erro ${res.status}: ${detail}`);
           return;
         }
         const json = await res.json();
