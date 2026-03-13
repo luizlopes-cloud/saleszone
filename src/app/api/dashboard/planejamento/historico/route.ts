@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { HistoricoAdRow, HistoricoCampanhasData } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 120; // 2 min — many sequential Meta API calls
 
 const META_ACCOUNT_ID = "act_205286032338340";
 const META_API_VERSION = "v21.0";
@@ -30,6 +31,28 @@ function extractLeads(insight: MetaInsight): number {
   return 0;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function fetchWithRetry(
+  url: string,
+  maxRetries = 2,
+): Promise<{ data?: MetaInsight[]; paging?: { next?: string } }> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url);
+    if (response.ok) {
+      return (await response.json()) as { data?: MetaInsight[]; paging?: { next?: string } };
+    }
+    const errText = await response.text();
+    const isTransient = errText.includes("temporarily unavailable") || errText.includes("1504043") || response.status === 429;
+    if (isTransient && attempt < maxRetries) {
+      await sleep(3000 * (attempt + 1)); // 3s, 6s backoff
+      continue;
+    }
+    throw new Error(`Meta API error ${response.status}: ${errText}`);
+  }
+  throw new Error("fetchWithRetry: unreachable");
+}
+
 async function fetchAllInsights(
   token: string,
   since: string,
@@ -54,12 +77,7 @@ async function fetchAllInsights(
   let pages = 0;
 
   while (url && pages < 20) {
-    const response = await fetch(url);
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Meta API error ${response.status}: ${errText}`);
-    }
-    const body = (await response.json()) as { data?: MetaInsight[]; paging?: { next?: string } };
+    const body = await fetchWithRetry(url);
     if (body.data) allData.push(...body.data);
     url = body.paging?.next || null;
     pages++;
@@ -116,10 +134,15 @@ export async function GET() {
     // Break into 1-month windows to avoid Meta API "excessive rows" error
     const windows = generateMonthlyWindows(since, until);
 
-    // Fetch each window sequentially (parallel would hit rate limits)
-    // For each window, fetch ACTIVE and PAUSED separately (combining causes Meta 400)
+    // Fetch each window sequentially with delays to avoid rate limiting
     const allInsights: MetaInsight[] = [];
-    for (const w of windows) {
+    for (let i = 0; i < windows.length; i++) {
+      const w = windows[i];
+
+      // Delay between windows to avoid Meta rate limit (skip first)
+      if (i > 0) await sleep(1500);
+
+      // Fetch ACTIVE and PAUSED in parallel within each window
       const [active, paused] = await Promise.all([
         fetchAllInsights(token, w.since, w.until, ["ACTIVE"]),
         fetchAllInsights(token, w.since, w.until, [
@@ -145,7 +168,6 @@ export async function GET() {
         existing.impressions += impressions;
         existing.clicks += clicks;
         existing.leads += leads;
-        // Keep the latest insight for names
         existing.insight = ins;
       } else {
         adMap.set(ins.ad_id, { insight: ins, spend, impressions, clicks, leads });
