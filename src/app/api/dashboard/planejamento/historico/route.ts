@@ -83,36 +83,77 @@ async function getMetaToken(): Promise<string> {
   return token;
 }
 
+/** Generate 3-month windows from startDate to endDate */
+function generateQuarterlyWindows(startDate: string, endDate: string): Array<{ since: string; until: string }> {
+  const windows: Array<{ since: string; until: string }> = [];
+  let current = new Date(startDate + "T00:00:00Z");
+  const end = new Date(endDate + "T00:00:00Z");
+
+  while (current < end) {
+    const windowEnd = new Date(current);
+    windowEnd.setUTCMonth(windowEnd.getUTCMonth() + 3);
+    windowEnd.setUTCDate(windowEnd.getUTCDate() - 1);
+    const actualEnd = windowEnd > end ? end : windowEnd;
+
+    windows.push({
+      since: current.toISOString().split("T")[0],
+      until: actualEnd.toISOString().split("T")[0],
+    });
+
+    current = new Date(actualEnd);
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return windows;
+}
+
 export async function GET() {
   try {
     const token = await getMetaToken();
 
     const until = new Date().toISOString().split("T")[0];
-    // Lifetime: same start date as Edge Function sync-squad-meta-ads
     const since = "2024-06-01";
 
-    // Fetch ACTIVE and PAUSED ads in parallel
-    const [activeInsights, pausedInsights] = await Promise.all([
-      fetchAllInsights(token, since, until, ["ACTIVE"]),
-      fetchAllInsights(token, since, until, [
-        "PAUSED",
-        "CAMPAIGN_PAUSED",
-        "ADSET_PAUSED",
-      ]),
-    ]);
+    // Break into 3-month windows to avoid Meta API "excessive rows" error
+    const windows = generateQuarterlyWindows(since, until);
 
-    // Combine: for ads appearing in both, active takes priority
-    const adMap = new Map<string, MetaInsight>();
-    for (const ins of pausedInsights) adMap.set(ins.ad_id, ins);
-    for (const ins of activeInsights) adMap.set(ins.ad_id, ins);
+    // Fetch each window sequentially (parallel would hit rate limits)
+    // For each window, fetch ACTIVE and PAUSED separately (combining causes Meta 400)
+    const allInsights: MetaInsight[] = [];
+    for (const w of windows) {
+      const [active, paused] = await Promise.all([
+        fetchAllInsights(token, w.since, w.until, ["ACTIVE"]),
+        fetchAllInsights(token, w.since, w.until, [
+          "PAUSED",
+          "CAMPAIGN_PAUSED",
+          "ADSET_PAUSED",
+        ]),
+      ]);
+      allInsights.push(...active, ...paused);
+    }
+
+    // Merge by ad_id: sum metrics across windows, keep latest names
+    const adMap = new Map<string, { insight: MetaInsight; spend: number; impressions: number; clicks: number; leads: number }>();
+    for (const ins of allInsights) {
+      const existing = adMap.get(ins.ad_id);
+      const spend = parseFloat(ins.spend) || 0;
+      const impressions = parseInt(ins.impressions, 10) || 0;
+      const clicks = parseInt(ins.clicks, 10) || 0;
+      const leads = extractLeads(ins);
+
+      if (existing) {
+        existing.spend += spend;
+        existing.impressions += impressions;
+        existing.clicks += clicks;
+        existing.leads += leads;
+        // Keep the latest insight for names
+        existing.insight = ins;
+      } else {
+        adMap.set(ins.ad_id, { insight: ins, spend, impressions, clicks, leads });
+      }
+    }
 
     const ads: HistoricoAdRow[] = [];
-    for (const r of adMap.values()) {
-      const spend = parseFloat(r.spend) || 0;
-      const impressions = parseInt(r.impressions, 10) || 0;
-      const clicks = parseInt(r.clicks, 10) || 0;
-      const leads = extractLeads(r);
-
+    for (const { insight: r, spend, impressions, clicks, leads } of adMap.values()) {
       ads.push({
         adId: r.ad_id,
         adName: r.ad_name || "",
