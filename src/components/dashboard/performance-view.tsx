@@ -471,16 +471,53 @@ function empsToLines(emps: PerformanceEmpRow[]): ChartLine[] {
     .map((e, i) => ({ name: e.emp, color: SQUAD_COLORS[e.squadId] || EMP_COLORS[i % EMP_COLORS.length], points: e.timeSeries! }));
 }
 
-function OppToWonChart({ lines, title }: { lines: ChartLine[]; title?: string }) {
+function medianOf(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function OppToWonChart({ lines, title, maxMonths }: { lines: ChartLine[]; title?: string; maxMonths?: number }) {
   const W = 800, H = 320, PAD = { top: 20, right: 160, bottom: 40, left: 50 };
   const plotW = W - PAD.left - PAD.right;
   const plotH = H - PAD.top - PAD.bottom;
 
-  const series = lines;
+  // Trim points based on maxMonths
+  const series = useMemo(() => {
+    if (!maxMonths || maxMonths <= 0) return lines;
+    return lines.map((s) => ({ ...s, points: s.points.slice(-maxMonths) }));
+  }, [lines, maxMonths]);
 
   if (series.length === 0) return null;
 
-  const allValues = series.flatMap((s) => s.points.map((p) => p.oppToWon));
+  const showMedian = series.length >= 2;
+
+  // Compute median line per month index (only when multiple series)
+  const medianLine = useMemo(() => {
+    if (!showMedian) return [];
+    const maxLen = Math.max(...series.map((s) => s.points.length));
+    const pts: { index: number; month: string; value: number }[] = [];
+    for (let i = 0; i < maxLen; i++) {
+      const vals: number[] = [];
+      let monthLabel = "";
+      for (const s of series) {
+        if (i < s.points.length) {
+          vals.push(s.points[i].oppToWon);
+          monthLabel = s.points[i].month;
+        }
+      }
+      if (vals.length >= 2) {
+        pts.push({ index: i, month: monthLabel, value: Math.round(medianOf(vals) * 10) / 10 });
+      }
+    }
+    return pts;
+  }, [series, showMedian]);
+
+  const allValues = [
+    ...series.flatMap((s) => s.points.map((p) => p.oppToWon)),
+    ...medianLine.map((p) => p.value),
+  ];
   const maxY = Math.max(Math.ceil((Math.max(...allValues) + 5) / 10) * 10, 30);
   const months = series[0].points.map((p) => p.month);
 
@@ -492,6 +529,7 @@ function OppToWonChart({ lines, title }: { lines: ChartLine[]; title?: string })
 
   // Spread end labels vertically to avoid overlap
   const endLabels = series
+    .filter((s) => s.points.length > 0)
     .map((s) => ({ name: s.name, color: s.color, yVal: s.points[s.points.length - 1].oppToWon }))
     .sort((a, b) => b.yVal - a.yVal);
   const labelPositions: Record<string, number> = {};
@@ -535,8 +573,29 @@ function OppToWonChart({ lines, title }: { lines: ChartLine[]; title?: string })
             </g>
           );
         })}
+        {/* Median baseline */}
+        {showMedian && medianLine.length >= 2 && (() => {
+          const medPathD = medianLine.map((p, i) => `${i === 0 ? "M" : "L"} ${x(p.index)} ${y(p.value)}`).join(" ");
+          const lastMed = medianLine[medianLine.length - 1];
+          return (
+            <g>
+              <path d={medPathD} fill="none" stroke="#f59e0b" strokeWidth={3} strokeLinejoin="round" strokeLinecap="round" strokeDasharray="8 4" />
+              <text
+                x={x(lastMed.index) + 8}
+                y={y(lastMed.value) + 4}
+                fontSize="11"
+                fontWeight={700}
+                fill="#f59e0b"
+              >
+                Mediana {lastMed.value}%
+              </text>
+            </g>
+          );
+        })()}
         {series.map((s) => {
+          if (s.points.length === 0) return null;
           const pathD = s.points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i)} ${y(p.oppToWon)}`).join(" ");
+          const lastPt = s.points[s.points.length - 1];
           return (
             <g key={s.name}>
               <path d={pathD} fill="none" stroke={s.color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
@@ -544,13 +603,13 @@ function OppToWonChart({ lines, title }: { lines: ChartLine[]; title?: string })
                 <circle key={i} cx={x(i)} cy={y(p.oppToWon)} r={3} fill={s.color} stroke="#FFF" strokeWidth={1.5} />
               ))}
               <text
-                x={x(months.length - 1) + 8}
+                x={x(s.points.length - 1) + 8}
                 y={labelPositions[s.name]}
                 fontSize="11"
                 fontWeight={600}
                 fill={s.color}
               >
-                {s.name.split(" ")[0]} {s.points[s.points.length - 1].oppToWon}%
+                {s.name.split(" ")[0]} {lastPt.oppToWon}%
               </text>
             </g>
           );
@@ -614,9 +673,13 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange }:
       <SummaryCards grandTotals={grandTotals} />
 
       {/* GRÁFICO OPP→WON */}
+      {(() => {
+        const chartMonths = daysBack > 0 ? Math.max(Math.round(daysBack / 30), 1) : 12;
+        const chartLabel = daysBack > 0 ? (daysBack >= 365 ? `${Math.round(daysBack / 30)}m` : `${daysBack}d`) : "Tudo";
+        return (<>
       <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px", flexWrap: "wrap" }}>
         <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, margin: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          OPP→WON — Média Flutuante {daysBack > 0 ? `${daysBack}d` : "90d"} (últimos 12 meses)
+          OPP→WON — Média Flutuante {chartLabel}
         </h3>
         <div
           style={{
@@ -652,12 +715,13 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange }:
         </div>
       </div>
       {chartView === "consolidado" && data.consolidatedTimeSeries && (
-        <OppToWonChart lines={[{ name: "Todos Vendedores", color: T.azul600, points: data.consolidatedTimeSeries }]} />
+        <OppToWonChart lines={[{ name: "Todos Vendedores", color: T.azul600, points: data.consolidatedTimeSeries }]} maxMonths={chartMonths} />
       )}
-      {chartView === "todos" && <OppToWonChart lines={closersToLines(data.allClosers)} />}
+      {chartView === "todos" && <OppToWonChart lines={closersToLines(data.allClosers)} maxMonths={chartMonths} />}
       {chartView === "squad" && squads.map((sq) => (
-        <OppToWonChart key={sq.id} lines={closersToLines(sq.closers)} title={sq.name} />
+        <OppToWonChart key={sq.id} lines={closersToLines(sq.closers)} title={sq.name} maxMonths={chartMonths} />
       ))}
+        </>); })()}
 
       {/* VENDEDORES (Closers) */}
       <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
@@ -785,7 +849,7 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange }:
       </div>
 
       {/* EMPREENDIMENTOS — OPP→WON */}
-      <EmpPerformanceSection emps={data.allEmps} squads={squads} daysBack={daysBack} consolidatedTimeSeries={data.consolidatedTimeSeries} />
+      <EmpPerformanceSection emps={data.allEmps} squads={squads} daysBack={daysBack} consolidatedTimeSeries={data.consolidatedTimeSeries} maxMonths={daysBack > 0 ? Math.max(Math.round(daysBack / 30), 1) : 0} />
     </>
   );
 }
@@ -793,11 +857,12 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange }:
 // =============================================
 // Empreendimento Performance Section
 // =============================================
-function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries }: {
+function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries, maxMonths }: {
   emps: PerformanceEmpRow[];
   squads: PerformanceData["squads"];
   daysBack: number;
   consolidatedTimeSeries?: PerformanceData["consolidatedTimeSeries"];
+  maxMonths?: number;
 }) {
   type EmpChartView = "consolidado" | "todos" | "squad";
   type EmpSortKey = "emp" | "opp" | "won" | "oppToWon";
@@ -827,7 +892,7 @@ function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries 
       {/* Chart */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px", marginTop: "32px", flexWrap: "wrap" }}>
         <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, margin: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          OPP→WON por Empreendimento — Média Flutuante {daysBack > 0 ? `${daysBack}d` : "90d"} (últimos 12 meses)
+          OPP→WON por Empreendimento — Média Flutuante {daysBack > 0 ? (daysBack >= 365 ? `${Math.round(daysBack / 30)}m` : `${daysBack}d`) : "Tudo"}
         </h3>
         <div
           style={{
@@ -863,13 +928,13 @@ function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries 
         </div>
       </div>
       {empChartView === "consolidado" && consolidatedTimeSeries && (
-        <OppToWonChart lines={[{ name: "Todos Emps", color: T.azul600, points: consolidatedTimeSeries }]} />
+        <OppToWonChart lines={[{ name: "Todos Emps", color: T.azul600, points: consolidatedTimeSeries }]} maxMonths={maxMonths} />
       )}
-      {empChartView === "todos" && <OppToWonChart lines={empsToLines(emps)} />}
+      {empChartView === "todos" && <OppToWonChart lines={empsToLines(emps)} maxMonths={maxMonths} />}
       {empChartView === "squad" && squads.map((sq) => {
         const sqEmps = emps.filter((e) => e.squadId === sq.id);
         if (sqEmps.length === 0) return null;
-        return <OppToWonChart key={sq.id} lines={empsToLines(sqEmps)} title={sq.name} />;
+        return <OppToWonChart key={sq.id} lines={empsToLines(sqEmps)} title={sq.name} maxMonths={maxMonths} />;
       })}
 
       {/* Table */}
