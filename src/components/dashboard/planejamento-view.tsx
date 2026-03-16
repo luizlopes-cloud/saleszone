@@ -506,15 +506,14 @@ function HistoricoCampanhasSection() {
     });
   }, []);
 
-  // Filter ads, then aggregate
+  // Filter ads by empreendimento, then aggregate and filter campaigns by status
   const filteredAds = useMemo(() => {
     if (!histData) return [];
     let ads = histData.ads;
-    if (filtroEmp !== "todos") ads = ads.filter(a => a.empreendimento === filtroEmp);
-    if (filtroStatus === "active") ads = ads.filter(a => a.effectiveStatus === "ACTIVE");
-    else if (filtroStatus === "paused") ads = ads.filter(a => a.effectiveStatus !== "ACTIVE");
+    if (filtroEmp === "comercializacao") ads = ads.filter(a => ACTIVE_EMPS.has(a.empreendimento));
+    else if (filtroEmp !== "todos") ads = ads.filter(a => a.empreendimento === filtroEmp);
     return ads;
-  }, [histData, filtroEmp, filtroStatus]);
+  }, [histData, filtroEmp]);
 
   const toggleColGroup = useCallback((g: ColGroup) => {
     setVisibleCols(prev => {
@@ -526,6 +525,8 @@ function HistoricoCampanhasSection() {
 
   const campaigns = useMemo(() => {
     let rows = aggregate(filteredAds, "campaignName");
+    if (filtroStatus === "active") rows = rows.filter(r => r.hasActiveAds);
+    else if (filtroStatus === "paused") rows = rows.filter(r => !r.hasActiveAds);
     if (ocultarCpwZero) rows = rows.filter(r => r.cpw > 0);
     const dir = sortDir === "asc" ? 1 : -1;
     return rows.sort((a, b) => {
@@ -536,7 +537,7 @@ function HistoricoCampanhasSection() {
       }
       return ((aVal as number) - (bVal as number)) * dir;
     });
-  }, [filteredAds, sortKey, sortDir]);
+  }, [filteredAds, filtroStatus, sortKey, sortDir, ocultarCpwZero]);
 
   // Totals
   const totals = useMemo(() => {
@@ -611,14 +612,15 @@ function HistoricoCampanhasSection() {
             <div style={{ display: "flex", gap: "10px", marginBottom: "12px", alignItems: "center", flexWrap: "wrap" }}>
               <select value={filtroEmp} onChange={e => setFiltroEmp(e.target.value)} style={selectStyle}>
                 <option value="todos">Todos empreendimentos</option>
+                <option value="comercializacao">Em comercialização</option>
                 {empreendimentos.map(emp => (
-                  <option key={emp} value={emp}>{emp}</option>
+                  <option key={emp} value={emp}>{emp || "(sem empreendimento)"}</option>
                 ))}
               </select>
               <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value as "todos" | "active" | "paused")} style={selectStyle}>
-                <option value="todos">Todos status</option>
-                <option value="active">Ativos</option>
-                <option value="paused">Pausados</option>
+                <option value="todos">Todas campanhas</option>
+                <option value="active">Campanhas ativas</option>
+                <option value="paused">Campanhas pausadas</option>
               </select>
               <div style={{ position: "relative" }}>
                 <button
