@@ -151,10 +151,13 @@ export async function GET() {
     const empBudgetRec = new Map<string, number>();
     let budgetPerformando = 0;
 
-    // Step 1: lock performing emps at current daily spend
+    // Step 1: performing emps (active + WON 90d) — keep near current, adjust by efficiency
+    // Calculate CPW for performing emps to rank them
+    const perfCpw = new Map<string, number>();
+    const perfDaily = new Map<string, number>();
+
     for (const emp of allEmps) {
       const f90 = funnel90.get(emp);
-      // Find this emp's active campaign count across all squads
       let hasActive = false;
       for (const sq of SQUADS) {
         const key = `${sq.id}:${emp}`;
@@ -163,15 +166,46 @@ export async function GET() {
       const hasWon90 = f90 && f90.won > 0;
 
       if (hasActive && hasWon90) {
-        // Performing: lock at current daily spend
         let dailySpend = 0;
         for (const sq of SQUADS) {
           const key = `${sq.id}:${emp}`;
-          dailySpend += (empSpend.get(key) || 0) / (diasPassados || 1);
+          const s = empSpend.get(key) || 0;
+          const campCount = empCampaigns.get(key)?.size || 0;
+          if (campCount > 0) dailySpend += s / (diasPassados || 1);
         }
-        empBudgetRec.set(emp, Math.round(dailySpend));
-        budgetPerformando += dailySpend;
+        perfDaily.set(emp, dailySpend);
+        // CPW estimate for this performing emp
+        const taxa90 = f90!.mql > 0 ? f90!.won / f90!.mql : 0;
+        let empCpl = cplConta;
+        for (const sq of SQUADS) {
+          const key = `${sq.id}:${emp}`;
+          const s = empSpend.get(key) || 0;
+          const l = empLeads.get(key) || 0;
+          if (l > 0) empCpl = s / l;
+        }
+        perfCpw.set(emp, taxa90 > 0 ? empCpl / taxa90 : 999999);
       }
+    }
+
+    // Avg CPW of performing emps
+    const perfCpwVals = Array.from(perfCpw.values()).filter(v => v < 999999);
+    const avgPerfCpw = perfCpwVals.length > 0
+      ? perfCpwVals.reduce((a, b) => a + b, 0) / perfCpwVals.length
+      : 999999;
+
+    // Performing emps: adjust +15% if below avg CPW, -10% if above, keep if near avg
+    for (const [emp, daily] of perfDaily) {
+      const cpw = perfCpw.get(emp) || 999999;
+      let adjusted: number;
+      if (cpw < avgPerfCpw * 0.8) {
+        adjusted = Math.round(daily * 1.15); // best performer: +15%
+      } else if (cpw > avgPerfCpw * 1.2) {
+        adjusted = Math.round(daily * 0.90); // worst performer: -10%
+      } else {
+        adjusted = Math.round(daily); // near average: keep
+      }
+      empBudgetRec.set(emp, adjusted);
+      budgetPerformando += adjusted;
     }
 
     // Step 2: distribute remaining budget among non-performing emps proportionally to 1/CPW
@@ -253,7 +287,7 @@ export async function GET() {
         return {
           emp,
           gastoAtual: empGasto,
-          gastoDiario: diasPassados > 0 ? Math.round((empGasto / diasPassados) * 100) / 100 : 0,
+          gastoDiario: empCampCount > 0 && diasPassados > 0 ? Math.round((empGasto / diasPassados) * 100) / 100 : 0,
           campaignsActive: empCampCount,
           budgetRecomendado: empBudgetRec.get(emp) || 0,
         };
