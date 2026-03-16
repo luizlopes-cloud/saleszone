@@ -8,6 +8,8 @@ import { TH, cellStyle, cellRightStyle, Tag } from "./ui";
 interface PlanejamentoViewProps {
   data: PlanejamentoData | null;
   loading: boolean;
+  daysBack: number;
+  onDaysChange: (days: number) => void;
 }
 
 function fmt(n: number): string {
@@ -43,6 +45,130 @@ function ArrowInverse({ current, historical }: { current: number; historical: nu
   if (Math.abs(diff / historical) < 0.05) return <span style={{ color: T.cinza400, fontSize: "10px" }}>→</span>;
   if (diff < 0) return <span style={{ color: T.verde600, fontSize: "10px", fontWeight: 600 }}>↑</span>;
   return <span style={{ color: T.destructive, fontSize: "10px", fontWeight: 600 }}>↓</span>;
+}
+
+function InfoTooltip({ text }: { text: string }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span
+      style={{ position: "relative", display: "inline-flex", alignItems: "center", cursor: "help" }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          width: "16px",
+          height: "16px",
+          borderRadius: "50%",
+          backgroundColor: T.cinza200,
+          color: T.cinza600,
+          fontSize: "10px",
+          fontWeight: 700,
+          lineHeight: 1,
+          flexShrink: 0,
+        }}
+      >
+        i
+      </span>
+      {show && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: "50%",
+            transform: "translateX(-50%)",
+            backgroundColor: T.fg,
+            color: "#fff",
+            padding: "8px 12px",
+            borderRadius: "8px",
+            fontSize: "11px",
+            lineHeight: "1.5",
+            whiteSpace: "pre-line",
+            minWidth: "240px",
+            maxWidth: "360px",
+            zIndex: 50,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+            pointerEvents: "none",
+          }}
+        >
+          {text}
+        </div>
+      )}
+    </span>
+  );
+}
+
+const FILTER_TOOLTIP = `Filtros aplicados (equivalente ao Pipedrive):
+• Pipeline: SZI (28)
+• Canal: Marketing (campo canal = 12)
+• [RD] Source: contém "paga"
+• Motivo da perda ≠ "Duplicado/Erro"
+• Empreendimento: todos os mapeados
+• MQL: max_stage_order ≥ 2 (Lead In+)
+• SQL: max_stage_order ≥ 5 (Qualificado+)
+• OPP: max_stage_order ≥ 9 (Reunião+)`;
+
+type SortDir = "asc" | "desc";
+type SortKey = "emp" | "squad" | "mql" | "sql" | "opp" | "won" | "spend" | "cpw" | "mqlToSql" | "sqlToOpp" | "oppToWon" | "mqlToWon" | "efficiency" | "active";
+
+const ACTIVE_EMPS = new Set<string>(SQUADS.flatMap((s) => [...s.empreendimentos]));
+
+function SortableTH({ label, sortKey, currentSort, onSort, right, center }: {
+  label: string;
+  sortKey: SortKey;
+  currentSort: { key: SortKey; dir: SortDir };
+  onSort: (key: SortKey) => void;
+  right?: boolean;
+  center?: boolean;
+}) {
+  const active = currentSort.key === sortKey;
+  const arrow = active ? (currentSort.dir === "asc" ? " ↑" : " ↓") : "";
+  return (
+    <th
+      onClick={() => onSort(sortKey)}
+      style={{
+        padding: "8px 10px",
+        fontSize: "10px",
+        fontWeight: 600,
+        color: active ? T.azul600 : T.cinza600,
+        textTransform: "uppercase" as const,
+        letterSpacing: "0.04em",
+        borderBottom: `1px solid ${T.border}`,
+        textAlign: right ? "right" : center ? "center" : "left",
+        cursor: "pointer",
+        userSelect: "none",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}{arrow}
+    </th>
+  );
+}
+
+function getRowSortValue(row: PlanejamentoEmpRow, key: SortKey): number | string {
+  if (key === "emp") return row.emp;
+  if (key === "squad") return row.squadId;
+  if (key === "efficiency") return row.efficiency === "high" ? 3 : row.efficiency === "medium" ? 2 : 1;
+  if (key === "active") return ACTIVE_EMPS.has(row.emp) ? 1 : 0;
+  if (key === "mqlToWon") {
+    const h = row.historical;
+    return h.mql > 0 ? h.won / h.mql : 0;
+  }
+  return row.historical[key as keyof PlanejamentoMetrics] as number;
+}
+
+function sortRows(rows: PlanejamentoEmpRow[], key: SortKey, dir: SortDir): PlanejamentoEmpRow[] {
+  return [...rows].sort((a, b) => {
+    const va = getRowSortValue(a, key);
+    const vb = getRowSortValue(b, key);
+    if (typeof va === "string" && typeof vb === "string") {
+      return dir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+    }
+    return dir === "asc" ? (va as number) - (vb as number) : (vb as number) - (va as number);
+  });
 }
 
 function EfficiencyTag({ efficiency }: { efficiency: "high" | "medium" | "low" }) {
@@ -103,6 +229,8 @@ function SummaryCard({ label, currentValue, histValue, format }: {
 function HistEmpRow({ row }: { row: PlanejamentoEmpRow }) {
   const h = row.historical;
   const color = SQUAD_COLORS[row.squadId] || T.azul600;
+  const isActive = ACTIVE_EMPS.has(row.emp);
+  const mqlToWon = h.mql > 0 ? h.won / h.mql : 0;
 
   return (
     <tr>
@@ -112,10 +240,23 @@ function HistEmpRow({ row }: { row: PlanejamentoEmpRow }) {
           {row.emp.replace(" Spot", "").replace(" II", " II").replace(" III", " III")}
         </div>
       </td>
+      <td style={{ ...cellRightStyle, textAlign: "center", fontSize: "11px", color: row.squadId ? color : T.cinza400 }}>
+        {row.squadId ? `S${row.squadId}` : "—"}
+      </td>
+      <td style={{ ...cellRightStyle, textAlign: "center" }}>
+        <span style={{
+          display: "inline-block",
+          width: "8px",
+          height: "8px",
+          borderRadius: "50%",
+          backgroundColor: isActive ? T.verde600 : T.cinza300,
+        }} />
+      </td>
       <td style={cellRightStyle}>{fmt(h.mql)}</td>
       <td style={cellRightStyle}>{fmt(h.sql)}</td>
       <td style={cellRightStyle}>{fmt(h.opp)}</td>
       <td style={{ ...cellRightStyle, fontWeight: 700, color: T.verde600 }}>{fmt(h.won)}</td>
+      <td style={cellRightStyle}>{fmtPct(mqlToWon)}</td>
       <td style={cellRightStyle}>{fmtMoney(h.spend)}</td>
       <td style={cellRightStyle}>{fmtMoney(h.cpw)}</td>
       <td style={cellRightStyle}>{fmtPct(h.mqlToSql)}</td>
@@ -132,13 +273,17 @@ function HistEmpRow({ row }: { row: PlanejamentoEmpRow }) {
 }
 
 function HistTotalsRow({ label, m }: { label: string; m: PlanejamentoMetrics }) {
+  const mqlToWon = m.mql > 0 ? m.won / m.mql : 0;
   return (
     <tr style={{ backgroundColor: T.cinza50 }}>
       <td style={{ ...cellStyle, fontSize: "12px", fontWeight: 700 }}>{label}</td>
+      <td style={{ ...cellRightStyle }} />
+      <td style={{ ...cellRightStyle }} />
       <td style={{ ...cellRightStyle, fontWeight: 700 }}>{fmt(m.mql)}</td>
       <td style={{ ...cellRightStyle, fontWeight: 700 }}>{fmt(m.sql)}</td>
       <td style={{ ...cellRightStyle, fontWeight: 700 }}>{fmt(m.opp)}</td>
       <td style={{ ...cellRightStyle, fontWeight: 700, color: T.verde600 }}>{fmt(m.won)}</td>
+      <td style={{ ...cellRightStyle, fontWeight: 700 }}>{fmtPct(mqlToWon)}</td>
       <td style={{ ...cellRightStyle, fontWeight: 700 }}>{fmtMoney(m.spend)}</td>
       <td style={{ ...cellRightStyle, fontWeight: 700 }}>{fmtMoney(m.cpw)}</td>
       <td style={{ ...cellRightStyle, fontWeight: 700 }}>{fmtPct(m.mqlToSql)}</td>
@@ -151,8 +296,6 @@ function HistTotalsRow({ label, m }: { label: string; m: PlanejamentoMetrics }) 
 }
 
 /* ---- Histórico de Campanhas (collapsible section) ---- */
-
-type SortDir = "asc" | "desc";
 
 const histThStyle: React.CSSProperties = {
   padding: "8px 10px",
@@ -252,19 +395,23 @@ function SortTh({ label, col, sortKey, sortDir, onSort, align, minW }: {
 
 function MetricsCells({ r, avgCpl }: { r: { spend: number; leads: number; mql: number; sql: number; opp: number; won: number; impressions: number; clicks: number; cpl: number; cmql: number; csql: number; copp: number; cpw: number; ctr: number; cpc: number; cpm: number }; avgCpl: number }) {
   const cplColor = r.cpl > 0 && avgCpl > 0 ? (r.cpl <= avgCpl ? T.verde600 : T.destructive) : undefined;
+  const groupBorder = "2px solid #E2E4EA";
   return (
     <>
-      <td style={cellRightStyle}>{fmtMoney(r.spend)}</td>
+      {/* Conversões */}
       <td style={cellRightStyle}>{fmt(r.leads)}</td>
-      <td style={{ ...cellRightStyle, color: cplColor, fontWeight: cplColor ? 600 : 400 }}>{r.cpl > 0 ? fmtMoney(r.cpl) : "—"}</td>
       <td style={cellRightStyle}>{fmt(r.mql)}</td>
-      <td style={cellRightStyle}>{r.cmql > 0 ? fmtMoney(r.cmql) : "—"}</td>
       <td style={cellRightStyle}>{fmt(r.sql)}</td>
-      <td style={cellRightStyle}>{r.csql > 0 ? fmtMoney(r.csql) : "—"}</td>
       <td style={cellRightStyle}>{fmt(r.opp)}</td>
+      <td style={{ ...cellRightStyle, fontWeight: 700, color: r.won > 0 ? T.verde600 : undefined, borderRight: groupBorder }}>{fmt(r.won)}</td>
+      {/* Custos */}
+      <td style={cellRightStyle}>{fmtMoney(r.spend)}</td>
+      <td style={{ ...cellRightStyle, color: cplColor, fontWeight: cplColor ? 600 : 400 }}>{r.cpl > 0 ? fmtMoney(r.cpl) : "—"}</td>
+      <td style={cellRightStyle}>{r.cmql > 0 ? fmtMoney(r.cmql) : "—"}</td>
+      <td style={cellRightStyle}>{r.csql > 0 ? fmtMoney(r.csql) : "—"}</td>
       <td style={cellRightStyle}>{r.copp > 0 ? fmtMoney(r.copp) : "—"}</td>
-      <td style={{ ...cellRightStyle, fontWeight: 700, color: r.won > 0 ? T.verde600 : undefined }}>{fmt(r.won)}</td>
-      <td style={cellRightStyle}>{r.cpw > 0 ? fmtMoney(r.cpw) : "—"}</td>
+      <td style={{ ...cellRightStyle, borderRight: groupBorder }}>{r.cpw > 0 ? fmtMoney(r.cpw) : "—"}</td>
+      {/* Mídia */}
       <td style={cellRightStyle}>{fmt(r.impressions)}</td>
       <td style={cellRightStyle}>{fmt(r.clicks)}</td>
       <td style={cellRightStyle}>{fmtPctDirect(r.ctr)}</td>
@@ -442,20 +589,29 @@ function HistoricoCampanhasSection() {
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1600px" }}>
                 <thead>
                   <tr>
+                    <th colSpan={3} style={{ ...histThStyle, borderBottom: "none" }} />
+                    <th colSpan={5} style={{ ...histThStyle, borderBottom: "none", textAlign: "center", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", color: T.verde600, borderRight: "2px solid #E2E4EA" }}>CONVERSÕES</th>
+                    <th colSpan={6} style={{ ...histThStyle, borderBottom: "none", textAlign: "center", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", color: T.destructive, borderRight: "2px solid #E2E4EA" }}>CUSTOS</th>
+                    <th colSpan={5} style={{ ...histThStyle, borderBottom: "none", textAlign: "center", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", color: T.primary }}>MÍDIA</th>
+                  </tr>
+                  <tr>
                     <SortTh label="" col="name" align="left" minW={24} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="Nome" col="name" align="left" minW={200} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="Empreend." col="empreendimento" align="left" minW={120} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="Gasto" col="spend" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    {/* Conversões */}
                     <SortTh label="Leads" col="leads" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CPL" col="cpl" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="MQL" col="mql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CMQL" col="cmql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="SQL" col="sql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CSQL" col="csql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="OPP" col="opp" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="COPP" col="copp" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="WON" col="won" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    {/* Custos */}
+                    <SortTh label="Gasto" col="spend" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    <SortTh label="CPL" col="cpl" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    <SortTh label="CMQL" col="cmql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    <SortTh label="CSQL" col="csql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    <SortTh label="COPP" col="copp" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="CPW" col="cpw" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    {/* Mídia */}
                     <SortTh label="Impr." col="impressions" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="Clicks" col="clicks" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="CTR" col="ctr" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -551,7 +707,118 @@ function HistoricoCampanhasSection() {
   );
 }
 
-export function PlanejamentoView({ data, loading }: PlanejamentoViewProps) {
+const DAYS_OPTIONS = [
+  { value: -1, label: "Histórico completo" },
+  { value: 0, label: "Últimos 12 meses" },
+  { value: 30, label: "Últimos 30 dias" },
+  { value: 60, label: "Últimos 60 dias" },
+  { value: 90, label: "Últimos 90 dias" },
+  { value: 180, label: "Últimos 180 dias" },
+  { value: 365, label: "Último ano" },
+];
+
+export function PlanejamentoView({ data, loading, daysBack, onDaysChange }: PlanejamentoViewProps) {
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "mql", dir: "desc" });
+  const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all");
+  const [squadFilter, setSquadFilter] = useState<number>(0); // 0 = all
+  const [recent90Data, setRecent90Data] = useState<PlanejamentoData | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/dashboard/planejamento?days=90")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (!cancelled && d) setRecent90Data(d); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [data]); // re-fetch when main data refreshes
+
+  const handleSort = useCallback((key: SortKey) => {
+    setSort((prev) => prev.key === key ? { key, dir: prev.dir === "desc" ? "asc" : "desc" } : { key, dir: "desc" });
+  }, []);
+
+  const filteredRows = useMemo(() => {
+    if (!data) return [];
+    let rows = data.empreendimentos;
+    if (activeFilter === "active") rows = rows.filter((r) => ACTIVE_EMPS.has(r.emp));
+    else if (activeFilter === "inactive") rows = rows.filter((r) => !ACTIVE_EMPS.has(r.emp));
+    if (squadFilter > 0) rows = rows.filter((r) => r.squadId === squadFilter);
+    return rows;
+  }, [data, activeFilter, squadFilter]);
+
+  const sortedRows = useMemo(() => sortRows(filteredRows, sort.key, sort.dir), [filteredRows, sort]);
+
+  const filteredTotals = useMemo(() => {
+    const sum = (arr: PlanejamentoMetrics[]): PlanejamentoMetrics => {
+      const leads = arr.reduce((s, r) => s + r.leads, 0);
+      const mql = arr.reduce((s, r) => s + r.mql, 0);
+      const sql = arr.reduce((s, r) => s + r.sql, 0);
+      const opp = arr.reduce((s, r) => s + r.opp, 0);
+      const won = arr.reduce((s, r) => s + r.won, 0);
+      const spend = Math.round(arr.reduce((s, r) => s + r.spend, 0) * 100) / 100;
+      const rate = (n: number, d: number) => d > 0 ? Math.round((n / d) * 10000) / 10000 : 0;
+      const cost = (sp: number, d: number) => d > 0 ? Math.round((sp / d) * 100) / 100 : 0;
+      return {
+        leads, mql, sql, opp, won, spend,
+        cpl: cost(spend, leads), cmql: cost(spend, mql), copp: cost(spend, opp), cpw: cost(spend, won),
+        mqlToSql: rate(sql, mql), sqlToOpp: rate(opp, sql), oppToWon: rate(won, opp),
+      };
+    };
+    return {
+      current: sum(filteredRows.map((r) => r.current)),
+      historical: sum(filteredRows.map((r) => r.historical)),
+    };
+  }, [filteredRows]);
+
+  const squadSummaries = useMemo(() => {
+    const sumMetrics = (rows: PlanejamentoEmpRow[], period: "current" | "historical"): PlanejamentoMetrics => {
+      const arr = rows.map((r) => r[period]);
+      const leads = arr.reduce((s, r) => s + r.leads, 0);
+      const mql = arr.reduce((s, r) => s + r.mql, 0);
+      const sql = arr.reduce((s, r) => s + r.sql, 0);
+      const opp = arr.reduce((s, r) => s + r.opp, 0);
+      const won = arr.reduce((s, r) => s + r.won, 0);
+      const spend = Math.round(arr.reduce((s, r) => s + r.spend, 0) * 100) / 100;
+      const rate = (n: number, d: number) => d > 0 ? Math.round((n / d) * 10000) / 10000 : 0;
+      const cost = (sp: number, d: number) => d > 0 ? Math.round((sp / d) * 100) / 100 : 0;
+      return {
+        leads, mql, sql, opp, won, spend,
+        cpl: cost(spend, leads), cmql: cost(spend, mql), copp: cost(spend, opp), cpw: cost(spend, won),
+        mqlToSql: rate(sql, mql), sqlToOpp: rate(opp, sql), oppToWon: rate(won, opp),
+      };
+    };
+    const sumBothPeriods = (rows: PlanejamentoEmpRow[]): PlanejamentoMetrics => {
+      const c = rows.map((r) => r.current);
+      const h = rows.map((r) => r.historical);
+      const all = [...c, ...h];
+      const leads = all.reduce((s, r) => s + r.leads, 0);
+      const mql = all.reduce((s, r) => s + r.mql, 0);
+      const sql = all.reduce((s, r) => s + r.sql, 0);
+      const opp = all.reduce((s, r) => s + r.opp, 0);
+      const won = all.reduce((s, r) => s + r.won, 0);
+      const spend = Math.round(all.reduce((s, r) => s + r.spend, 0) * 100) / 100;
+      const rate = (n: number, d: number) => d > 0 ? Math.round((n / d) * 10000) / 10000 : 0;
+      const cost = (sp: number, d: number) => d > 0 ? Math.round((sp / d) * 100) / 100 : 0;
+      return {
+        leads, mql, sql, opp, won, spend,
+        cpl: cost(spend, leads), cmql: cost(spend, mql), copp: cost(spend, opp), cpw: cost(spend, won),
+        mqlToSql: rate(sql, mql), sqlToOpp: rate(opp, sql), oppToWon: rate(won, opp),
+      };
+    };
+    return SQUADS.map((sq) => {
+      const rows = filteredRows.filter((r) => r.squadId === sq.id);
+      // Recent 90 days: use dedicated data, applying same filters
+      let recent90Rows = recent90Data?.empreendimentos.filter((r) => r.squadId === sq.id) || [];
+      if (activeFilter === "active") recent90Rows = recent90Rows.filter((r) => ACTIVE_EMPS.has(r.emp));
+      else if (activeFilter === "inactive") recent90Rows = recent90Rows.filter((r) => !ACTIVE_EMPS.has(r.emp));
+      return {
+        id: sq.id,
+        empreendimentos: rows.map((r) => r.emp),
+        recent90: sumBothPeriods(recent90Rows),
+        historical: sumMetrics(rows, "historical"),
+      };
+    });
+  }, [filteredRows, recent90Data, activeFilter]);
+
   if (loading && !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", color: T.mutedFg }}>
@@ -568,20 +835,35 @@ export function PlanejamentoView({ data, loading }: PlanejamentoViewProps) {
     );
   }
 
-  const tc = data.totals.current;
-  const th = data.totals.historical;
-
-  // Ranking by historical efficiency
-  const ranked = [...data.empreendimentos].sort((a, b) => {
-    const scoreA = (a.efficiency === "high" ? 3 : a.efficiency === "medium" ? 2 : 1);
-    const scoreB = (b.efficiency === "high" ? 3 : b.efficiency === "medium" ? 2 : 1);
-    if (scoreA !== scoreB) return scoreB - scoreA;
-    return (a.historical.cpw || Infinity) - (b.historical.cpw || Infinity);
-  });
+  const tc = filteredTotals.current;
+  const th = filteredTotals.historical;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       {/* Summary cards — mês atual vs histórico */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "-12px" }}>
+        <span style={{ fontSize: "13px", fontWeight: 600, color: T.fg }}>Métricas de Conversão</span>
+        <InfoTooltip text={FILTER_TOOLTIP} />
+        <select
+          value={daysBack}
+          onChange={(e) => onDaysChange(Number(e.target.value))}
+          style={{
+            fontSize: "11px",
+            padding: "4px 8px",
+            borderRadius: "6px",
+            border: `1px solid ${T.border}`,
+            backgroundColor: "#FFF",
+            color: T.fg,
+            cursor: "pointer",
+            outline: "none",
+            marginLeft: "auto",
+          }}
+        >
+          {DAYS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
         <SummaryCard label="Investimento Total" currentValue={tc.spend} histValue={th.spend} format="money" />
         <SummaryCard label="WON Total" currentValue={tc.won} histValue={th.won} format="number" />
@@ -602,33 +884,78 @@ export function PlanejamentoView({ data, loading }: PlanejamentoViewProps) {
         }}
       >
         <div style={{ padding: "14px 16px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: 0 }}>
-            Conversão Histórica por Empreendimento
-          </h3>
-          <span style={{ fontSize: "10px", color: T.cinza400 }}>
-            Total acumulado (últimos 12 meses)
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: 0 }}>
+              Conversão Histórica por Empreendimento
+            </h3>
+            <InfoTooltip text={FILTER_TOOLTIP} />
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <select
+              value={activeFilter}
+              onChange={(e) => setActiveFilter(e.target.value as "all" | "active" | "inactive")}
+              style={{
+                fontSize: "11px",
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: `1px solid ${T.border}`,
+                backgroundColor: "#FFF",
+                color: T.fg,
+                cursor: "pointer",
+                outline: "none",
+              }}
+            >
+              <option value="all">Todos</option>
+              <option value="active">Em comercialização</option>
+              <option value="inactive">Fora de comercialização</option>
+            </select>
+            <select
+              value={squadFilter}
+              onChange={(e) => setSquadFilter(Number(e.target.value))}
+              style={{
+                fontSize: "11px",
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: `1px solid ${T.border}`,
+                backgroundColor: "#FFF",
+                color: T.fg,
+                cursor: "pointer",
+                outline: "none",
+              }}
+            >
+              <option value={0}>Todas as Squads</option>
+              <option value={1}>Squad 1</option>
+              <option value={2}>Squad 2</option>
+              <option value={3}>Squad 3</option>
+            </select>
+            <span style={{ fontSize: "10px", color: T.cinza400 }}>
+              Total acumulado ({DAYS_OPTIONS.find((o) => o.value === daysBack)?.label.toLowerCase() || "últimos 12 meses"})
+            </span>
+          </div>
         </div>
         <div style={{ overflowX: "auto", marginTop: "10px" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <TH>Empreendimento</TH>
-                <TH right>MQL</TH>
-                <TH right>SQL</TH>
-                <TH right>OPP</TH>
-                <TH right>WON</TH>
-                <TH right>Invest.</TH>
-                <TH right>CPW</TH>
-                <TH right>MQL→SQL</TH>
-                <TH right>SQL→OPP</TH>
-                <TH right>OPP→WON</TH>
-                <TH extraStyle={{ textAlign: "center" }}>Eficiência</TH>
+                <SortableTH label="Empreendimento" sortKey="emp" currentSort={sort} onSort={handleSort} />
+                <SortableTH label="Squad" sortKey="squad" currentSort={sort} onSort={handleSort} center />
+                <SortableTH label="Ativo" sortKey="active" currentSort={sort} onSort={handleSort} center />
+                <SortableTH label="MQL" sortKey="mql" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="SQL" sortKey="sql" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="OPP" sortKey="opp" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="WON" sortKey="won" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="MQL→WON" sortKey="mqlToWon" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="Invest." sortKey="spend" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="CPW" sortKey="cpw" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="MQL→SQL" sortKey="mqlToSql" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="SQL→OPP" sortKey="sqlToOpp" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="OPP→WON" sortKey="oppToWon" currentSort={sort} onSort={handleSort} right />
+                <SortableTH label="Eficiência" sortKey="efficiency" currentSort={sort} onSort={handleSort} center />
                 <TH extraStyle={{ textAlign: "center" }}>Ação</TH>
               </tr>
             </thead>
             <tbody>
-              {data.empreendimentos.map((row) => (
+              {sortedRows.map((row) => (
                 <HistEmpRow key={row.emp} row={row} />
               ))}
               <HistTotalsRow label="Total" m={th} />
@@ -637,7 +964,7 @@ export function PlanejamentoView({ data, loading }: PlanejamentoViewProps) {
         </div>
       </div>
 
-      {/* Ranking de eficiência */}
+      {/* Resultados por Squad */}
       <div
         style={{
           backgroundColor: "#FFF",
@@ -648,43 +975,64 @@ export function PlanejamentoView({ data, loading }: PlanejamentoViewProps) {
         }}
       >
         <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: "0 0 12px 0" }}>
-          Ranking de Eficiência
+          Resultados por Squad
         </h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-          {ranked.map((row, i) => {
-            const color = SQUAD_COLORS[row.squadId] || T.azul600;
-            const effColors = { high: T.verde600, medium: T.laranja500, low: T.destructive };
-            const maxOppToWon = Math.max(...data.empreendimentos.map(r => r.historical.oppToWon || 0.01));
-            const barWidth = row.historical.oppToWon > 0
-              ? Math.min((row.historical.oppToWon / maxOppToWon) * 100, 100)
-              : 0;
-
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          {squadSummaries.map((sq) => {
+            const color = SQUAD_COLORS[sq.id] || T.azul600;
+            const h = sq.historical;
+            const r = sq.recent90;
+            const mqlToWon = h.mql > 0 ? h.won / h.mql : 0;
+            const rows: { label: string; hist: string; cur: string }[] = [
+              { label: "MQL", hist: fmt(h.mql), cur: fmt(r.mql) },
+              { label: "SQL", hist: fmt(h.sql), cur: fmt(r.sql) },
+              { label: "OPP", hist: fmt(h.opp), cur: fmt(r.opp) },
+              { label: "WON", hist: fmt(h.won), cur: fmt(r.won) },
+              { label: "Invest.", hist: fmtMoney(h.spend), cur: fmtMoney(r.spend) },
+              { label: "CPW", hist: h.cpw > 0 ? fmtMoney(h.cpw) : "—", cur: r.cpw > 0 ? fmtMoney(r.cpw) : "—" },
+              { label: "MQL→WON", hist: fmtPct(mqlToWon), cur: fmtPct(r.mql > 0 ? r.won / r.mql : 0) },
+              { label: "MQL→SQL", hist: fmtPct(h.mqlToSql), cur: fmtPct(r.mqlToSql) },
+              { label: "SQL→OPP", hist: fmtPct(h.sqlToOpp), cur: fmtPct(r.sqlToOpp) },
+              { label: "OPP→WON", hist: fmtPct(h.oppToWon), cur: fmtPct(r.oppToWon) },
+            ];
             return (
-              <div key={row.emp} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600, width: "16px", textAlign: "right" }}>
-                  {i + 1}
-                </span>
-                <div style={{ width: "3px", height: "20px", borderRadius: "2px", backgroundColor: color }} />
-                <span style={{ fontSize: "12px", fontWeight: 500, color: T.fg, width: "180px" }}>
-                  {row.emp.replace(" Spot", "")}
-                </span>
-                <div style={{ flex: 1, height: "18px", backgroundColor: T.cinza50, borderRadius: "4px", overflow: "hidden" }}>
-                  <div
-                    style={{
-                      width: `${Math.max(barWidth, 1)}%`,
-                      height: "100%",
-                      backgroundColor: effColors[row.efficiency],
-                      borderRadius: "4px",
-                      opacity: 0.7,
-                      transition: "width 0.4s ease",
-                    }}
-                  />
+              <div
+                key={sq.id}
+                style={{
+                  flex: "1 1 280px",
+                  border: `1px solid ${T.border}`,
+                  borderRadius: "10px",
+                  overflow: "hidden",
+                }}
+              >
+                <div style={{ backgroundColor: color, padding: "8px 14px", display: "flex", alignItems: "center", gap: "8px" }}>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#FFF" }}>Squad {sq.id}</span>
+                  <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.8)" }}>
+                    {sq.empreendimentos.length} emp.
+                  </span>
                 </div>
-                <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600, width: "50px", textAlign: "right" }}>
-                  {fmtPct(row.historical.oppToWon)}
-                </span>
-                <div style={{ width: "80px" }}>
-                  <RecommendationTag row={row} />
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                      <th style={{ fontSize: "10px", fontWeight: 600, color: T.cinza400, padding: "6px 10px", textAlign: "left" }}>Métrica</th>
+                      <th style={{ fontSize: "10px", fontWeight: 600, color: T.cinza400, padding: "6px 10px", textAlign: "right" }}>Histórico</th>
+                      <th style={{ fontSize: "10px", fontWeight: 600, color: T.cinza400, padding: "6px 10px", textAlign: "right" }}>Últimos 90 dias</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.label} style={{ borderBottom: `1px solid ${T.cinza50}` }}>
+                        <td style={{ fontSize: "11px", fontWeight: 500, color: T.fg, padding: "5px 10px" }}>{r.label}</td>
+                        <td style={{ fontSize: "11px", color: T.cinza600, padding: "5px 10px", textAlign: "right" }}>{r.hist}</td>
+                        <td style={{ fontSize: "11px", fontWeight: 600, color: T.fg, padding: "5px 10px", textAlign: "right" }}>{r.cur}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ padding: "6px 10px", borderTop: `1px solid ${T.border}`, backgroundColor: T.cinza50 }}>
+                  <span style={{ fontSize: "10px", color: T.cinza400 }}>
+                    {sq.empreendimentos.map((e) => e.replace(" Spot", "")).join(", ")}
+                  </span>
                 </div>
               </div>
             );
