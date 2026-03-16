@@ -192,6 +192,14 @@ async function getMaxStageReached(apiToken: string, dealId: number, currentOrder
 // ---- Mode: deals-open ----
 async function syncDealsOpen(apiToken: string, supabase: any) {
   console.log(`syncDealsOpen: fetching pipeline ${PIPELINE_ID} open deals...`);
+
+  // /pipelines/{id}/deals returns user_id as integer (not object with name),
+  // so fetch user list to resolve owner names
+  const usersRes = await pipedriveGet(apiToken, "/users");
+  const userMap = new Map<number, string>(
+    (usersRes.data || []).map((u: any) => [u.id, u.name])
+  );
+
   const rows: any[] = [];
   let start = 0;
   let total = 0;
@@ -206,6 +214,11 @@ async function syncDealsOpen(apiToken: string, supabase: any) {
     for (const deal of res.data) {
       // Pipeline endpoint only returns pipeline 28, but filter just in case
       if (deal.pipeline_id !== PIPELINE_ID) continue;
+      // Resolve owner_name from userMap since this endpoint returns user_id as integer
+      const userId = typeof deal.user_id === "object" ? deal.user_id?.id : deal.user_id;
+      if (userId && typeof deal.user_id !== "object") {
+        deal.user_id = { id: userId, name: userMap.get(userId) || null };
+      }
       const stageOrder = STAGE_ORDER[deal.stage_id] || 0;
       rows.push(dealToRow(deal, stageOrder, true));
     }
