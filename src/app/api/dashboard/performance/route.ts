@@ -30,6 +30,8 @@ interface DealRow {
   lost_reason: string | null;
   is_marketing: boolean;
   add_time: string;
+  won_time: string | null;
+  lost_time: string | null;
 }
 
 interface PresalesRow {
@@ -48,9 +50,13 @@ async function fetchDeals(cutoff: string | null): Promise<DealRow[]> {
   while (true) {
     let query = supabase
       .from("squad_deals")
-      .select("deal_id, owner_name, preseller_name, empreendimento, status, max_stage_order, lost_reason, is_marketing, add_time")
+      .select("deal_id, owner_name, preseller_name, empreendimento, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time")
       .eq("is_marketing", true);
-    if (cutoff) query = query.gte("add_time", cutoff);
+    // Filter by close_time OR open status (matches Pipedrive "Negócio fechado em")
+    // Deals with close_time (won_time/lost_time) in range OR all open deals
+    if (cutoff) {
+      query = query.or(`status.eq.open,won_time.gte.${cutoff},lost_time.gte.${cutoff},add_time.gte.${cutoff}`);
+    }
     query = query.range(offset, offset + PAGE - 1);
     const { data, error } = await query;
     if (error) throw new Error(`Supabase error (squad_deals): ${error.message}`);
@@ -119,8 +125,13 @@ export async function GET(request: Request) {
       return true;
     });
 
-    // Deals filtered by the user's period selection (for main stats)
-    const deals = cutoff ? allDeals.filter((d) => d.add_time >= cutoff) : allDeals;
+    // Deals filtered by period: use close_time (won_time/lost_time) for closed deals,
+    // include all open deals. This matches Pipedrive's "Negócio fechado em" filter.
+    const deals = cutoff ? allDeals.filter((d) => {
+      if (d.status === "open") return true;
+      const closeTime = d.won_time || d.lost_time || d.add_time;
+      return closeTime >= cutoff;
+    }) : allDeals;
 
     // Build deal map for cross-referencing
     const dealMap = new Map<number, DealRow>();
