@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { SQUADS, SQUAD_V_MAP, NUM_DAYS } from "@/lib/constants";
 import { generateDates } from "@/lib/dates";
@@ -161,19 +160,14 @@ export async function GET(req: NextRequest) {
     const totalDaysInMonth = new Date(year, month, 0).getDate();
     const metaDateStr = `01/${String(month).padStart(2, "0")}/${year}`;
 
-    // nekt_meta26_metas has RLS — needs service role key
-    const adminClient = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-
     const [nektRes, ratiosRes] = await Promise.all([
-      adminClient.from("nekt_meta26_metas").select("won_szi_meta_pago, won_szi_meta_direto").eq("data", metaDateStr).single(),
+      supabase.rpc("get_szi_meta", { meta_date: metaDateStr }).single(),
       supabase.from("squad_ratios").select("ratios").eq("month", monthStart).single(),
     ]);
 
-    if (nektRes.data) {
-      const wonMetaTotal = (Number(nektRes.data.won_szi_meta_pago) || 0) + (Number(nektRes.data.won_szi_meta_direto) || 0);
+    const nektData = nektRes.data as { won_szi_meta_pago: number; won_szi_meta_direto: number } | null;
+    if (nektData) {
+      const wonMetaTotal = (Number(nektData.won_szi_meta_pago) || 0) + (Number(nektData.won_szi_meta_direto) || 0);
       const wonPerCloser = wonMetaTotal / TOTAL_CLOSERS;
       const r = ratiosRes.data?.ratios || { opp_won: 0, sql_opp: 0, mql_sql: 0 };
 
