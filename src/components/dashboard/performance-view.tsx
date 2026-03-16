@@ -259,6 +259,8 @@ function PresellerEmpRows({ byEmp }: { byEmp: PerformanceEmpBreakdown[] }) {
           <td style={{ ...subRowStyle, textAlign: "center", backgroundColor: "#FFFBF5", color: T.cinza400 }}>—</td>
           <td style={{ ...subRowStyle, textAlign: "center", backgroundColor: "#FFFBF5", color: T.cinza400 }}>—</td>
           <td style={{ ...subRowStyle, textAlign: "center", backgroundColor: "#FFFBF5", color: T.cinza400 }}>—</td>
+          <td style={{ ...subRowStyle, textAlign: "center", backgroundColor: "#FFFBF5", color: T.cinza400 }}>—</td>
+          <td style={{ ...subRowStyle, textAlign: "center", backgroundColor: "#FFFBF5", color: T.cinza400 }}>—</td>
         </tr>
       ))}
     </>
@@ -320,7 +322,9 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
               <th style={{ ...thStyle, textAlign: "center" }}>SQL→OPP</th>
               <th style={{ ...thStyle, textAlign: "center" }}>OPP→WON</th>
               <th style={{ ...thStyle, textAlign: "center" }}>MQL→WON</th>
-              <th style={{ ...thStyle, textAlign: "center", backgroundColor: "#FFF7ED", borderBottom: `2px solid ${T.laranja500}` }}>Atividades</th>
+              <th style={{ ...thStyle, textAlign: "center", backgroundColor: "#FFF7ED", borderBottom: `2px solid ${T.laranja500}` }}>Ligações</th>
+              <th style={{ ...thStyle, textAlign: "center", backgroundColor: "#FFF7ED", borderBottom: `2px solid ${T.laranja500}` }}>Mensagens</th>
+              <th style={{ ...thStyle, textAlign: "center", backgroundColor: "#FFF7ED", borderBottom: `2px solid ${T.laranja500}` }}>Reuniões</th>
               <th style={{ ...thStyle, textAlign: "center", backgroundColor: "#FFF7ED", borderBottom: `2px solid ${T.laranja500}` }}>Tempo Médio</th>
               <th style={{ ...thStyle, textAlign: "center", backgroundColor: "#FFF7ED", borderBottom: `2px solid ${T.laranja500}` }}>Mediana</th>
             </tr>
@@ -358,7 +362,9 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
                     <td style={{ ...tdStyle, textAlign: "center" }}><RateBadge value={p.sqlToOpp} thresholds={[30, 50]} /></td>
                     <td style={{ ...tdStyle, textAlign: "center" }}><RateBadge value={p.oppToWon} thresholds={[15, 25]} /></td>
                     <td style={{ ...tdStyle, textAlign: "center" }}><RateBadge value={p.mqlToWon} thresholds={[3, 8]} /></td>
-                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.laranja500 }}>{isMia ? "—" : p.dealsWithAction}</td>
+                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.fg }}>{isMia ? "—" : p.actLigacoes.toLocaleString("pt-BR")}</td>
+                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.fg }}>{isMia ? "—" : p.actMensagens.toLocaleString("pt-BR")}</td>
+                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.fg }}>{isMia ? "—" : p.actReunioes.toLocaleString("pt-BR")}</td>
                     <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.laranja500 }}>{isMia ? "—" : formatMinutes(p.avgResponseMin)}</td>
                     <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.laranja500 }}>{isMia ? "—" : formatMinutes(p.medianResponseMin)}</td>
                   </tr>

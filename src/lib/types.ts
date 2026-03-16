@@ -454,6 +454,9 @@ export interface PerformancePersonRow {
 export interface PerformancePresellerRow extends PerformancePersonRow {
   dealsReceived: number;
   dealsWithAction: number;
+  actLigacoes: number;
+  actMensagens: number;
+  actReunioes: number;
   avgResponseMin: number;
   medianResponseMin: number;
 }

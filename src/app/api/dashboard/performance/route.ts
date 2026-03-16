@@ -308,7 +308,17 @@ export async function GET(request: Request) {
     allEmps.sort((a, b) => b.opp - a.opp);
 
     // --- PRE-SELLERS: fetch done activities count from Pipedrive ---
-    const pvActivityCounts = new Map<string, number>(); // normalized name -> done count
+    // Activity type categorization
+    // Ligações: call, chamada_atendida, chamada_nao_atendida
+    const CALL_TYPES = new Set(["call", "chamada_atendida_api4com", "chamada_nao_atendida_api4c"]);
+    // Mensagens: mensagem, email, whatsapp, szi-*, mensagem_respondida/nao_respondida
+    const MSG_TYPES = new Set(["mensagem", "email", "whatsapp_chat", "mensagem_respondida", "mensagem_nao_respondida",
+      "szi___primeiro_contato", "szi___follow_up_contato", "szi___feedback", "szi___mensagem_parceiro", "szi___falta_info", "szi___pre_proposta"]);
+    // Reuniões: reuniao, meeting, no_show, apresentacao_contrato
+    const MEETING_TYPES = new Set(["reuniao", "meeting", "no_show", "reuniao_apresentacao_contr", "reuniao_avaliacao"]);
+
+    type ActCounts = { total: number; ligacoes: number; mensagens: number; reunioes: number };
+    const pvActivityCounts = new Map<string, ActCounts>();
     try {
       const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
       if (srvKey) {
@@ -316,25 +326,29 @@ export async function GET(request: Request) {
         const { data: tokenData } = await srvClient.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" });
         const pipToken = typeof tokenData === "string" ? tokenData : "";
         if (pipToken) {
-          // Get PV user IDs from config
           const { data: pvConfig } = await srvClient.from("config_pre_vendedores").select("user_id, user_name");
           const startDate = cutoff ? new Date(cutoff).toISOString().substring(0, 10) : "2020-01-01";
           const endDate = new Date().toISOString().substring(0, 10);
 
-          // Fetch done activities count per PV in parallel
           const pvFetches = (pvConfig || []).map(async (pv: { user_id: number; user_name: string }) => {
-            let total = 0;
+            const counts: ActCounts = { total: 0, ligacoes: 0, mensagens: 0, reunioes: 0 };
             let start = 0;
             while (true) {
               const url = `https://seazone-fd92b9.pipedrive.com/api/v1/activities?api_token=${pipToken}&user_id=${pv.user_id}&done=1&start_date=${startDate}&end_date=${endDate}&limit=500&start=${start}`;
               const res = await fetch(url);
               const data = await res.json();
               const items = data?.data || [];
-              total += items.length;
+              for (const act of items) {
+                counts.total++;
+                const key = act.key_string || act.type || "";
+                if (CALL_TYPES.has(key)) counts.ligacoes++;
+                else if (MSG_TYPES.has(key)) counts.mensagens++;
+                else if (MEETING_TYPES.has(key)) counts.reunioes++;
+              }
               if (!data?.additional_data?.pagination?.more_items_in_collection) break;
               start += 500;
             }
-            pvActivityCounts.set(norm(pv.user_name), total);
+            pvActivityCounts.set(norm(pv.user_name), counts);
           });
           await Promise.all(pvFetches);
         }
@@ -378,7 +392,10 @@ export async function GET(request: Request) {
         oppToWon: rate(funnel.won, funnel.opp),
         mqlToWon: rate(funnel.won, funnel.mql),
         dealsReceived: funnel.mql,
-        dealsWithAction: pvActivityCounts.get(pvNorm) ?? dealsWithAction.length,
+        dealsWithAction: pvActivityCounts.get(pvNorm)?.total ?? dealsWithAction.length,
+        actLigacoes: pvActivityCounts.get(pvNorm)?.ligacoes ?? 0,
+        actMensagens: pvActivityCounts.get(pvNorm)?.mensagens ?? 0,
+        actReunioes: pvActivityCounts.get(pvNorm)?.reunioes ?? 0,
         avgResponseMin: responseTimes.length > 0 ? Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length) : 0,
         medianResponseMin: Math.round(median(responseTimes)),
         byEmp: buildByEmp(pvFunnelDeals),
@@ -407,7 +424,10 @@ export async function GET(request: Request) {
         oppToWon: rate(funnel.won, funnel.opp),
         mqlToWon: rate(funnel.won, funnel.mql),
         dealsReceived: funnel.mql,
-        dealsWithAction: funnel.sql,
+        dealsWithAction: 0,
+        actLigacoes: 0,
+        actMensagens: 0,
+        actReunioes: 0,
         avgResponseMin: 0,
         medianResponseMin: 0,
         byEmp: buildByEmp(sqEmpDeals),
