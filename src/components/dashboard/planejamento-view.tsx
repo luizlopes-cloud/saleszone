@@ -187,11 +187,12 @@ function RecommendationTag({ row }: { row: PlanejamentoEmpRow }) {
   return <Tag color={T.cinza600}>Manter</Tag>;
 }
 
-function SummaryCard({ label, currentValue, histValue, format }: {
+function SummaryCard({ label, currentValue, histValue, format, periodLabel }: {
   label: string;
   currentValue: number;
   histValue: number;
   format: "number" | "money" | "pct";
+  periodLabel?: string;
 }) {
   const fmtFn = format === "money" ? fmtMoney : format === "pct" ? fmtPct : fmt;
   return (
@@ -220,7 +221,7 @@ function SummaryCard({ label, currentValue, histValue, format }: {
         )}
       </div>
       <div style={{ fontSize: "10px", color: T.cinza400, marginTop: "2px" }}>
-        Total 12m: {fmtFn(histValue)}
+        {periodLabel || "Total 12m"}: {fmtFn(histValue)}
       </div>
     </div>
   );
@@ -984,6 +985,22 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange }: Plan
 
   const tc = filteredTotals.current;
   const th = filteredTotals.historical;
+  // Combined: full selected period (current month + historical)
+  const tCombined = useMemo(() => {
+    const leads = tc.leads + th.leads;
+    const mql = tc.mql + th.mql;
+    const sql = tc.sql + th.sql;
+    const opp = tc.opp + th.opp;
+    const won = tc.won + th.won;
+    const spend = Math.round((tc.spend + th.spend) * 100) / 100;
+    const r = (n: number, d: number) => d > 0 ? Math.round((n / d) * 10000) / 10000 : 0;
+    const c = (sp: number, d: number) => d > 0 ? Math.round((sp / d) * 100) / 100 : 0;
+    return {
+      leads, mql, sql, opp, won, spend,
+      cpl: c(spend, leads), cmql: c(spend, mql), copp: c(spend, opp), cpw: c(spend, won),
+      mqlToSql: r(sql, mql), sqlToOpp: r(opp, sql), oppToWon: r(won, opp),
+    };
+  }, [tc, th]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
@@ -1012,12 +1029,12 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange }: Plan
         </select>
       </div>
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-        <SummaryCard label="Investimento Total" currentValue={tc.spend} histValue={th.spend} format="money" />
-        <SummaryCard label="WON Total" currentValue={tc.won} histValue={th.won} format="number" />
-        <SummaryCard label="CPW Médio" currentValue={tc.cpw} histValue={th.cpw} format="money" />
-        <SummaryCard label="MQL→SQL" currentValue={tc.mqlToSql} histValue={th.mqlToSql} format="pct" />
-        <SummaryCard label="SQL→OPP" currentValue={tc.sqlToOpp} histValue={th.sqlToOpp} format="pct" />
-        <SummaryCard label="OPP→WON" currentValue={tc.oppToWon} histValue={th.oppToWon} format="pct" />
+        <SummaryCard label="Investimento Total" currentValue={tCombined.spend} histValue={tc.spend} format="money" periodLabel={`Mês atual`} />
+        <SummaryCard label="WON Total" currentValue={tCombined.won} histValue={tc.won} format="number" periodLabel={`Mês atual`} />
+        <SummaryCard label="CPW Médio" currentValue={tCombined.cpw} histValue={tc.cpw} format="money" periodLabel={`Mês atual`} />
+        <SummaryCard label="MQL→SQL" currentValue={tCombined.mqlToSql} histValue={tc.mqlToSql} format="pct" periodLabel={`Mês atual`} />
+        <SummaryCard label="SQL→OPP" currentValue={tCombined.sqlToOpp} histValue={tc.sqlToOpp} format="pct" periodLabel={`Mês atual`} />
+        <SummaryCard label="OPP→WON" currentValue={tCombined.oppToWon} histValue={tc.oppToWon} format="pct" periodLabel={`Mês atual`} />
       </div>
 
       {/* Tabela — somente conversão histórica (média mensal) */}
