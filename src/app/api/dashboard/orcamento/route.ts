@@ -324,27 +324,48 @@ export async function GET() {
       };
     });
 
-    // ===== Log: detect when real daily spend ≈ recommended budget =====
+    // ===== Log: detect when real daily spend matches recommended budget exactly =====
     const today = now.toISOString().split("T")[0];
-    const logInserts: Array<{ date: string; empreendimento: string; squad_id: number; budget_recomendado: number; budget_real: number; explicacao: string }> = [];
+    const logInserts: Array<{ date: string; empreendimento: string; squad_id: number; budget_recomendado: number; budget_real: number; tipo: string; explicacao: string }> = [];
 
     for (const sq of squadsBreakdown) {
       for (const emp of sq.empreendimentos) {
         const rec = emp.budgetRecomendado || 0;
         const real = emp.gastoDiario;
         if (rec <= 0 || real <= 0) continue;
-        // Match if within 25% tolerance
-        const ratio = real / rec;
-        if (ratio >= 0.75 && ratio <= 1.25) {
-          logInserts.push({
-            date: today,
-            empreendimento: emp.emp,
-            squad_id: sq.id,
-            budget_recomendado: rec,
-            budget_real: Math.round(real),
-            explicacao: emp.budgetExplicacao || "",
-          });
+        // Only log if values match exactly (rounded to integer)
+        if (Math.round(real) !== Math.round(rec)) continue;
+
+        // Determine tipo based on delta vs previous spend
+        let tipo: string;
+        const delta = rec - real;
+        if (emp.campaignsActive === 0) {
+          tipo = "Escalar"; // was paused, now active
+        } else if (delta > real * 0.05) {
+          tipo = "Escalar";
+        } else if (delta < -real * 0.05) {
+          tipo = "Reduzir";
+        } else {
+          // Check if recommendation was to optimize (CPW above avg) or maintain
+          const expl = (emp.budgetExplicacao || "").toLowerCase();
+          if (expl.includes("acima da média") || expl.includes("reduzir")) {
+            tipo = "Otimizar";
+          } else if (expl.includes("escalar") || expl.includes("melhor")) {
+            tipo = "Escalar";
+          } else {
+            tipo = "Manter";
+          }
         }
+
+        logInserts.push({
+          date: today,
+          empreendimento: emp.emp,
+          squad_id: sq.id,
+          budget_recomendado: rec,
+          budget_real: Math.round(real),
+          tipo,
+          explicacao: emp.budgetExplicacao || "",
+        });
       }
     }
 
@@ -367,6 +388,7 @@ export async function GET() {
       squadId: r.squad_id as number,
       budgetRecomendado: Number(r.budget_recomendado),
       budgetReal: Number(r.budget_real),
+      tipo: (r.tipo as OrcamentoLogEntry["tipo"]) || "Manter",
       explicacao: r.explicacao as string,
     }));
 

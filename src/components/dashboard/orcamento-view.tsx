@@ -378,7 +378,7 @@ export function OrcamentoView({ data, loading, onBudgetSave }: OrcamentoViewProp
           <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}` }}>
             <span style={{ fontSize: "13px", fontWeight: 700, color: T.fg }}>Log de Alterações</span>
             <span style={{ fontSize: "11px", color: T.mutedFg, marginLeft: "8px" }}>
-              Registrado quando o gasto diário real confirma o budget recomendado (±25%)
+              Registrado quando o gasto diário real confirma o budget recomendado
             </span>
           </div>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -386,23 +386,48 @@ export function OrcamentoView({ data, loading, onBudgetSave }: OrcamentoViewProp
               <tr>
                 <TH>Data</TH>
                 <TH>Empreendimento</TH>
+                <TH>Tipo</TH>
                 <TH right>Budget Recom.</TH>
                 <TH right>Gasto Real</TH>
                 <TH>Motivo</TH>
               </tr>
             </thead>
             <tbody>
-              {data.log.map((entry, i) => (
-                <tr key={`log-${i}`} style={i % 2 === 0 ? {} : { backgroundColor: T.cinza50 }}>
-                  <td style={{ ...cellStyle, fontSize: "12px", whiteSpace: "nowrap" }}>
-                    {new Date(entry.date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
-                  </td>
-                  <td style={{ ...cellStyle, fontSize: "12px" }}>{entry.empreendimento}</td>
-                  <td style={{ ...cellRightStyle, fontSize: "12px" }}>{formatBRL(entry.budgetRecomendado)}</td>
-                  <td style={{ ...cellRightStyle, fontSize: "12px" }}>{formatBRL(entry.budgetReal)}</td>
-                  <td style={{ ...cellStyle, fontSize: "11px", color: T.cinza600, maxWidth: "400px" }}>{entry.explicacao}</td>
-                </tr>
-              ))}
+              {data.log.map((entry, i) => {
+                const tipoColors: Record<string, { bg: string; fg: string }> = {
+                  Escalar: { bg: T.verde50, fg: T.verde600 },
+                  Manter: { bg: T.cinza100, fg: T.cinza700 },
+                  Otimizar: { bg: "#FFF7ED", fg: T.laranja500 },
+                  Reduzir: { bg: T.vermelho50, fg: T.destructive },
+                };
+                const tc = tipoColors[entry.tipo] || tipoColors.Manter;
+                return (
+                  <tr key={`log-${i}`} style={i % 2 === 0 ? {} : { backgroundColor: T.cinza50 }}>
+                    <td style={{ ...cellStyle, fontSize: "12px", whiteSpace: "nowrap" }}>
+                      {new Date(entry.date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}
+                    </td>
+                    <td style={{ ...cellStyle, fontSize: "12px" }}>{entry.empreendimento}</td>
+                    <td style={cellStyle}>
+                      <span style={{
+                        display: "inline-block",
+                        padding: "2px 8px",
+                        borderRadius: "4px",
+                        fontSize: "10px",
+                        fontWeight: 600,
+                        backgroundColor: tc.bg,
+                        color: tc.fg,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.03em",
+                      }}>
+                        {entry.tipo}
+                      </span>
+                    </td>
+                    <td style={{ ...cellRightStyle, fontSize: "12px" }}>{formatBRL(entry.budgetRecomendado)}</td>
+                    <td style={{ ...cellRightStyle, fontSize: "12px" }}>{formatBRL(entry.budgetReal)}</td>
+                    <td style={{ ...cellStyle, fontSize: "11px", color: T.cinza600, maxWidth: "400px" }}>{entry.explicacao}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

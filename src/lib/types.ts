@@ -362,6 +362,7 @@ export interface OrcamentoLogEntry {
   squadId: number;
   budgetRecomendado: number;
   budgetReal: number;
+  tipo: "Escalar" | "Manter" | "Otimizar" | "Reduzir";
   explicacao: string;
 }
 
@@ -427,6 +428,13 @@ export interface PerformanceEmpBreakdown {
   mqlToWon: number;
 }
 
+export interface PerformanceTimePoint {
+  month: string; // YYYY-MM
+  opp: number;
+  won: number;
+  oppToWon: number;
+}
+
 export interface PerformancePersonRow {
   name: string;
   role: "closer" | "preseller" | "marketing";
@@ -440,6 +448,7 @@ export interface PerformancePersonRow {
   oppToWon: number;
   mqlToWon: number;
   byEmp: PerformanceEmpBreakdown[];
+  timeSeries?: PerformanceTimePoint[];
 }
 
 export interface PerformancePresellerRow extends PerformancePersonRow {
@@ -464,6 +473,7 @@ export interface PerformanceData {
   allPresellers: PerformancePresellerRow[];
   allMarketing: PerformancePersonRow[];
   grandTotals: { mql: number; sql: number; opp: number; won: number; mqlToSql: number; sqlToOpp: number; oppToWon: number; mqlToWon: number };
+  consolidatedTimeSeries?: PerformanceTimePoint[];
 }
 
 // Pré-Venda — Tempo de resposta dos pré-vendedores
