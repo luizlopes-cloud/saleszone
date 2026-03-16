@@ -362,9 +362,9 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
                     <td style={{ ...tdStyle, textAlign: "center" }}><RateBadge value={p.sqlToOpp} thresholds={[30, 50]} /></td>
                     <td style={{ ...tdStyle, textAlign: "center" }}><RateBadge value={p.oppToWon} thresholds={[15, 25]} /></td>
                     <td style={{ ...tdStyle, textAlign: "center" }}><RateBadge value={p.mqlToWon} thresholds={[3, 8]} /></td>
-                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.fg }}>{isMia ? "—" : p.actLigacoes.toLocaleString("pt-BR")}</td>
-                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.fg }}>{isMia ? "—" : p.actMensagens.toLocaleString("pt-BR")}</td>
-                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.fg }}>{isMia ? "—" : p.actReunioes.toLocaleString("pt-BR")}</td>
+                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.fg }}>{isMia ? "—" : (p.actLigacoes || 0).toLocaleString("pt-BR")}</td>
+                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.fg }}>{isMia ? "—" : (p.actMensagens || 0).toLocaleString("pt-BR")}</td>
+                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.fg }}>{isMia ? "—" : (p.actReunioes || 0).toLocaleString("pt-BR")}</td>
                     <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.laranja500 }}>{isMia ? "—" : formatMinutes(p.avgResponseMin)}</td>
                     <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.laranja500 }}>{isMia ? "—" : formatMinutes(p.medianResponseMin)}</td>
                   </tr>
