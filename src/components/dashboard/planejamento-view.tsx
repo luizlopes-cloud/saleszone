@@ -449,6 +449,7 @@ function HistoricoCampanhasSection() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filtroEmp, setFiltroEmp] = useState("todos");
   const [filtroStatus, setFiltroStatus] = useState<"todos" | "active" | "paused">("todos");
+  const [ocultarCpwZero, setOcultarCpwZero] = useState(false);
   const [visibleCols, setVisibleCols] = useState<Set<ColGroup>>(new Set(DEFAULT_VISIBLE));
   const [showColMenu, setShowColMenu] = useState(false);
   const [expandedCamps, setExpandedCamps] = useState<Set<string>>(new Set());
@@ -524,7 +525,8 @@ function HistoricoCampanhasSection() {
   }, []);
 
   const campaigns = useMemo(() => {
-    const rows = aggregate(filteredAds, "campaignName");
+    let rows = aggregate(filteredAds, "campaignName");
+    if (ocultarCpwZero) rows = rows.filter(r => r.cpw > 0);
     const dir = sortDir === "asc" ? 1 : -1;
     return rows.sort((a, b) => {
       const aVal = a[sortKey as keyof AggRow];
@@ -673,6 +675,15 @@ function HistoricoCampanhasSection() {
                   </div>
                 )}
               </div>
+              <label style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "12px", color: T.cinza600, cursor: "pointer", userSelect: "none" }}>
+                <input
+                  type="checkbox"
+                  checked={ocultarCpwZero}
+                  onChange={() => setOcultarCpwZero(p => !p)}
+                  style={{ accentColor: T.primary }}
+                />
+                Somente com WON
+              </label>
               <span style={{ fontSize: "11px", color: T.cinza400, marginLeft: "auto" }}>
                 {campaigns.length} campanhas | {filteredAds.length} ads | Gasto total: {fmtMoney(totals.spend)}
               </span>
