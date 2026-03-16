@@ -442,6 +442,7 @@ export default function AdminPage() {
                     borderRadius: "8px",
                     border: `1px solid ${T.border}`,
                     fontSize: "14px",
+                    color: T.fg,
                     outline: "none",
                     boxSizing: "border-box",
                   }}
@@ -460,6 +461,7 @@ export default function AdminPage() {
                     borderRadius: "8px",
                     border: `1px solid ${T.border}`,
                     fontSize: "14px",
+                    color: T.fg,
                     outline: "none",
                     boxSizing: "border-box",
                   }}
@@ -476,6 +478,7 @@ export default function AdminPage() {
                     borderRadius: "8px",
                     border: `1px solid ${T.border}`,
                     fontSize: "14px",
+                    color: T.fg,
                     outline: "none",
                     backgroundColor: T.bg,
                     boxSizing: "border-box",
