@@ -247,10 +247,6 @@ function PresellerEmpRows({ byEmp }: { byEmp: PerformanceEmpBreakdown[] }) {
           <td colSpan={3} style={{ ...subRowStyle, paddingLeft: "36px", fontStyle: "italic" }}>{e.emp}</td>
           {/* Recebidos = mql for this emp */}
           <td style={{ ...subRowStyle, textAlign: "center" }}>{e.mql}</td>
-          {/* Com Ação, Tempo Médio, Mediana — N/A at emp level */}
-          <td style={{ ...subRowStyle, textAlign: "center", color: T.cinza400 }}>—</td>
-          <td style={{ ...subRowStyle, textAlign: "center", color: T.cinza400 }}>—</td>
-          <td style={{ ...subRowStyle, textAlign: "center", color: T.cinza400 }}>—</td>
           {/* SQL, OPP, WON */}
           <td style={{ ...subRowStyle, textAlign: "center" }}>{e.sql}</td>
           <td style={{ ...subRowStyle, textAlign: "center" }}>{e.opp}</td>
@@ -260,6 +256,8 @@ function PresellerEmpRows({ byEmp }: { byEmp: PerformanceEmpBreakdown[] }) {
           <td style={{ ...subRowStyle, textAlign: "center" }}><RateBadge value={e.sqlToOpp} thresholds={[30, 50]} /></td>
           <td style={{ ...subRowStyle, textAlign: "center" }}><RateBadge value={e.oppToWon} thresholds={[15, 25]} /></td>
           <td style={{ ...subRowStyle, textAlign: "center" }}><RateBadge value={e.mqlToWon} thresholds={[3, 8]} /></td>
+          <td style={{ ...subRowStyle, textAlign: "center", backgroundColor: "#FFFBF5", color: T.cinza400 }}>—</td>
+          <td style={{ ...subRowStyle, textAlign: "center", backgroundColor: "#FFFBF5", color: T.cinza400 }}>—</td>
         </tr>
       ))}
     </>
@@ -314,9 +312,6 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
               <th style={{ ...thStyle, textAlign: "center", minWidth: 50 }}>Papel</th>
               <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>Squad</th>
               <th style={{ ...thStyle, textAlign: "center" }}>Recebidos</th>
-              <th style={{ ...thStyle, textAlign: "center" }}>Com Ação</th>
-              <th style={{ ...thStyle, textAlign: "center" }}>Tempo Médio</th>
-              <th style={{ ...thStyle, textAlign: "center" }}>Mediana</th>
               <th style={{ ...thStyle, textAlign: "center" }}>→SQL</th>
               <th style={{ ...thStyle, textAlign: "center" }}>→OPP</th>
               <th style={{ ...thStyle, textAlign: "center" }}>→WON</th>
@@ -324,6 +319,8 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
               <th style={{ ...thStyle, textAlign: "center" }}>SQL→OPP</th>
               <th style={{ ...thStyle, textAlign: "center" }}>OPP→WON</th>
               <th style={{ ...thStyle, textAlign: "center" }}>MQL→WON</th>
+              <th style={{ ...thStyle, textAlign: "center", backgroundColor: "#FFF7ED", borderBottom: `2px solid ${T.laranja500}` }}>Tempo Médio</th>
+              <th style={{ ...thStyle, textAlign: "center", backgroundColor: "#FFF7ED", borderBottom: `2px solid ${T.laranja500}` }}>Mediana</th>
             </tr>
           </thead>
           <tbody>
@@ -352,9 +349,6 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
                     <td style={{ ...tdStyle, textAlign: "center", fontSize: "10px", color: T.cinza600 }}>{isMia ? "MIA" : "PV"}</td>
                     <td style={{ ...tdStyle, textAlign: "center", fontSize: "11px", color: T.cinza600 }}>{sqName}</td>
                     <td style={{ ...tdStyle, textAlign: "center" }}>{p.dealsReceived}</td>
-                    <td style={{ ...tdStyle, textAlign: "center" }}>{isMia ? "—" : p.dealsWithAction}</td>
-                    <td style={{ ...tdStyle, textAlign: "center", color: isMia ? T.cinza400 : undefined }}>{isMia ? "—" : formatMinutes(p.avgResponseMin)}</td>
-                    <td style={{ ...tdStyle, textAlign: "center", color: isMia ? T.cinza400 : undefined }}>{isMia ? "—" : formatMinutes(p.medianResponseMin)}</td>
                     <td style={{ ...tdStyle, textAlign: "center" }}>{p.sql}</td>
                     <td style={{ ...tdStyle, textAlign: "center" }}>{p.opp}</td>
                     <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, color: T.verde600 }}>{p.won}</td>
@@ -362,6 +356,8 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
                     <td style={{ ...tdStyle, textAlign: "center" }}><RateBadge value={p.sqlToOpp} thresholds={[30, 50]} /></td>
                     <td style={{ ...tdStyle, textAlign: "center" }}><RateBadge value={p.oppToWon} thresholds={[15, 25]} /></td>
                     <td style={{ ...tdStyle, textAlign: "center" }}><RateBadge value={p.mqlToWon} thresholds={[3, 8]} /></td>
+                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.laranja500 }}>{isMia ? "—" : formatMinutes(p.avgResponseMin)}</td>
+                    <td style={{ ...tdStyle, textAlign: "center", backgroundColor: "#FFFBF5", fontWeight: 600, color: isMia ? T.cinza400 : T.laranja500 }}>{isMia ? "—" : formatMinutes(p.medianResponseMin)}</td>
                   </tr>
                   {isOpen && hasEmp && <PresellerEmpRows byEmp={p.byEmp} />}
                 </React.Fragment>
