@@ -153,10 +153,13 @@ export default function Dashboard() {
     }
   }, []);
 
-  const fetchPlanej = useCallback(async () => {
+  const [planejDays, setPlanejDays] = useState(0);
+
+  const fetchPlanej = useCallback(async (days: number = 0) => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/planejamento");
+      const params = days > 0 ? `?days=${days}` : "";
+      const res = await fetch(`/api/dashboard/planejamento${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setPlanejData(await res.json());
     } catch (err) {
@@ -224,7 +227,7 @@ export default function Dashboard() {
     } else if (mainView === "resultados" && !funilData) {
       fetchFunil("all");
     } else if (mainView === "planejamento" && !planejData) {
-      fetchPlanej();
+      fetchPlanej(planejDays);
     } else if (mainView === "orcamento" && !orcData) {
       fetchOrc();
     }
@@ -256,7 +259,7 @@ export default function Dashboard() {
     else if (mainView === "diagnostico-mkt") await fetchCamp(mediaFilter);
     else if (mainView === "presales") await fetchPresales();
     else if (mainView === "resultados") await fetchFunil("all");
-    else if (mainView === "planejamento") await fetchPlanej();
+    else if (mainView === "planejamento") await fetchPlanej(planejDays);
     else if (mainView === "orcamento") await fetchOrc();
   };
 
@@ -346,7 +349,7 @@ export default function Dashboard() {
         {mainView === "presales" && <PresalesView data={presalesData} loading={loading} />}
         {mainView === "resultados" && <ResultadosView data={funilData} loading={loading} />}
         {mainView === "diagnostico-mkt" && <DiagnosticoMktView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} />}
-        {mainView === "planejamento" && <PlanejamentoView data={planejData} loading={loading} />}
+        {mainView === "planejamento" && <PlanejamentoView data={planejData} loading={loading} daysBack={planejDays} onDaysChange={(d) => { setPlanejDays(d); setPlanejData(null); fetchPlanej(d); }} />}
         {mainView === "orcamento" && <OrcamentoView data={orcData} loading={loading} onBudgetSave={handleBudgetSave} />}
         {mainView === "venda" && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>

@@ -44,28 +44,43 @@ for (const sq of SQUADS) {
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url);
+    const daysBack = parseInt(searchParams.get("days") || "0", 10);
+
     const now = new Date();
     const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${curMonth}-01`;
 
+    // days: -1 = no date filter, 0 = default 12 months, >0 = N days
+    const metaCutoffDate = daysBack > 0
+      ? new Date(now.getTime() - daysBack * 86400000).toISOString().substring(0, 10)
+      : null;
+
+    const rpcParams = daysBack !== 0
+      ? { months_back: 12, days_back: daysBack }
+      : { months_back: 12 };
+
     // Parallel queries: RPC for deal counts + Meta Ads for spend/leads
+    // When days filter is active, Meta Ads historical query also uses the cutoff
+    const histMetaQuery = supabase
+      .from("squad_meta_ads")
+      .select("ad_id, empreendimento, leads_month, spend_month, snapshot_date")
+      .lt("snapshot_date", startDate);
+    if (metaCutoffDate) histMetaQuery.gte("snapshot_date", metaCutoffDate);
+
     const [countsRes, curMetaRes, histMetaRes] = await Promise.all([
-      // Deal counts from squad_deals via RPC (stage-based, all months)
-      supabase.rpc("get_planejamento_counts", { months_back: 12 }),
+      // Deal counts from squad_deals via RPC (stage-based)
+      supabase.rpc("get_planejamento_counts", rpcParams),
       // Current month Meta Ads (max spend_month/leads_month per ad)
       supabase
         .from("squad_meta_ads")
         .select("ad_id, empreendimento, leads_month, spend_month")
         .gte("snapshot_date", startDate)
         .range(0, 49999),
-      // Historical Meta Ads: all months before current
-      supabase
-        .from("squad_meta_ads")
-        .select("ad_id, empreendimento, leads_month, spend_month, snapshot_date")
-        .lt("snapshot_date", startDate)
-        .range(0, 49999),
+      // Historical Meta Ads
+      histMetaQuery.range(0, 49999),
     ]);
 
     if (countsRes.error) throw new Error(`RPC get_planejamento_counts: ${countsRes.error.message}`);
