@@ -6,8 +6,8 @@ import { T } from "@/lib/constants";
 import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 
 const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento"] as const;
-const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas"] as const;
-const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas"] as const;
+const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas", "ociosidade"] as const;
+const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento"] as const;
 const RESULTADOS_VIEWS = ["resultados", "acompanhamento"] as const;
 
 const SeazoneIcon = () => (
@@ -248,13 +248,14 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
                 borderRadius: "8px",
                 boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
                 zIndex: 50,
-                minWidth: "200px",
+                minWidth: "220px",
                 padding: "4px",
               }}
             >
               {([
-                { key: "presales", label: "Diagnóstico Pré-Venda", icon: <Timer size={13} /> },
                 { key: "perf-prevendas", label: "Perf. Pré-Vendas", icon: <BarChart3 size={13} /> },
+                { key: "presales", label: "Diagnóstico Pré-Venda", icon: <Timer size={13} /> },
+                { key: "balanceamento", label: "Régua de Qualificação", icon: <Scale size={13} /> },
               ] as const).map((item) => (
                 <button
                   key={item.key}
@@ -283,26 +284,6 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
             </div>
           )}
         </div>
-        <button
-          onClick={() => setMainView("ociosidade")}
-          style={{
-            ...viewBtnStyle,
-            backgroundColor: mainView === "ociosidade" ? T.fg : "transparent",
-            color: mainView === "ociosidade" ? "#FFF" : T.cinza600,
-          }}
-        >
-          <Clock size={12} /> Ociosidade
-        </button>
-        <button
-          onClick={() => setMainView("balanceamento")}
-          style={{
-            ...viewBtnStyle,
-            backgroundColor: mainView === "balanceamento" ? T.fg : "transparent",
-            color: mainView === "balanceamento" ? "#FFF" : T.cinza600,
-          }}
-        >
-          <Scale size={12} /> Balanceamento
-        </button>
         <div ref={vendasDropdownRef} style={{ position: "relative" }}>
           <button
             onClick={() => setVendasDropdownOpen((v) => !v)}
@@ -334,6 +315,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
                 { key: "perf-vendas", label: "Perf. Vendas", icon: <ShoppingCart size={13} /> },
                 { key: "baseline", label: "Base-Line", icon: <BarChart3 size={13} /> },
                 { key: "diagnostico-vendas", label: "Diagnóstico Vendas", icon: <Activity size={13} /> },
+                { key: "ociosidade", label: "Ociosidade", icon: <Clock size={13} /> },
               ] as const).map((item) => (
                 <button
                   key={item.key}
