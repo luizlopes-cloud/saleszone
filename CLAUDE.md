@@ -299,6 +299,8 @@ Componente reutilizavel `MediaFilterToggle` em `ui.tsx`. Type `MediaFilter` cent
 - **CUIDADO Vault + JSON:** ao inserir JSON com `\n` (como private_key da SA), usar `convert_from(decode('BASE64_STRING', 'base64'), 'UTF8')` — single quotes e dollar quoting corrompem as newlines
 - Edge Functions tem limite de ~150MB memoria — por isso os 5 modos separados
 - `tsconfig.json` DEVE excluir `supabase/` (Deno URL imports quebram build Next.js no Vercel)
+- **LIMITE 1000 ROWS:** Supabase retorna no maximo 1000 rows por request (queries `.from()` E `.rpc()`). Para tabelas/RPCs com mais de 1000 rows, DEVE paginar com `.range(offset, offset+999)` em loop. Exemplo: `get_historico_campanhas` retorna 1776 ads — sem paginacao, 776 ads ficam de fora silenciosamente (sem erro). `.limit(N)` NAO funciona para aumentar alem de 1000 em RPCs — usar `.range()` obrigatoriamente
+- **RPCs inexistentes:** `get_ad_funnel_counts` e `get_ad_won_cross_emp` NAO existem no banco (planejadas mas nunca criadas). Chamar RPCs inexistentes nao da throw — o erro e silenciado se checado com `if (res.error) console.warn(...)`. Sempre verificar se a RPC existe nas migrations antes de usa-la
 
 ## Navegacao Header
 Ordem dos botoes: `Resultados | Meta Ads ▼ | Alinhamento Squad | Acompanhamento | Pré-Venda | Ociosidade | Balanceamento | Venda`
@@ -354,11 +356,12 @@ O botao envia: `["dashboard-light", "meta-ads", "deals-light", "calendar", "pres
 
 ## Historico de Campanhas (dentro de Planejamento)
 - Secao sempre aberta na aba Planejamento, fetch automatico ao carregar
-- **Busca dados via RPC** `get_historico_campanhas` — agrega snapshots de `squad_meta_ads` por ad_id (MAX spend/leads/impressions/clicks lifetime)
-- Funil (MQL/SQL/OPP/WON) via `get_planejamento_counts(-1, -1)` por empreendimento, distribuido proporcionalmente pelo spend share de cada ad
-- Enriquece com dados de funil (MQL/SQL/OPP/WON) via RPC `get_planejamento_counts(-1, -1)` — atribuicao proporcional por spend share dentro do empreendimento (nao existe link direto ad→deal)
+- **Busca dados via RPC** `get_historico_campanhas` — agrega snapshots de `squad_meta_ads` por ad_id (MAX spend/leads/impressions/clicks lifetime). RPC retorna ~1776 rows, DEVE ser paginada com `.range()` (limite 1000 por request)
+- Funil (MQL/SQL/OPP/WON) via `get_planejamento_counts(-1, -1)` por empreendimento, distribuido proporcionalmente pelo spend share de cada ad (nao existe link direto ad→deal)
+- **Status ativo/pausado:** determinado pelo snapshot mais recente — se o ad aparece no ultimo snapshot com `effective_status=ACTIVE`, e ativo. NAO usar o `effective_status` retornado pela RPC (que pega o ultimo snapshot POR AD, podendo ser de meses atras quando ja estava pausado)
 - **Drill-down 3 niveis:** Campanha → Conjunto de Anuncio → Criativo (clique para expandir)
-- Filtro por empreendimento, sort em todas as colunas, totais refletindo filtros
+- **Filtros:** empreendimento (todos / em comercializacao / individual), status (todas / ativas / pausadas — filtra no nivel da campanha apos agregacao), colunas (Conversoes / Custos / Midia), "Somente com WON"
+- Sort em todas as colunas, totais refletindo filtros
 - CPL com color coding: verde = abaixo da media, vermelho = acima
 - Campanhas sem match de empreendimento aparecem com empreendimento vazio
 
