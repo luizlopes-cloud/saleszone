@@ -467,13 +467,46 @@ export interface PerformanceSquadSummary {
   totals: { mql: number; sql: number; opp: number; won: number; mqlToSql: number; sqlToOpp: number; oppToWon: number; mqlToWon: number };
 }
 
+export interface PerformanceEmpRow {
+  emp: string;
+  squadId: number;
+  opp: number;
+  won: number;
+  oppToWon: number;
+  timeSeries?: PerformanceTimePoint[];
+}
+
 export interface PerformanceData {
   squads: PerformanceSquadSummary[];
   allClosers: PerformancePersonRow[];
   allPresellers: PerformancePresellerRow[];
   allMarketing: PerformancePersonRow[];
+  allEmps: PerformanceEmpRow[];
   grandTotals: { mql: number; sql: number; opp: number; won: number; mqlToSql: number; sqlToOpp: number; oppToWon: number; mqlToWon: number };
   consolidatedTimeSeries?: PerformanceTimePoint[];
+}
+
+// Base-Line — Análise Cohort de Vendedores
+export interface BaselineMonthData {
+  monthOffset: number;
+  opp: number;
+  won: number;
+  oppToWon: number;
+  wonAccumulated: number;
+}
+
+export interface BaselineCloserData {
+  name: string;
+  squadId: number;
+  monthZero: string;
+  monthsActive: number;
+  months: BaselineMonthData[];
+  totals: { opp: number; won: number; oppToWon: number };
+}
+
+export interface BaselineData {
+  closers: BaselineCloserData[];
+  maxMonthOffset: number;
 }
 
 // Pré-Venda — Tempo de resposta dos pré-vendedores
