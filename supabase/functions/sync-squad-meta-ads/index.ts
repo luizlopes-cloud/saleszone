@@ -92,6 +92,44 @@ async function fetchAllInsights(token, since, until, statuses = [
   }
   return allData;
 }
+// Fetch lifetime insights in quarterly windows to avoid "excessive rows" error for PAUSED ads
+async function fetchLifetimeInWindows(token, since, until, statuses) {
+  const windows = [];
+  let cur = new Date(since + "T00:00:00Z");
+  const end = new Date(until + "T00:00:00Z");
+  while (cur <= end) {
+    const wEnd = new Date(cur);
+    wEnd.setUTCMonth(wEnd.getUTCMonth() + 1);
+    wEnd.setUTCDate(wEnd.getUTCDate() - 1);
+    const actualEnd = wEnd > end ? end : wEnd;
+    windows.push({ since: cur.toISOString().substring(0, 10), until: actualEnd.toISOString().substring(0, 10) });
+    cur = new Date(actualEnd);
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  // Fetch sequentially to avoid rate limit
+  const adMap = new Map();
+  for (const w of windows) {
+    const data = await fetchAllInsights(token, w.since, w.until, statuses);
+    for (const ins of data) {
+      const existing = adMap.get(ins.ad_id);
+      if (!existing) {
+        adMap.set(ins.ad_id, ins);
+      } else {
+        // Sum metrics, keep latest names
+        existing.impressions = String((parseInt(existing.impressions, 10) || 0) + (parseInt(ins.impressions, 10) || 0));
+        existing.clicks = String((parseInt(existing.clicks, 10) || 0) + (parseInt(ins.clicks, 10) || 0));
+        existing.spend = String(((parseFloat(existing.spend) || 0) + (parseFloat(ins.spend) || 0)).toFixed(2));
+        // Keep latest window's names and actions
+        existing.campaign_name = ins.campaign_name;
+        existing.adset_name = ins.adset_name;
+        existing.ad_name = ins.ad_name;
+        existing.actions = ins.actions;
+        existing.cost_per_action_type = ins.cost_per_action_type;
+      }
+    }
+  }
+  return Array.from(adMap.values());
+}
 const LEAD_ACTION_TYPE = "onsite_conversion.lead_grouped";
 function extractLeads(insight) {
   for (const a of insight.actions || []){
@@ -221,8 +259,8 @@ Deno.serve(async (req)=>{
       "CAMPAIGN_PAUSED",
       "ADSET_PAUSED"
     ];
-    // 3 chamadas paralelas: ACTIVE lifetime + ACTIVE month + PAUSED month
-    const [lifetimeInsights, monthActiveInsights, monthPausedInsights] = await Promise.all([
+    // ACTIVE lifetime (single call) + PAUSED lifetime (quarterly windows) + ACTIVE/PAUSED month
+    const [lifetimeActiveInsights, monthActiveInsights, monthPausedInsights] = await Promise.all([
       fetchAllInsights(metaToken, sinceLifetime, until, [
         "ACTIVE"
       ]),
@@ -231,17 +269,26 @@ Deno.serve(async (req)=>{
       ]),
       fetchAllInsights(metaToken, sinceMonth, until, PAUSED_STATUSES)
     ]);
-    console.log(`  lifetime(active): ${lifetimeInsights.length}, month(active): ${monthActiveInsights.length}, month(paused): ${monthPausedInsights.length}`);
-    // Track paused ad IDs for effective_status column
-    const pausedAdIds = new Set(monthPausedInsights.map((i)=>i.ad_id));
-    // Merge paused ads into lifetime (use month data as their lifetime since they're paused)
-    const activeAdIds = new Set(lifetimeInsights.map((i)=>i.ad_id));
-    for (const ins of monthPausedInsights){
+    // PAUSED lifetime fetched sequentially in quarterly windows to avoid "excessive rows" error
+    const lifetimePausedInsights = await fetchLifetimeInWindows(metaToken, sinceLifetime, until, PAUSED_STATUSES);
+    console.log(`  lifetime(active): ${lifetimeActiveInsights.length}, lifetime(paused): ${lifetimePausedInsights.length}, month(active): ${monthActiveInsights.length}, month(paused): ${monthPausedInsights.length}`);
+    // Merge all lifetime insights (active + paused, dedup by ad_id keeping active version)
+    const lifetimeInsights = [...lifetimeActiveInsights];
+    const activeAdIds = new Set(lifetimeActiveInsights.map((i)=>i.ad_id));
+    for (const ins of lifetimePausedInsights){
       if (!activeAdIds.has(ins.ad_id)) {
         lifetimeInsights.push(ins);
         activeAdIds.add(ins.ad_id);
       }
     }
+    // Track paused ad IDs for effective_status column
+    const pausedAdIds = new Set([
+      ...lifetimePausedInsights.map((i)=>i.ad_id),
+      ...monthPausedInsights.map((i)=>i.ad_id),
+    ]);
+    // Remove from paused set if currently active
+    for (const ins of lifetimeActiveInsights) pausedAdIds.delete(ins.ad_id);
+    for (const ins of monthActiveInsights) pausedAdIds.delete(ins.ad_id);
     // Month insights = active + paused
     const monthInsights = [
       ...monthActiveInsights,
