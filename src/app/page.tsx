@@ -49,6 +49,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     const supabase = createClient();
+    const sessionId = crypto.randomUUID();
+    let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+
     supabase.auth.getUser().then(({ data: { user: u } }) => {
       if (u) {
         setUser({
@@ -64,11 +67,17 @@ export default function Dashboard() {
           .then(({ data: profile }) => {
             if (profile) setUserRole(profile.role as UserRole);
           });
-        // Registrar acesso
+        // Registrar acesso com session_id
         const fullName = u.user_metadata?.full_name || u.user_metadata?.name || null;
-        Promise.resolve(supabase.rpc("log_user_access", { p_email: u.email, p_full_name: fullName })).catch(() => {});
+        Promise.resolve(supabase.rpc("log_user_access", { p_email: u.email, p_full_name: fullName, p_session_id: sessionId })).catch(() => {});
+        // Heartbeat a cada 3 minutos
+        heartbeatInterval = setInterval(() => {
+          Promise.resolve(supabase.rpc("update_session_heartbeat", { p_session_id: sessionId })).catch(() => {});
+        }, 3 * 60 * 1000);
       }
     });
+
+    return () => { if (heartbeatInterval) clearInterval(heartbeatInterval); };
   }, []);
 
   const handleLogout = async () => {

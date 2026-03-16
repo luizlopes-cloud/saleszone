@@ -10,7 +10,7 @@ export default function AdminPage() {
   const router = useRouter();
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [invitations, setInvitations] = useState<UserInvitation[]>([]);
-  const [analytics, setAnalytics] = useState<Array<{ email: string; full_name: string | null; total_accesses: number; last_access: string; first_access: string; accesses_last_7d: number; accesses_last_30d: number }>>([]);
+  const [analytics, setAnalytics] = useState<Array<{ email: string; full_name: string | null; total_accesses: number; last_access: string; first_access: string; accesses_last_7d: number; accesses_last_30d: number; avg_session_minutes: number | null; total_time_7d_minutes: number | null }>>([]);
   const [recentAccesses, setRecentAccesses] = useState<Array<{ email: string; full_name: string | null; accessed_at: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,6 +123,15 @@ export default function AdminPage() {
 
   const formatDate = (d: string) =>
     new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+
+  const formatDuration = (minutes: number): string => {
+    if (minutes < 1) return "<1min";
+    const h = Math.floor(minutes / 60);
+    const m = Math.round(minutes % 60);
+    if (h === 0) return `${m}min`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${m}min`;
+  };
 
   const roleBadge = (role: UserRole) => (
     <span
@@ -436,6 +445,8 @@ export default function AdminPage() {
                 <th style={{ ...thStyle, textAlign: "right" }}>Últimos 7d</th>
                 <th style={{ ...thStyle, textAlign: "right" }}>Últimos 30d</th>
                 <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Sessão Média</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>Tempo 7d</th>
                 <th style={thStyle}>Último Acesso</th>
                 <th style={thStyle}>Primeiro Acesso</th>
               </tr>
@@ -452,6 +463,12 @@ export default function AdminPage() {
                     {a.accesses_last_30d}
                   </td>
                   <td style={{ ...tdStyle, textAlign: "right" }}>{a.total_accesses}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", color: T.fg }}>
+                    {a.avg_session_minutes != null ? formatDuration(a.avg_session_minutes) : "—"}
+                  </td>
+                  <td style={{ ...tdStyle, textAlign: "right", fontSize: "12px", fontWeight: 600, color: T.teal600 }}>
+                    {a.total_time_7d_minutes != null ? formatDuration(a.total_time_7d_minutes) : "—"}
+                  </td>
                   <td style={{ ...tdStyle, color: T.mutedFg, fontSize: "12px" }}>
                     {new Date(a.last_access).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} às{" "}
                     {new Date(a.last_access).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
@@ -463,7 +480,7 @@ export default function AdminPage() {
               ))}
               {analytics.length === 0 && (
                 <tr>
-                  <td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: T.mutedFg }}>
+                  <td colSpan={9} style={{ ...tdStyle, textAlign: "center", color: T.mutedFg }}>
                     Nenhum acesso registrado ainda
                   </td>
                 </tr>
