@@ -7,6 +7,7 @@ import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 
 const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento"] as const;
 const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas"] as const;
+const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas"] as const;
 
 const SeazoneIcon = () => (
   <svg width="28" height="29" viewBox="0 0 48 49" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -36,6 +37,10 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
   const vendasDropdownRef = useRef<HTMLDivElement>(null);
   const isVendasView = (VENDAS_VIEWS as readonly string[]).includes(mainView);
 
+  const [preVendasDropdownOpen, setPreVendasDropdownOpen] = useState(false);
+  const preVendasDropdownRef = useRef<HTMLDivElement>(null);
+  const isPreVendasView = (PRE_VENDAS_VIEWS as readonly string[]).includes(mainView);
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (metaDropdownRef.current && !metaDropdownRef.current.contains(e.target as Node)) {
@@ -44,12 +49,15 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
       if (vendasDropdownRef.current && !vendasDropdownRef.current.contains(e.target as Node)) {
         setVendasDropdownOpen(false);
       }
+      if (preVendasDropdownRef.current && !preVendasDropdownRef.current.contains(e.target as Node)) {
+        setPreVendasDropdownOpen(false);
+      }
     }
-    if (metaDropdownOpen || vendasDropdownOpen) {
+    if (metaDropdownOpen || vendasDropdownOpen || preVendasDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
-  }, [metaDropdownOpen, vendasDropdownOpen]);
+  }, [metaDropdownOpen, vendasDropdownOpen, preVendasDropdownOpen]);
 
   return (
     <header
@@ -171,16 +179,64 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
         >
           <BarChart3 size={12} /> Acompanhamento
         </button>
-        <button
-          onClick={() => setMainView("presales")}
-          style={{
-            ...viewBtnStyle,
-            backgroundColor: mainView === "presales" ? T.fg : "transparent",
-            color: mainView === "presales" ? "#FFF" : T.cinza600,
-          }}
-        >
-          <Timer size={12} /> Pré-Venda
-        </button>
+        <div ref={preVendasDropdownRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setPreVendasDropdownOpen((v) => !v)}
+            style={{
+              ...viewBtnStyle,
+              backgroundColor: isPreVendasView ? T.fg : "transparent",
+              color: isPreVendasView ? "#FFF" : T.cinza600,
+              gap: "4px",
+            }}
+          >
+            <Timer size={12} /> Pré-Venda <ChevronDown size={10} style={{ transition: "transform 0.2s", transform: preVendasDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
+          </button>
+          {preVendasDropdownOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                left: 0,
+                backgroundColor: "#FFF",
+                border: `1px solid ${T.border}`,
+                borderRadius: "8px",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
+                zIndex: 50,
+                minWidth: "200px",
+                padding: "4px",
+              }}
+            >
+              {([
+                { key: "presales", label: "Diagnóstico Pré-Venda", icon: <Timer size={13} /> },
+                { key: "perf-prevendas", label: "Perf. Pré-Vendas", icon: <BarChart3 size={13} /> },
+              ] as const).map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => { setMainView(item.key); setPreVendasDropdownOpen(false); }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    width: "100%",
+                    padding: "8px 12px",
+                    border: "none",
+                    borderRadius: "6px",
+                    backgroundColor: mainView === item.key ? T.azul50 : "transparent",
+                    color: mainView === item.key ? T.fg : T.cinza600,
+                    fontWeight: mainView === item.key ? 600 : 400,
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => { if (mainView !== item.key) (e.currentTarget.style.backgroundColor = T.cinza50); }}
+                  onMouseLeave={(e) => { if (mainView !== item.key) (e.currentTarget.style.backgroundColor = "transparent"); }}
+                >
+                  {item.icon} {item.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           onClick={() => setMainView("ociosidade")}
           style={{
@@ -200,16 +256,6 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
           }}
         >
           <Scale size={12} /> Balanceamento
-        </button>
-        <button
-          onClick={() => setMainView("perf-prevendas")}
-          style={{
-            ...viewBtnStyle,
-            backgroundColor: mainView === "perf-prevendas" ? T.fg : "transparent",
-            color: mainView === "perf-prevendas" ? "#FFF" : T.cinza600,
-          }}
-        >
-          <BarChart3 size={12} /> Perf. Pré-Vendas
         </button>
         <div ref={vendasDropdownRef} style={{ position: "relative" }}>
           <button
