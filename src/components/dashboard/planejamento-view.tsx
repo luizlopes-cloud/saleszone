@@ -331,7 +331,19 @@ interface AggRow {
   cpm: number;
   adCount: number;
   lastSeenDate: string;
+  hasActiveAds: boolean;
+  activeCount: number;
+  pausedCount: number;
 }
+
+// Column visibility groups
+type ColGroup = "conversoes" | "custos" | "midia";
+const COL_GROUPS: { key: ColGroup; label: string }[] = [
+  { key: "conversoes", label: "Conversões" },
+  { key: "custos", label: "Custos" },
+  { key: "midia", label: "Mídia" },
+];
+const DEFAULT_VISIBLE: Set<ColGroup> = new Set(["conversoes", "custos", "midia"]);
 
 function aggregate(ads: HistoricoAdRow[], nameKey: "campaignName" | "adsetName"): AggRow[] {
   const map = new Map<string, { ads: HistoricoAdRow[]; emp: string; lastDate: string }>();
@@ -355,6 +367,8 @@ function aggregate(ads: HistoricoAdRow[], nameKey: "campaignName" | "adsetName")
     const won = group.reduce((s, a) => s + a.won, 0);
     const impressions = group.reduce((s, a) => s + a.impressions, 0);
     const clicks = group.reduce((s, a) => s + a.clicks, 0);
+    const activeCount = group.filter(a => a.effectiveStatus === "ACTIVE").length;
+    const pausedCount = group.length - activeCount;
     rows.push({
       name,
       empreendimento: emp,
@@ -369,6 +383,9 @@ function aggregate(ads: HistoricoAdRow[], nameKey: "campaignName" | "adsetName")
       cpm: impressions > 0 ? Math.round((spend / impressions) * 100000) / 100 : 0,
       adCount: group.length,
       lastSeenDate: lastDate,
+      hasActiveAds: activeCount > 0,
+      activeCount,
+      pausedCount,
     });
   }
   return rows;
@@ -393,30 +410,33 @@ function SortTh({ label, col, sortKey, sortDir, onSort, align, minW }: {
   );
 }
 
-function MetricsCells({ r, avgCpl }: { r: { spend: number; leads: number; mql: number; sql: number; opp: number; won: number; impressions: number; clicks: number; cpl: number; cmql: number; csql: number; copp: number; cpw: number; ctr: number; cpc: number; cpm: number }; avgCpl: number }) {
+function MetricsCells({ r, avgCpl, vis }: { r: { spend: number; leads: number; mql: number; sql: number; opp: number; won: number; impressions: number; clicks: number; cpl: number; cmql: number; csql: number; copp: number; cpw: number; ctr: number; cpc: number; cpm: number }; avgCpl: number; vis: Set<ColGroup> }) {
   const cplColor = r.cpl > 0 && avgCpl > 0 ? (r.cpl <= avgCpl ? T.verde600 : T.destructive) : undefined;
   const groupBorder = "2px solid #E2E4EA";
   return (
     <>
-      {/* Conversões */}
-      <td style={cellRightStyle}>{fmt(r.leads)}</td>
-      <td style={cellRightStyle}>{fmt(r.mql)}</td>
-      <td style={cellRightStyle}>{fmt(r.sql)}</td>
-      <td style={cellRightStyle}>{fmt(r.opp)}</td>
-      <td style={{ ...cellRightStyle, fontWeight: 700, color: r.won > 0 ? T.verde600 : undefined, borderRight: groupBorder }}>{fmt(r.won)}</td>
-      {/* Custos */}
-      <td style={cellRightStyle}>{fmtMoney(r.spend)}</td>
-      <td style={{ ...cellRightStyle, color: cplColor, fontWeight: cplColor ? 600 : 400 }}>{r.cpl > 0 ? fmtMoney(r.cpl) : "—"}</td>
-      <td style={cellRightStyle}>{r.cmql > 0 ? fmtMoney(r.cmql) : "—"}</td>
-      <td style={cellRightStyle}>{r.csql > 0 ? fmtMoney(r.csql) : "—"}</td>
-      <td style={cellRightStyle}>{r.copp > 0 ? fmtMoney(r.copp) : "—"}</td>
-      <td style={{ ...cellRightStyle, borderRight: groupBorder }}>{r.cpw > 0 ? fmtMoney(r.cpw) : "—"}</td>
-      {/* Mídia */}
-      <td style={cellRightStyle}>{fmt(r.impressions)}</td>
-      <td style={cellRightStyle}>{fmt(r.clicks)}</td>
-      <td style={cellRightStyle}>{fmtPctDirect(r.ctr)}</td>
-      <td style={cellRightStyle}>{r.cpc > 0 ? fmtMoney(r.cpc) : "—"}</td>
-      <td style={cellRightStyle}>{r.cpm > 0 ? fmtMoney(r.cpm) : "—"}</td>
+      {vis.has("conversoes") && <>
+        <td style={cellRightStyle}>{fmt(r.leads)}</td>
+        <td style={cellRightStyle}>{fmt(r.mql)}</td>
+        <td style={cellRightStyle}>{fmt(r.sql)}</td>
+        <td style={cellRightStyle}>{fmt(r.opp)}</td>
+        <td style={{ ...cellRightStyle, fontWeight: 700, color: r.won > 0 ? T.verde600 : undefined, borderRight: groupBorder }}>{fmt(r.won)}</td>
+      </>}
+      {vis.has("custos") && <>
+        <td style={cellRightStyle}>{fmtMoney(r.spend)}</td>
+        <td style={{ ...cellRightStyle, color: cplColor, fontWeight: cplColor ? 600 : 400 }}>{r.cpl > 0 ? fmtMoney(r.cpl) : "—"}</td>
+        <td style={cellRightStyle}>{r.cmql > 0 ? fmtMoney(r.cmql) : "—"}</td>
+        <td style={cellRightStyle}>{r.csql > 0 ? fmtMoney(r.csql) : "—"}</td>
+        <td style={cellRightStyle}>{r.copp > 0 ? fmtMoney(r.copp) : "—"}</td>
+        <td style={{ ...cellRightStyle, borderRight: groupBorder }}>{r.cpw > 0 ? fmtMoney(r.cpw) : "—"}</td>
+      </>}
+      {vis.has("midia") && <>
+        <td style={cellRightStyle}>{fmt(r.impressions)}</td>
+        <td style={cellRightStyle}>{fmt(r.clicks)}</td>
+        <td style={cellRightStyle}>{fmtPctDirect(r.ctr)}</td>
+        <td style={cellRightStyle}>{r.cpc > 0 ? fmtMoney(r.cpc) : "—"}</td>
+        <td style={cellRightStyle}>{r.cpm > 0 ? fmtMoney(r.cpm) : "—"}</td>
+      </>}
     </>
   );
 }
@@ -428,6 +448,9 @@ function HistoricoCampanhasSection() {
   const [sortKey, setSortKey] = useState<CampSortKey>("spend");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filtroEmp, setFiltroEmp] = useState("todos");
+  const [filtroStatus, setFiltroStatus] = useState<"todos" | "active" | "paused">("todos");
+  const [visibleCols, setVisibleCols] = useState<Set<ColGroup>>(new Set(DEFAULT_VISIBLE));
+  const [showColMenu, setShowColMenu] = useState(false);
   const [expandedCamps, setExpandedCamps] = useState<Set<string>>(new Set());
   const [expandedAdsets, setExpandedAdsets] = useState<Set<string>>(new Set());
 
@@ -487,8 +510,18 @@ function HistoricoCampanhasSection() {
     if (!histData) return [];
     let ads = histData.ads;
     if (filtroEmp !== "todos") ads = ads.filter(a => a.empreendimento === filtroEmp);
+    if (filtroStatus === "active") ads = ads.filter(a => a.effectiveStatus === "ACTIVE");
+    else if (filtroStatus === "paused") ads = ads.filter(a => a.effectiveStatus !== "ACTIVE");
     return ads;
-  }, [histData, filtroEmp]);
+  }, [histData, filtroEmp, filtroStatus]);
+
+  const toggleColGroup = useCallback((g: ColGroup) => {
+    setVisibleCols(prev => {
+      const next = new Set(prev);
+      if (next.has(g)) { if (next.size > 1) next.delete(g); } else next.add(g);
+      return next;
+    });
+  }, []);
 
   const campaigns = useMemo(() => {
     const rows = aggregate(filteredAds, "campaignName");
@@ -573,13 +606,73 @@ function HistoricoCampanhasSection() {
           </div>
         ) : histData ? (
           <>
-            <div style={{ display: "flex", gap: "10px", marginBottom: "12px", alignItems: "center" }}>
+            <div style={{ display: "flex", gap: "10px", marginBottom: "12px", alignItems: "center", flexWrap: "wrap" }}>
               <select value={filtroEmp} onChange={e => setFiltroEmp(e.target.value)} style={selectStyle}>
                 <option value="todos">Todos empreendimentos</option>
                 {empreendimentos.map(emp => (
                   <option key={emp} value={emp}>{emp}</option>
                 ))}
               </select>
+              <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value as "todos" | "active" | "paused")} style={selectStyle}>
+                <option value="todos">Todos status</option>
+                <option value="active">Ativos</option>
+                <option value="paused">Pausados</option>
+              </select>
+              <div style={{ position: "relative" }}>
+                <button
+                  onClick={() => setShowColMenu(p => !p)}
+                  style={{
+                    ...selectStyle,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    background: "#FFF",
+                  }}
+                >
+                  Colunas {visibleCols.size < 3 ? `(${visibleCols.size}/3)` : ""}
+                  <span style={{ fontSize: "8px" }}>▼</span>
+                </button>
+                {showColMenu && (
+                  <div style={{
+                    position: "absolute",
+                    top: "100%",
+                    left: 0,
+                    marginTop: "4px",
+                    backgroundColor: "#FFF",
+                    border: `1px solid ${T.border}`,
+                    borderRadius: "8px",
+                    padding: "8px 0",
+                    zIndex: 30,
+                    boxShadow: "0 4px 12px rgba(0,0,0,0.12)",
+                    minWidth: "160px",
+                  }}>
+                    {COL_GROUPS.map(g => (
+                      <label
+                        key={g.key}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          padding: "6px 12px",
+                          fontSize: "12px",
+                          color: T.fg,
+                          cursor: "pointer",
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.backgroundColor = T.cinza50)}
+                        onMouseLeave={e => (e.currentTarget.style.backgroundColor = "")}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={visibleCols.has(g.key)}
+                          onChange={() => toggleColGroup(g.key)}
+                          style={{ accentColor: T.primary }}
+                        />
+                        {g.label}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
               <span style={{ fontSize: "11px", color: T.cinza400, marginLeft: "auto" }}>
                 {campaigns.length} campanhas | {filteredAds.length} ads | Gasto total: {fmtMoney(totals.spend)}
               </span>
@@ -590,33 +683,36 @@ function HistoricoCampanhasSection() {
                 <thead>
                   <tr>
                     <th colSpan={3} style={{ ...histThStyle, borderBottom: "none" }} />
-                    <th colSpan={5} style={{ ...histThStyle, borderBottom: "none", textAlign: "center", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", color: T.verde600, borderRight: "2px solid #E2E4EA" }}>CONVERSÕES</th>
-                    <th colSpan={6} style={{ ...histThStyle, borderBottom: "none", textAlign: "center", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", color: T.destructive, borderRight: "2px solid #E2E4EA" }}>CUSTOS</th>
-                    <th colSpan={5} style={{ ...histThStyle, borderBottom: "none", textAlign: "center", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", color: T.primary }}>MÍDIA</th>
+                    {visibleCols.has("conversoes") && <th colSpan={5} style={{ ...histThStyle, borderBottom: "none", textAlign: "center", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", color: T.verde600, borderRight: "2px solid #E2E4EA" }}>CONVERSÕES</th>}
+                    {visibleCols.has("custos") && <th colSpan={6} style={{ ...histThStyle, borderBottom: "none", textAlign: "center", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", color: T.destructive, borderRight: "2px solid #E2E4EA" }}>CUSTOS</th>}
+                    {visibleCols.has("midia") && <th colSpan={5} style={{ ...histThStyle, borderBottom: "none", textAlign: "center", fontSize: "10px", fontWeight: 700, letterSpacing: "0.08em", color: T.primary }}>MÍDIA</th>}
                   </tr>
                   <tr>
                     <SortTh label="" col="name" align="left" minW={24} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="Nome" col="name" align="left" minW={200} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="Empreend." col="empreendimento" align="left" minW={120} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    {/* Conversões */}
-                    <SortTh label="Leads" col="leads" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="MQL" col="mql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="SQL" col="sql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="OPP" col="opp" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="WON" col="won" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    {/* Custos */}
-                    <SortTh label="Gasto" col="spend" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CPL" col="cpl" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CMQL" col="cmql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CSQL" col="csql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="COPP" col="copp" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CPW" col="cpw" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    {/* Mídia */}
-                    <SortTh label="Impr." col="impressions" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="Clicks" col="clicks" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CTR" col="ctr" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CPC" col="cpc" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="CPM" col="cpm" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    {visibleCols.has("conversoes") && <>
+                      <SortTh label="Leads" col="leads" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="MQL" col="mql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="SQL" col="sql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="OPP" col="opp" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="WON" col="won" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    </>}
+                    {visibleCols.has("custos") && <>
+                      <SortTh label="Gasto" col="spend" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="CPL" col="cpl" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="CMQL" col="cmql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="CSQL" col="csql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="COPP" col="copp" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="CPW" col="cpw" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    </>}
+                    {visibleCols.has("midia") && <>
+                      <SortTh label="Impr." col="impressions" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="Clicks" col="clicks" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="CTR" col="ctr" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="CPC" col="cpc" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                      <SortTh label="CPM" col="cpm" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    </>}
                   </tr>
                 </thead>
                 <tbody>
@@ -636,13 +732,29 @@ function HistoricoCampanhasSection() {
                             {isOpen ? "▼" : "▶"}
                           </td>
                           <td style={{ ...cellStyle, fontSize: "12px", fontWeight: 600, maxWidth: "280px", overflow: "hidden", textOverflow: "ellipsis" }} title={camp.name}>
+                            <span
+                              style={{
+                                display: "inline-block",
+                                width: "8px",
+                                height: "8px",
+                                borderRadius: "50%",
+                                backgroundColor: camp.hasActiveAds ? T.verde600 : T.cinza400,
+                                marginRight: "6px",
+                                verticalAlign: "middle",
+                                flexShrink: 0,
+                              }}
+                              title={camp.hasActiveAds
+                                ? `${camp.activeCount} ativo${camp.activeCount > 1 ? "s" : ""}${camp.pausedCount > 0 ? `, ${camp.pausedCount} pausado${camp.pausedCount > 1 ? "s" : ""}` : ""}`
+                                : `${camp.pausedCount} pausado${camp.pausedCount > 1 ? "s" : ""}`
+                              }
+                            />
                             {camp.name}
                             <span style={{ marginLeft: "6px", fontSize: "10px", fontWeight: 400, color: T.cinza400 }}>
                               ({camp.adCount} ads)
                             </span>
                           </td>
                           <td style={{ ...cellStyle, fontSize: "12px" }}>{camp.empreendimento}</td>
-                          <MetricsCells r={camp} avgCpl={avgCpl} />
+                          <MetricsCells r={camp} avgCpl={avgCpl} vis={visibleCols} />
                         </tr>
 
                         {/* Adset rows */}
@@ -660,13 +772,24 @@ function HistoricoCampanhasSection() {
                                 <td style={{ ...cellStyle, width: "24px" }} />
                                 <td style={{ ...cellStyle, fontSize: "11px", fontWeight: 500, paddingLeft: "24px" }}>
                                   <span style={{ fontSize: "10px", color: T.cinza600, marginRight: "6px" }}>{adsetOpen ? "▼" : "▶"}</span>
+                                  <span
+                                    style={{
+                                      display: "inline-block",
+                                      width: "7px",
+                                      height: "7px",
+                                      borderRadius: "50%",
+                                      backgroundColor: adset.hasActiveAds ? T.verde600 : T.cinza400,
+                                      marginRight: "5px",
+                                      verticalAlign: "middle",
+                                    }}
+                                  />
                                   {adset.name}
                                   <span style={{ marginLeft: "6px", fontSize: "10px", fontWeight: 400, color: T.cinza400 }}>
                                     ({adset.adCount} ads)
                                   </span>
                                 </td>
                                 <td style={cellStyle} />
-                                <MetricsCells r={adset} avgCpl={avgCpl} />
+                                <MetricsCells r={adset} avgCpl={avgCpl} vis={visibleCols} />
                               </tr>
 
                               {/* Individual ad rows */}
@@ -674,13 +797,24 @@ function HistoricoCampanhasSection() {
                                 <tr key={ad.adId} style={{ backgroundColor: "#FAFBFF" }}>
                                   <td style={{ ...cellStyle, width: "24px" }} />
                                   <td style={{ ...cellStyle, fontSize: "11px", fontWeight: 400, paddingLeft: "48px", color: T.cinza700 }} title={ad.adName}>
+                                    <span
+                                      style={{
+                                        display: "inline-block",
+                                        width: "6px",
+                                        height: "6px",
+                                        borderRadius: "50%",
+                                        backgroundColor: ad.effectiveStatus === "ACTIVE" ? T.verde600 : T.cinza400,
+                                        marginRight: "5px",
+                                        verticalAlign: "middle",
+                                      }}
+                                    />
                                     {ad.adName}
-                                    {ad.effectiveStatus === "PAUSED" && (
+                                    {ad.effectiveStatus !== "ACTIVE" && (
                                       <Tag color={T.cinza400}>Pausado</Tag>
                                     )}
                                   </td>
                                   <td style={cellStyle} />
-                                  <MetricsCells r={ad} avgCpl={avgCpl} />
+                                  <MetricsCells r={ad} avgCpl={avgCpl} vis={visibleCols} />
                                 </tr>
                               ))}
                             </React.Fragment>
@@ -695,7 +829,7 @@ function HistoricoCampanhasSection() {
                     <td style={cellStyle} />
                     <td style={{ ...cellStyle, fontSize: "12px", fontWeight: 700 }}>Total</td>
                     <td style={cellStyle} />
-                    <MetricsCells r={totals} avgCpl={avgCpl} />
+                    <MetricsCells r={totals} avgCpl={avgCpl} vis={visibleCols} />
                   </tr>
                 </tbody>
               </table>
