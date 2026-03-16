@@ -297,7 +297,10 @@ export function OrcamentoView({ data, loading, onBudgetSave }: OrcamentoViewProp
                       <td style={{ ...cellStyle, paddingLeft: "28px", color: T.cinza700 }}>{emp.emp}</td>
                       <td style={cellRightStyle}>{formatBRL(emp.gastoAtual)}</td>
                       <td style={cellRightStyle}>{formatBRL(emp.gastoDiario)}</td>
-                      <td style={{ ...cellRightStyle, color: deltaColor, fontWeight: 600 }}>
+                      <td
+                        style={{ ...cellRightStyle, color: deltaColor, fontWeight: 600, cursor: emp.budgetExplicacao ? "help" : undefined }}
+                        title={emp.budgetExplicacao || undefined}
+                      >
                         {emp.budgetRecomendado ? formatBRL(emp.budgetRecomendado) : "—"}
                         {emp.budgetRecomendado && Math.abs(delta) > 50 ? (
                           <span style={{ fontSize: "10px", marginLeft: "4px" }}>

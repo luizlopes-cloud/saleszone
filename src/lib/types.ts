@@ -361,6 +361,7 @@ export interface OrcamentoEmpBreakdown {
   gastoDiario: number;
   campaignsActive: number;
   budgetRecomendado?: number;
+  budgetExplicacao?: string;
 }
 
 export interface OrcamentoSquadBreakdown {
@@ -401,6 +402,56 @@ export interface HistoricoAdRow {
 
 export interface HistoricoCampanhasData {
   ads: HistoricoAdRow[];
+}
+
+// Performance — Funil por pessoa (closer, preseller, marketing)
+export interface PerformanceEmpBreakdown {
+  emp: string;
+  mql: number;
+  sql: number;
+  opp: number;
+  won: number;
+  mqlToSql: number;
+  sqlToOpp: number;
+  oppToWon: number;
+}
+
+export interface PerformancePersonRow {
+  name: string;
+  role: "closer" | "preseller" | "marketing";
+  squadId: number;
+  mql: number;
+  sql: number;
+  opp: number;
+  won: number;
+  mqlToSql: number;
+  sqlToOpp: number;
+  oppToWon: number;
+  byEmp: PerformanceEmpBreakdown[];
+}
+
+export interface PerformancePresellerRow extends PerformancePersonRow {
+  dealsReceived: number;
+  dealsWithAction: number;
+  avgResponseMin: number;
+  medianResponseMin: number;
+}
+
+export interface PerformanceSquadSummary {
+  id: number;
+  name: string;
+  closers: PerformancePersonRow[];
+  preseller: PerformancePresellerRow;
+  marketing: PerformancePersonRow;
+  totals: { mql: number; sql: number; opp: number; won: number; mqlToSql: number; sqlToOpp: number; oppToWon: number };
+}
+
+export interface PerformanceData {
+  squads: PerformanceSquadSummary[];
+  allClosers: PerformancePersonRow[];
+  allPresellers: PerformancePresellerRow[];
+  allMarketing: PerformancePersonRow[];
+  grandTotals: { mql: number; sql: number; opp: number; won: number; mqlToSql: number; sqlToOpp: number; oppToWon: number };
 }
 
 // Pré-Venda — Tempo de resposta dos pré-vendedores

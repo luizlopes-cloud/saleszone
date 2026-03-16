@@ -149,6 +149,7 @@ export async function GET() {
     for (const sq of SQUADS) for (const e of sq.empreendimentos) allEmps.add(e);
 
     const empBudgetRec = new Map<string, number>();
+    const empExplicacao = new Map<string, string>();
     let budgetPerformando = 0;
 
     // Step 1: performing emps (active + WON 90d) — keep near current, adjust by efficiency
@@ -194,15 +195,20 @@ export async function GET() {
       : 999999;
 
     // Performing emps: adjust +15% if below avg CPW, -10% if above, keep if near avg
+    const fmtR = (v: number) => `R$ ${Math.round(v).toLocaleString("pt-BR")}`;
     for (const [emp, daily] of perfDaily) {
       const cpw = perfCpw.get(emp) || 999999;
+      const f90e = funnel90.get(emp)!;
       let adjusted: number;
       if (cpw < avgPerfCpw * 0.8) {
-        adjusted = Math.round(daily * 1.15); // best performer: +15%
+        adjusted = Math.round(daily * 1.15);
+        empExplicacao.set(emp, `Campanha ativa com ${f90e.won} WON nos 90d. CPW estimado ${fmtR(cpw)} — melhor entre os ativos (média ${fmtR(avgPerfCpw)}). Escalar +15%.`);
       } else if (cpw > avgPerfCpw * 1.2) {
-        adjusted = Math.round(daily * 0.90); // worst performer: -10%
+        adjusted = Math.round(daily * 0.90);
+        empExplicacao.set(emp, `Campanha ativa com ${f90e.won} WON nos 90d. CPW estimado ${fmtR(cpw)} — acima da média (${fmtR(avgPerfCpw)}). Reduzir -10% e realocar.`);
       } else {
-        adjusted = Math.round(daily); // near average: keep
+        adjusted = Math.round(daily);
+        empExplicacao.set(emp, `Campanha ativa com ${f90e.won} WON nos 90d. CPW estimado ${fmtR(cpw)} — próximo da média (${fmtR(avgPerfCpw)}). Manter budget atual.`);
       }
       empBudgetRec.set(emp, adjusted);
       budgetPerformando += adjusted;
@@ -246,9 +252,17 @@ export async function GET() {
       const score = cpw < 999999 ? 1 / cpw : 0;
       empScores.set(emp, score);
       totalScore += score;
+
+      // Build explanation parts
+      const hasActiveCamp = Array.from(SQUADS).some(sq => (empCampaigns.get(`${sq.id}:${emp}`)?.size || 0) > 0);
+      const wonInfo = f90.won > 0 ? `${f90.won} WON 90d` : fAll.won > 0 ? `${fAll.won} WON histórico, 0 nos 90d` : "0 WON";
+      const taxaPct = (taxaBlend * 100).toFixed(2);
+      const confLabel = f90.mql >= 100 ? "alta" : f90.mql >= 30 ? "média" : "baixa";
+      const statusLabel = hasActiveCamp ? "Campanha ativa sem WON recente" : "Campanha pausada";
+      empExplicacao.set(emp, `${statusLabel}. ${wonInfo}. Taxa MQL→WON: ${taxaPct}% (conf. ${confLabel}, ${f90.mql + fAll.mql} MQL total). CPW estimado: ${fmtR(cpw)}.`);
     }
 
-    // Allocate proportionally with min floor R$150/dia
+    // Allocate proportionally with min floor
     const pisoMin = 300;
     if (totalScore > 0 && budgetOutros > 0) {
       // First pass: raw allocation
@@ -265,6 +279,9 @@ export async function GET() {
           empBudgetRec.set(emp, pisoMin);
           lockedBudget += pisoMin;
           lockedScore += empScores.get(emp) || 0;
+          // Append floor note
+          const prev = empExplicacao.get(emp) || "";
+          empExplicacao.set(emp, prev + ` Alocação proporcional (R$ ${Math.round(alloc)}) abaixo do piso — ajustado para R$ ${pisoMin}/dia.`);
         } else {
           needsRedist.push(emp);
         }
@@ -290,6 +307,7 @@ export async function GET() {
           gastoDiario: empCampCount > 0 && diasPassados > 0 ? Math.round((empGasto / diasPassados) * 100) / 100 : 0,
           campaignsActive: empCampCount,
           budgetRecomendado: empBudgetRec.get(emp) || 0,
+          budgetExplicacao: empExplicacao.get(emp) || "",
         };
       });
 
