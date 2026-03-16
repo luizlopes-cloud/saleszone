@@ -113,6 +113,7 @@ supabase/
 | `squad_baserow_forms` | Formularios do Baserow (fonte: Baserow). Populada por `sync-baserow-forms`. |
 | `squad_monthly_counts` | Contagens mensais acumuladas por tab x empreendimento (rollup de squad_daily_counts). Populada pelo modo `monthly-rollup`. |
 | `squad_orcamento` | Orcamento mensal global SZI. PK = `mes` (YYYY-MM). Input manual via aba Orcamento. |
+| `squad_orcamento_log` | Log de alteracoes de orcamento. PK = `(date, empreendimento)`. Registrado quando gasto diario real = budget recomendado. Colunas: budget_recomendado, budget_real, tipo (Escalar/Manter/Otimizar/Reduzir), explicacao. |
 | `squad_deals` | Banco centralizado de deals Pipedrive (1 row por deal). PK = `deal_id`. Colunas: status, stage_id, canal, empreendimento, is_marketing (gerada), max_stage_order (Flow API), flow_fetched, lost_reason, rd_source, last_activity_date, next_activity_date, owner_name, preseller_name. RPC `get_planejamento_counts` usa essa tabela. Filtros RPC: `is_marketing=true`, `rd_source ILIKE '%paga%'`, `lost_reason <> 'Duplicado/Erro'`. |
 
 ## Edge Functions
@@ -145,7 +146,7 @@ Banco centralizado de deals do Pipedrive pipeline 28. Roda em 4 modos:
 | `deals-open` | Busca deals abertos via `/pipelines/28/deals` + `/users` para resolver owner_name | Upsert squad_deals (max_stage_order = stage_order, flow_fetched = true) |
 | `deals-won` | Busca deals ganhos via stage_id loop, dedup | Upsert squad_deals (max_stage_order = 14, flow_fetched = true) |
 | `deals-lost` | Busca deals perdidos, cutoff 365d, batched 5000/invocação | Upsert squad_deals (flow_fetched = false) |
-| `deals-flow` | Busca Flow API para deals lost pendentes (500/batch, concurrency=10) | Update max_stage_order + flow_fetched = true |
+| `deals-flow` | Busca Flow API para deals lost pendentes (500/batch, concurrency=20) | Update max_stage_order + flow_fetched = true |
 
 - **Tabela:** `squad_deals` (1 row por deal, PK = deal_id)
 - **Coluna gerada:** `is_marketing = (canal = '12')` — evita recheck em queries
@@ -386,10 +387,30 @@ O botao envia: `["dashboard-light", "meta-ads", "deals-light", "calendar", "pres
 - Input direto na tela: clicar no card "Orcamento Mensal" para editar
 - Salva em `squad_orcamento` (upsert por `mes`)
 - **Gasto diario**: calculado como `gasto_campanhas_ativas / dias_passados` (media real, NAO daily_budget do Meta API)
+- **gastoDiario = 0** quando empreendimento tem 0 campanhas ativas (gasto de campanhas pausadas nao conta como diario)
 - **Projecao**: se diasPassados >= 3, usa `(gastoAtual / diasPassados) * diasNoMes`; senao usa `gastoDiario * diasNoMes`
 - **Status**: ok (projecao <= 105% orcamento), alerta (<= 115%), critico (> 115%)
 - Breakdown por squad e empreendimento na tabela
 - NAO usa campo `daily_budget` da Meta API (retorna valores inconsistentes) — usa gasto real dividido pelos dias
+- **Coluna Budget Recom.**: budget diario recomendado por empreendimento baseado em eficiencia (CPW)
+  - Emps performando (campanhas ativas + WON 90d): ajustados por CPW vs media (+15% melhor, -10% pior)
+  - Demais emps: distribuidos proporcionalmente a 1/CPW ponderado por confianca dos dados
+  - Piso: R$300/dia por emp. Teto: 30% do budget diario total
+  - Tooltip com explicacao ao passar o mouse
+- **Barra de projecao azul**: mostra projecao de gasto com budget recomendado (overlay azul na barra de progresso)
+- **Log de Alteracoes**: registra quando gasto diario real = budget recomendado (match exato). Tabela `squad_orcamento_log` com tipo (Escalar/Manter/Otimizar/Reduzir) e explicacao
+- **Skill `/gestao-orcamento`**: analise completa de distribuicao de orcamento. Apos alinhar estrategia, SEMPRE publicar (commit + push)
+
+## Performance Pre-Vendas — Armadilhas Conhecidas
+- **Campo Pre Vendedor(a)** do Pipedrive (field key `34a7f4f5f78e8a8d4751ddfb3cfcfb224d8ff908`, tipo user) — diferente do `owner_name` (proprietario). Salvo em `squad_deals.preseller_name`
+- **Filtro de periodo**: Pipedrive "Negocio fechado em" usa `won_time`/`lost_time` (data de fechamento), NAO `add_time`. Um deal antigo fechado recentemente aparece no Pipedrive mas nao aparecia no dashboard. Corrigido: API usa `status=open OR won_time>=cutoff OR lost_time>=cutoff OR add_time>=cutoff`
+- **max_stage_order para deals lost**: o `stage_order` do deal lost ja reflete o stage onde foi perdido (correto para maioria). O `deals-flow` corrige via Flow API para casos de regressao, mas e lento (200-500 deals/invocacao)
+- **Normalizacao de nomes**: preseller_name no banco pode vir sem acento ("Patricio" vs "Patricio"). Usar `norm()` (NFD + remove diacritics) ao comparar
+- **Atividades por tipo**: busca diretamente da API Pipedrive `/activities?user_id=X&done=1&start_date=Y&end_date=Z`. Categorias:
+  - Ligacoes: call, chamada_atendida_api4com, chamada_nao_atendida_api4c
+  - Mensagens: mensagem, email, whatsapp_chat, szi___*, mensagem_respondida, mensagem_nao_respondida
+  - Reunioes: reuniao, meeting, no_show, reuniao_apresentacao_contr, reuniao_avaliacao
+- **Paginacao Supabase**: squad_deals tem 50k+ rows. Queries com `.select()` retornam max 1000 por default. SEMPRE paginar com loop + `.range()` ou usar RPCs
 
 ## Edge Functions — Auth
 - Edge Functions NAO precisam de verificacao manual de auth (isServiceRole)
