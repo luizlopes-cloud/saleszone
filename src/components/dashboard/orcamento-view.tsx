@@ -5,6 +5,39 @@ import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { OrcamentoData } from "@/lib/types";
 import { TH, cellStyle, cellRightStyle } from "./ui";
 
+function Tooltip({ text, children }: { text: string; children: React.ReactNode }) {
+  const [show, setShow] = useState(false);
+  return (
+    <span
+      style={{ position: "relative", display: "inline-block" }}
+      onMouseEnter={() => setShow(true)}
+      onMouseLeave={() => setShow(false)}
+    >
+      {children}
+      {show && (
+        <div style={{
+          position: "absolute",
+          bottom: "calc(100% + 8px)",
+          right: 0,
+          backgroundColor: T.fg,
+          color: "#fff",
+          padding: "8px 12px",
+          borderRadius: "8px",
+          fontSize: "11px",
+          lineHeight: "1.5",
+          whiteSpace: "normal",
+          width: "280px",
+          zIndex: 50,
+          boxShadow: "0 4px 12px rgba(0,0,0,0.2)",
+          pointerEvents: "none",
+        }}>
+          {text}
+        </div>
+      )}
+    </span>
+  );
+}
+
 interface OrcamentoViewProps {
   data: OrcamentoData | null;
   loading: boolean;
@@ -297,16 +330,23 @@ export function OrcamentoView({ data, loading, onBudgetSave }: OrcamentoViewProp
                       <td style={{ ...cellStyle, paddingLeft: "28px", color: T.cinza700 }}>{emp.emp}</td>
                       <td style={cellRightStyle}>{formatBRL(emp.gastoAtual)}</td>
                       <td style={cellRightStyle}>{formatBRL(emp.gastoDiario)}</td>
-                      <td
-                        style={{ ...cellRightStyle, color: deltaColor, fontWeight: 600, cursor: emp.budgetExplicacao ? "help" : undefined }}
-                        title={emp.budgetExplicacao || undefined}
-                      >
-                        {emp.budgetRecomendado ? formatBRL(emp.budgetRecomendado) : "—"}
-                        {emp.budgetRecomendado && Math.abs(delta) > 50 ? (
-                          <span style={{ fontSize: "10px", marginLeft: "4px" }}>
-                            {delta > 0 ? "↑" : "↓"}
-                          </span>
-                        ) : null}
+                      <td style={{ ...cellRightStyle, color: deltaColor, fontWeight: 600 }}>
+                        {emp.budgetExplicacao ? (
+                          <Tooltip text={emp.budgetExplicacao}>
+                            <span style={{ cursor: "help", borderBottom: `1px dashed ${deltaColor}` }}>
+                              {emp.budgetRecomendado ? formatBRL(emp.budgetRecomendado) : "—"}
+                              {emp.budgetRecomendado && Math.abs(delta) > 50 ? (
+                                <span style={{ fontSize: "10px", marginLeft: "4px" }}>
+                                  {delta > 0 ? "↑" : "↓"}
+                                </span>
+                              ) : null}
+                            </span>
+                          </Tooltip>
+                        ) : (
+                          <>
+                            {emp.budgetRecomendado ? formatBRL(emp.budgetRecomendado) : "—"}
+                          </>
+                        )}
                       </td>
                       <td style={cellRightStyle}>{emp.campaignsActive}</td>
                       <td style={cellRightStyle}>
