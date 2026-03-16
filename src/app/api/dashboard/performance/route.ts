@@ -121,11 +121,31 @@ export async function GET(request: Request) {
     // Deals filtered by the user's period selection (for main stats)
     const deals = cutoff ? allDeals.filter((d) => d.add_time >= cutoff) : allDeals;
 
-    // Build deal map for cross-referencing (use allDeals, not period-filtered,
-    // because presales deals may have add_time outside the period but transbordo within)
+    // Build deal map for cross-referencing
     const dealMap = new Map<number, DealRow>();
     for (const d of allDeals) {
       dealMap.set(d.deal_id, d);
+    }
+
+    // Fetch deal data specifically for presales deal_ids that aren't in dealMap
+    // (presales_response may reference deals outside the date window or non-marketing)
+    const missingDealIds = presalesRows
+      .map((r) => r.deal_id)
+      .filter((id) => !dealMap.has(id));
+    if (missingDealIds.length > 0) {
+      // Fetch in batches of 200 (Supabase URL length limit)
+      for (let i = 0; i < missingDealIds.length; i += 200) {
+        const batch = missingDealIds.slice(i, i + 200);
+        const { data: extraDeals } = await supabase
+          .from("squad_deals")
+          .select("deal_id, owner_name, empreendimento, status, max_stage_order, lost_reason, is_marketing, add_time")
+          .in("deal_id", batch);
+        for (const d of (extraDeals || []) as DealRow[]) {
+          if (d.empreendimento && d.lost_reason !== "Duplicado/Erro") {
+            dealMap.set(d.deal_id, d);
+          }
+        }
+      }
     }
 
     // Helper: build per-empreendimento breakdown
