@@ -360,7 +360,7 @@ async function syncDealsFlow(apiToken: string, supabase: any) {
     .eq("status", "lost")
     .eq("canal", CANAL_MARKETING_ID)
     .not("empreendimento", "is", null)
-    .limit(200);
+    .limit(500);
 
   if (queryErr) {
     console.error("Query error:", queryErr.message);
@@ -397,7 +397,7 @@ async function syncDealsFlow(apiToken: string, supabase: any) {
 
   // Process deals that need flow API with concurrency=10
   let processed = 0;
-  const CONCURRENCY = 10;
+  const CONCURRENCY = 20;
 
   for (let i = 0; i < needFlow.length; i += CONCURRENCY) {
     const chunk = needFlow.slice(i, i + CONCURRENCY);
