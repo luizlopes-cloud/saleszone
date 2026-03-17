@@ -131,7 +131,9 @@ supabase/
 | `squad_orcamento` | Orcamento mensal global SZI. PK = `mes` (YYYY-MM). Input manual via aba Orcamento. |
 | `squad_orcamento_log` | Log de alteracoes de orcamento. PK = `(date, empreendimento)`. Registrado quando gasto diario real = budget recomendado. Colunas: budget_recomendado, budget_real, tipo (Escalar/Manter/Otimizar/Reduzir), explicacao. |
 | `user_access_log` | Log de acessos ao dashboard. Colunas: email, full_name, accessed_at, ip_address, session_id (UUID), last_heartbeat (atualizado a cada 3min). RPCs: `log_user_access(p_email, p_full_name, p_session_id)`, `update_session_heartbeat(p_session_id)`, `get_user_access_analytics()` (aggregated), `get_recent_accesses(p_limit)`. Chamado do `page.tsx` useEffect ao carregar dashboard. |
-| `user_profiles` | Perfis de usuario. Colunas: id, email, full_name, role (operador/diretor), status, invited_by, created_at, updated_at. |
+| `user_profiles` | Perfis de usuario. Colunas: id, email, full_name, role (operador/diretor), status, invited_by, created_at, updated_at. RLS ativado. |
+| `user_invitations` | Convites pendentes por email. Colunas: email (unique), role, invited_by, expires_at (30 dias). RLS ativado. |
+| `user_invite_links` | Links de convite compartilhaveis. Colunas: token (unique, gerado auto), role, created_by, max_uses (0=ilimitado), used_count, active, expires_at (7 dias). RLS ativado. |
 | `squad_deals` | Banco centralizado de deals Pipedrive (1 row por deal). PK = `deal_id`. Colunas: status, stage_id, canal, empreendimento, is_marketing (gerada), max_stage_order (Flow API), flow_fetched, lost_reason, rd_source, last_activity_date, next_activity_date, owner_name, preseller_name. RPC `get_planejamento_counts` usa essa tabela. Filtros RPC: `is_marketing=true`, `rd_source ILIKE '%paga%'`, `lost_reason <> 'Duplicado/Erro'`. |
 
 ## Edge Functions
@@ -328,6 +330,8 @@ Componente reutilizavel `MediaFilterToggle` em `ui.tsx`. Type `MediaFilter` cent
 - **RPCs inexistentes:** `get_ad_funnel_counts` e `get_ad_won_cross_emp` NAO existem no banco (planejadas mas nunca criadas). Chamar RPCs inexistentes nao da throw — o erro e silenciado se checado com `if (res.error) console.warn(...)`. Sempre verificar se a RPC existe nas migrations antes de usa-la
 - **CUIDADO migrations fantasma:** `supabase db push` pode marcar uma migration como aplicada na tabela `supabase_migrations.schema_migrations` mesmo quando o SQL falha silenciosamente (ex: ALTER TABLE referenciando coluna inexistente em outra migration). Resultado: `db push` diz "up to date" mas as alteracoes nao existem no banco. Diagnostico: testar RPCs/queries diretamente. Fix: criar migration de reparo que re-aplica os comandos com `IF NOT EXISTS`
 - **CUIDADO `.neq()` exclui NULLs:** `.neq("campo", "valor")` no Supabase/PostgREST exclui rows onde o campo e NULL. Para filtrar "campo diferente de X mas incluir NULLs", filtrar em JS: `if (d.campo === "X") continue`. Exemplo: `.neq("lost_reason", "Duplicado/Erro")` remove TODOS os deals WON porque `lost_reason` e NULL neles
+- **CUIDADO RLS + anon key:** tabela `nekt_meta26_metas` tem RLS e NAO tem policy para anon. Query com anon key retorna array vazio (sem erro). Para acessar em API routes server-side, usar `SUPABASE_SERVICE_ROLE_KEY` via `createClient(url, srk)`. Exemplo: forecast route busca metas de la
+- **`squad_metas` vs `nekt_meta26_metas`:** `squad_metas` armazena meta PROPORCIONAL ao dia (meta_to_date). `nekt_meta26_metas` armazena meta TOTAL do mes (won_szi_meta_pago + won_szi_meta_direto). Para forecast (previsao fim do mes), usar `nekt_meta26_metas`. Para acompanhamento diario, usar `squad_metas`
 
 ## Navegacao Header
 Ordem dos botoes: `Resultados ▼ | Meta Ads ▼ | Alinhamento Squad | Pré-Venda ▼ | Vendas ▼`
@@ -416,14 +420,12 @@ O botao envia: `["dashboard-light", "meta-ads", "deals-light", "calendar", "pres
 - **Status**: ok (projecao <= 105% orcamento), alerta (<= 115%), critico (> 115%)
 - Breakdown por squad e empreendimento na tabela
 - NAO usa campo `daily_budget` da Meta API (retorna valores inconsistentes) — usa gasto real dividido pelos dias
-- **Coluna Budget Recom.**: budget diario recomendado por empreendimento baseado em eficiencia (CPW)
-  - Emps performando (campanhas ativas + WON 90d): ajustados por CPW vs media (+15% melhor, -10% pior)
-  - Demais emps: distribuidos proporcionalmente a 1/CPW ponderado por confianca dos dados
-  - Piso: R$300/dia por emp. Teto: 30% do budget diario total
-  - Tooltip com explicacao ao passar o mouse
+- **Coluna Budget Recom.**: budget diario aprovado por empreendimento. Valores FIXOS lidos da tabela `squad_orcamento_approved` (PK = mes, empreendimento). NAO recalcula dinamicamente — so muda com aprovacao do usuario via `/gestao-orcamento`
+- **CUIDADO: budget NAO e dinamico**: calculo antigo de CPW/funnel que recalculava a cada request foi REMOVIDO. Valores mudam SOMENTE com aprovacao do usuario. Motivo: valores que mudam sozinhos confundem o acompanhamento
+- Tooltip com explicacao ao passar o mouse
 - **Barra de projecao azul**: mostra projecao de gasto com budget recomendado (overlay azul na barra de progresso)
 - **Log de Alteracoes**: registra quando gasto diario real = budget recomendado (match exato). Tabela `squad_orcamento_log` com tipo (Escalar/Manter/Otimizar/Reduzir) e explicacao
-- **Skill `/gestao-orcamento`**: analise completa de distribuicao de orcamento. Apos alinhar estrategia, SEMPRE publicar (commit + push)
+- **Skill `/gestao-orcamento`**: analise completa de distribuicao de orcamento. Propoe nova distribuicao, usuario aprova, grava na `squad_orcamento_approved`. Apos gravar, SEMPRE publicar (commit + push)
 
 ## Performance Pre-Vendas — Armadilhas Conhecidas
 - **Campo Pre Vendedor(a)** do Pipedrive (field key `34a7f4f5f78e8a8d4751ddfb3cfcfb224d8ff908`, tipo user) — diferente do `owner_name` (proprietario). Salvo em `squad_deals.preseller_name`
