@@ -485,10 +485,12 @@ O botao envia: `["dashboard-light", "meta-ads", "deals-light", "calendar", "pres
   1. **Ciclo global:** `cycleDays = (won_time - add_time)` para cada deal ganho no periodo (filtro `won_time >= cutoff`). Calcula avg/median/P90
   2. **Leadtime por etapa:** estimativa proporcional ponderada — stages mais altos recebem mais tempo. Peso de cada stage = `stage_order / sum(1..max_stage_order)`. Ex: deal com max_stage_order=9, peso stage 1 = 1/45, peso stage 9 = 9/45
   3. **Deals abertos por etapa:** agrupados por `stage_order`. Encontra o deal mais antigo (menor `add_time`) em cada stage com link Pipedrive
-  4. **By closer:** agrupa deals ganhos por `owner_name`, calcula avg/median do ciclo. So inclui closers de V_COLS
-- **Parametro:** `?days=N` (default 90) — periodo de analise para deals ganhos (filtro por `won_time`)
-- **View:** summary cards (Leadtime Medio, Mediana, P90, Deals Ganhos, Deals Abertos), tabela por etapa com lead mais antigo, tabela por closer. Filtro de periodo (30d/60d/90d/180d/12m)
-- **Color coding:** verde (abaixo de 80% da media), vermelho (acima de 120% da media). Para deals antigos: verde <30d, amarelo 30-89d, vermelho >=90d
+  4. **By closer:** agrupa deals por `owner_name`. API retorna lista completa de deals (won + open) por closer com `cycleDays` (won: won_time - add_time; open: now - add_time). So inclui closers de V_COLS
+- **Parametro:** `?days=N` (default 90) — periodo de analise para deals ganhos (filtro por `won_time`). Deals abertos sao sempre incluidos independente do periodo
+- **View:** summary cards (Leadtime Medio, Mediana, P90, Deals Ganhos, Deals Abertos), tabela por etapa com lead mais antigo, tabela por closer (expansivel com deals). Filtro de periodo (30d/60d/90d/180d/12m)
+- **Toggle Todos/Abertos:** na secao "Leadtime por Closer", toggle recalcula media/mediana/contagem. "Todos" = deals ganhos + abertos (cycleDays de cada). "Abertos" = so deals open (idade desde criacao). Metricas sao recalculadas no frontend com `computeStats()` sobre os deals filtrados
+- **Deals expandiveis:** clicar no closer expande lista de deals ordenados por maior leadtime. Cada deal tem link Pipedrive, empreendimento, etapa, status (Ganho/Aberto), dias, data criacao
+- **Color coding:** verde (abaixo de 80% da media filtrada), vermelho (acima de 120%). Para dias individuais: verde <30d, amarelo 30-89d, vermelho >=90d
 - **Sync:** usa `["deals"]` (depende de `squad_deals` atualizado)
 - **CUIDADO:** usa distribuicao proporcional ponderada para estimativa de tempo por etapa (NAO uniforme). Stages mais altos do funil (negociacao, reservas) tendem a ter mais tempo que stages iniciais
 
