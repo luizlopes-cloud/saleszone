@@ -135,11 +135,13 @@ export async function GET() {
       convRate[so] = reachedStage[so] > 0 ? wonFromStage[so] / reachedStage[so] : 0;
     }
 
-    // --- Leadtime mediano por etapa (dias da etapa até WON) ---
+    // --- Leadtime médio por etapa (dias da etapa até WON) ---
     // Usa deals que FECHARAM nos últimos 90d (won_time >= 90d), não add_time
     // Ciclo total = won_time - add_time. Tempo restante da etapa X ≈ ciclo × (14 - X) / 13
-    const leadtimeSamples: Record<number, number[]> = {};
-    for (const so of ALL_STAGES) leadtimeSamples[so] = [];
+    // Usa média (não mediana) por ser mais conservador (outliers puxam pra cima)
+    const leadtimeSums: Record<number, number> = {};
+    const leadtimeCounts: Record<number, number> = {};
+    for (const so of ALL_STAGES) { leadtimeSums[so] = 0; leadtimeCounts[so] = 0; }
 
     for (const d of won90d) {
       if (!d.add_time || !d.won_time) continue;
@@ -148,23 +150,16 @@ export async function GET() {
       const maxSO = d.max_stage_order || 14;
       for (const so of ALL_STAGES) {
         if (maxSO >= so) {
-          // Tempo restante estimado da etapa X = ciclo × fração restante do pipeline
           const remainingDays = cycleDays * (14 - so) / 13;
-          leadtimeSamples[so].push(Math.max(0, remainingDays));
+          leadtimeSums[so] += Math.max(0, remainingDays);
+          leadtimeCounts[so]++;
         }
       }
     }
 
-    function median(arr: number[]): number {
-      if (arr.length === 0) return 0;
-      const sorted = [...arr].sort((a, b) => a - b);
-      const mid = Math.floor(sorted.length / 2);
-      return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-    }
-
     const leadtimeByStage: Record<number, number> = {};
     for (const so of ALL_STAGES) {
-      leadtimeByStage[so] = Math.round(median(leadtimeSamples[so]));
+      leadtimeByStage[so] = leadtimeCounts[so] > 0 ? Math.round(leadtimeSums[so] / leadtimeCounts[so]) : 0;
     }
 
     // --- Deals abertos por etapa ---
