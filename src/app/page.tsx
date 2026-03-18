@@ -29,32 +29,28 @@ export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<{ email: string; name: string } | undefined>();
   const [userRole, setUserRole] = useState<UserRole | null>(null);
-  const [activeModule, setActiveModule] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("activeModule") || DEFAULT_MODULE;
-    }
-    return DEFAULT_MODULE;
-  });
+  const [activeModule, setActiveModule] = useState(DEFAULT_MODULE);
   const moduleConfig = getModuleConfig(activeModule);
-  const [mainView, setMainViewRaw] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("mainView") || "campanhas";
-    }
-    return "campanhas";
-  });
+  const [mainView, setMainViewRaw] = useState("campanhas");
+  const [hydrated, setHydrated] = useState(false);
   const setMainView = (v: string) => {
     setMainViewRaw(v);
     localStorage.setItem("mainView", v);
   };
   const [activeTab, setActiveTab] = useState<TabKey>("mql");
   const [loading, setLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("lastUpdated");
-      return saved ? new Date(saved) : null;
-    }
-    return null;
-  });
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+
+  // Restore persisted state from localStorage after hydration
+  useEffect(() => {
+    const savedModule = localStorage.getItem("activeModule");
+    if (savedModule) setActiveModule(savedModule);
+    const savedView = localStorage.getItem("mainView");
+    if (savedView) setMainViewRaw(savedView);
+    const savedUpdated = localStorage.getItem("lastUpdated");
+    if (savedUpdated) setLastUpdated(new Date(savedUpdated));
+    setHydrated(true);
+  }, []);
   const [acompData, setAcompData] = useState<Record<string, AcompanhamentoData>>({});
   const [alinhData, setAlinhData] = useState<AlinhamentoData | null>(null);
   const [misalignedDeals, setMisalignedDeals] = useState<MisalignedDealsData | null>(null);
@@ -326,6 +322,7 @@ export default function Dashboard() {
 
   // Re-fetch when mediaFilter changes — impacts all data views
   useEffect(() => {
+    if (!hydrated) return;
     // Clear cached campanhas data since filter changed
     setCampData(null);
     if (mainView === "campanhas") {
@@ -336,6 +333,7 @@ export default function Dashboard() {
   }, [mediaFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
+    if (!hydrated) return;
     if (mainView === "acompanhamento" && !acompData[activeTab]) {
       fetchAcomp(activeTab, "all");
     } else if (mainView === "alinhamento" && !alinhData) {
@@ -368,7 +366,7 @@ export default function Dashboard() {
     } else if (mainView === "leadtime" && !leadtimeData) {
       fetchLeadtime(leadtimeDays);
     }
-  }, [activeTab, mainView]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab, mainView, hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Module change handler — clear caches and persist selection
   const handleModuleChange = (modId: string) => {
