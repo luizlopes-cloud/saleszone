@@ -60,9 +60,9 @@ export async function GET() {
       offset += PAGE_SIZE;
     }
 
-    // Filter to closers only, exclude stage "Agendado" (order 7)
+    // Filter to closers only, exclude Agendado (7) and No Show/Reagendamento (8)
     const closerSet = new Set(V_COLS);
-    const closerDeals = allRows.filter((d) => closerSet.has(d.owner_name) && d.stage_order !== 7);
+    const closerDeals = allRows.filter((d) => closerSet.has(d.owner_name) && d.stage_order !== 7 && d.stage_order !== 8);
 
     // Calculate leadtime and activity status for each deal
     const todayStr = now.toISOString().substring(0, 10);
