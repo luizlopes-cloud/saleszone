@@ -37,15 +37,24 @@ export function BacklogView() {
     }
   }, [router]);
 
+  const [contribError, setContribError] = useState<string | null>(null);
   const fetchContributions = useCallback(async () => {
     try {
       const res = await fetch("/api/backlog/contributions");
       const data = await res.json();
       console.log("[backlog] contributions response:", res.status, data);
-      if (!res.ok) return;
+      if (!res.ok) {
+        setContribError(`API ${res.status}: ${data.error || "Unknown error"}`);
+        return;
+      }
+      if (data.computing) {
+        setContribError("GitHub está calculando as estatísticas. Tente novamente em alguns segundos.");
+        return;
+      }
       setContributors(data.contributors || []);
     } catch (err) {
       console.error("[backlog] contributions fetch error:", err);
+      setContribError("Erro ao buscar contribuições");
     } finally {
       setContribLoading(false);
     }
@@ -136,8 +145,10 @@ export function BacklogView() {
         <div style={{ backgroundColor: T.bg, borderRadius: "12px", border: `1px solid ${T.border}`, boxShadow: T.elevSm, overflow: "hidden" }}>
           {contribLoading ? (
             <div style={{ padding: "32px", textAlign: "center", color: T.mutedFg, fontSize: "13px" }}>Carregando contribuições...</div>
+          ) : contribError ? (
+            <div style={{ padding: "32px", textAlign: "center", color: T.mutedFg, fontSize: "13px" }}>{contribError}</div>
           ) : contributors.length === 0 ? (
-            <div style={{ padding: "32px", textAlign: "center", color: T.mutedFg, fontSize: "13px" }}>Nenhuma contribuição encontrada. Verifique se o GITHUB_TOKEN está configurado.</div>
+            <div style={{ padding: "32px", textAlign: "center", color: T.mutedFg, fontSize: "13px" }}>Nenhuma contribuição encontrada. Verifique se o github_username está configurado nos perfis.</div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
