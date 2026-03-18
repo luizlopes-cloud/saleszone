@@ -99,7 +99,20 @@ const FUNCTION_MAP: Record<string, Array<{ name: string; body?: Record<string, u
   ],
 };
 
-// DB-only modes that don't hit external APIs — run after all API calls complete
+// Pipedrive-dependent function keys — limit concurrent calls to avoid 429 rate limiting.
+// Dashboard and deals hit different endpoints, safe in separate batches.
+const PIPEDRIVE_DASHBOARD = new Set([
+  "dashboard", "dashboard-light",
+  "mktp-dashboard", "mktp-dashboard-light",
+  "szs-dashboard", "szs-dashboard-light",
+]);
+const PIPEDRIVE_DEALS = new Set([
+  "deals", "deals-light", "presales",
+  "mktp-deals", "mktp-deals-light", "mktp-presales",
+  "szs-deals", "szs-deals-light", "szs-presales",
+]);
+
+// DB-only modes — no external API calls, run after Pipedrive batch 1 completes
 const DB_ONLY_MODES = new Set(["metas", "monthly-rollup"]);
 
 interface SyncRequest {
@@ -112,8 +125,8 @@ interface FunctionResult {
   error?: string;
 }
 
-const CALL_TIMEOUT = 30_000; // 30s per Edge Function call
-const RETRY_DELAY = 5_000;   // 5s before retry
+const CALL_TIMEOUT = 45_000; // 45s per Edge Function call
+const RETRY_DELAY = 5_000;   // 5s before retry on 504
 
 async function callEdgeFunction(
   supabaseUrl: string,
@@ -134,7 +147,7 @@ async function callEdgeFunction(
       });
       if (!response.ok) {
         const text = await response.text();
-        // Retry on 504 (gateway timeout)
+        // Retry only on 504 (Supabase gateway timeout) — transient, worth retrying
         if (response.status === 504 && attempt === 0) {
           await new Promise((r) => setTimeout(r, RETRY_DELAY));
           continue;
@@ -144,11 +157,7 @@ async function callEdgeFunction(
       return { function: label, status: "success" };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
-      // Retry on timeout (AbortError)
-      if (attempt === 0 && err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAY));
-        continue;
-      }
+      // Don't retry on client-side timeout — function is overloaded, retrying adds more load
       return { function: label, status: "error", error: msg };
     }
   }
@@ -191,34 +200,51 @@ export async function POST(request: Request) {
     );
   }
 
-  // Collect all steps, split into API calls and DB-only calls.
-  // All API calls (Pipedrive + Meta Ads + Calendar + Baserow) run in parallel — Phase 1.
-  // DB-only calls (metas, monthly-rollup) run after Phase 1 completes — Phase 2.
-  // Pipedrive rate limit is ~80 req/2s; with ~6 Edge Functions each making 1-2 concurrent
-  // internal requests, peak is ~6-12 concurrent API calls — well within limits.
-  const allSteps: Step[] = [];
+  // Split into 3 groups to limit concurrent Pipedrive calls (max ~3 at a time):
+  //   nonPipedrive: meta-ads, calendar, baserow — independent APIs, all parallel
+  //   batch1:       dashboard steps (daily-open, daily-won, alignment) — Pipedrive batch 1
+  //   batch2:       deals + presales steps — Pipedrive batch 2
+  //   dbOnly:       metas, monthly-rollup — DB-only, after batch1
+  //
+  // Execution:
+  //   Phase 1: [nonPipedrive + batch1] in parallel (max 3 Pipedrive + 3 other = 6 EFs)
+  //   Phase 2: [batch2 + dbOnly] in parallel (max 3 Pipedrive + 2 DB = 5 EFs)
+  const nonPipedrive: Step[] = [];
+  const batch1: Step[] = [];
+  const batch2: Step[] = [];
+  const dbOnly: Step[] = [];
+
   for (const fn of body.functions) {
     for (const step of FUNCTION_MAP[fn]) {
-      allSteps.push({ label: `${fn}:${step.body?.mode || step.name}`, step });
+      const label = `${fn}:${step.body?.mode || step.name}`;
+      const mode = (step.body?.mode as string) ?? "";
+      if (DB_ONLY_MODES.has(mode)) {
+        dbOnly.push({ label, step });
+      } else if (PIPEDRIVE_DASHBOARD.has(fn)) {
+        batch1.push({ label, step });
+      } else if (PIPEDRIVE_DEALS.has(fn)) {
+        batch2.push({ label, step });
+      } else {
+        nonPipedrive.push({ label, step });
+      }
     }
   }
 
-  const apiPhase = allSteps.filter(s => !DB_ONLY_MODES.has((s.step.body?.mode as string) ?? ""));
-  const dbPhase = allSteps.filter(s => DB_ONLY_MODES.has((s.step.body?.mode as string) ?? ""));
-
+  const call = ({ label, step }: Step) => callEdgeFunction(supabaseUrl, supabaseKey, step, label);
   const results: FunctionResult[] = [];
 
-  // Phase 1: ALL external API calls in parallel
-  if (apiPhase.length > 0) {
-    const r = await Promise.all(apiPhase.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)));
-    results.push(...r);
+  // Phase 1: non-Pipedrive + dashboard Pipedrive calls (max 3 PD concurrent)
+  const phase1 = [...nonPipedrive, ...batch1];
+  if (phase1.length > 0) {
+    results.push(...await Promise.all(phase1.map(call)));
   }
 
-  // Phase 2: DB-only calls in parallel (depend on Phase 1 data being written)
-  if (dbPhase.length > 0) {
-    const r = await Promise.all(dbPhase.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)));
-    results.push(...r);
+  // Phase 2: deals/presales Pipedrive + DB-only (batch1 done, safe to run metas/rollup + batch2)
+  const phase2 = [...batch2, ...dbOnly];
+  if (phase2.length > 0) {
+    results.push(...await Promise.all(phase2.map(call)));
   }
+
   const hasErrors = results.some((r) => r.status === "error");
   return NextResponse.json({ results }, { status: hasErrors ? 207 : 200 });
 }

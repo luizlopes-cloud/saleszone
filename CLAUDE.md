@@ -4,7 +4,7 @@
 Dashboard de acompanhamento de vendas por squads para a Seazone (Pipeline SZI).
 Centraliza dados do Pipedrive, Meta Ads e Google Calendar em uma interface unificada.
 
-- **Deploy:** Vercel (squad-dashboard-eight.vercel.app)
+- **Deploy:** Vercel (squad-dashboard-theta.vercel.app)
 - **GitHub:** fernandopereira-ship-it/squad-dashboard
 - **Supabase:** projeto `ewgqbkdriflarmmifrvs` (plano Pro)
 
@@ -34,7 +34,7 @@ Next.js API Routes (/api/dashboard/*) — leem do Supabase, agregam por squad
 React Client Components — exibem tabs, charts, tabelas
     |
     v
-Vercel (squad-dashboard-eight.vercel.app)
+Vercel (squad-dashboard-theta.vercel.app)
 ```
 
 ## Estrutura do Projeto
@@ -350,13 +350,12 @@ O botao sincroniza TODAS as abas de uma vez (nao so a aba atual). Usa modos **li
 - `deals-light`: pula `deals-lost` e `deals-flow` (muito pesados, timeout 504)
 - As funcoes pesadas rodam no **pg_cron a cada 2h**
 
-**Paralelizacao maxima (2 fases):**
-- **Fase 1:** TODOS os 9 steps de API (Pipedrive + Meta Ads + Calendar + Baserow) rodam em paralelo via `Promise.all`. Pipedrive rate limit e ~80 req/2s; com ~6 Edge Functions fazendo 1-2 requests concorrentes internamente, pico de ~6-12 requests — dentro do limite
-- **Fase 2:** steps DB-only (`metas`, `monthly-rollup`) rodam em paralelo apos Fase 1 (dependem dos dados escritos pela Fase 1)
-- Tempo total = `max(todas as EFs)` + DB-only ≈ **~9s**
-- Sem tracks separados, sem stagger, sem delays entre chamadas
-
-**Retry:** cada chamada Edge Function tem `AbortSignal.timeout(30s)` + 1 retry automatico em caso de 504 ou timeout (espera 5s antes de retry)
+**Paralelizacao em 2 fases (max 6 EFs concorrentes, max 3 Pipedrive):**
+- **Fase 1:** `[meta-ads, calendar, baserow]` (non-Pipedrive) + `[daily-open, daily-won, alignment]` (Pipedrive batch 1) — tudo em `Promise.all`. Max 3 Pipedrive + 3 other = 6 EFs
+- **Fase 2:** `[deals-open, deals-won, presales]` (Pipedrive batch 2) + `[metas, rollup]` (DB-only) — tudo em `Promise.all`. Inicia apos Fase 1
+- Tempo total ≈ `Fase1 (~10s) + Fase2 (~7s)` ≈ **~17s**
+- **CUIDADO:** 9 EFs simultaneas causa timeout — Supabase/Pipedrive nao aguenta. Max 6 concorrentes, max 3 Pipedrive por fase
+- Timeout por chamada: 45s. Retry somente em HTTP 504 (NAO em timeout de cliente — retrying sob carga piora)
 
 **Timer:** botao mostra segundos decorridos durante sync: `"Atualizando... (12s)"`
 
