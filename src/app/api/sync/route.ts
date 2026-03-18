@@ -170,26 +170,29 @@ async function callEdgeFunction(
   return { function: label, status: "error", error: "Max retries exceeded" };
 }
 
-// Run steps sequentially with 2s delay between real Pipedrive calls (skip DB-only)
-async function runSequentialTrack(
+// Run steps in 2 phases: all API calls in parallel, then all DB-only calls in parallel.
+// Within a track, steps like daily-open/daily-won/alignment are independent (different source/table)
+// and can safely run concurrently. DB-only steps (metas, rollup) depend on API phase data.
+async function runPhasedTrack(
   steps: Step[],
   supabaseUrl: string,
   supabaseKey: string,
 ): Promise<FunctionResult[]> {
+  const apiPhase = steps.filter(s => !DB_ONLY_MODES.has((s.step.body?.mode as string) ?? ""));
+  const dbPhase = steps.filter(s => DB_ONLY_MODES.has((s.step.body?.mode as string) ?? ""));
+
   const results: FunctionResult[] = [];
-  let lastWasPipedrive = false;
 
-  for (const { label, step } of steps) {
-    const mode = step.body?.mode as string | undefined;
-    const isDbOnly = mode ? DB_ONLY_MODES.has(mode) : false;
-
-    if (!isDbOnly && lastWasPipedrive) {
-      await new Promise((r) => setTimeout(r, PIPEDRIVE_DELAY));
-    }
-
-    results.push(await callEdgeFunction(supabaseUrl, supabaseKey, step, label));
-    lastWasPipedrive = !isDbOnly;
+  if (apiPhase.length > 0) {
+    const r = await Promise.all(apiPhase.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)));
+    results.push(...r);
   }
+
+  if (dbPhase.length > 0) {
+    const r = await Promise.all(dbPhase.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)));
+    results.push(...r);
+  }
+
   return results;
 }
 
@@ -257,11 +260,11 @@ export async function POST(request: Request) {
     trackA.length > 0
       ? Promise.all(trackA.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)))
       : Promise.resolve([]),
-    // Track B: dashboard sequential with 2s delays
-    runSequentialTrack(trackB, supabaseUrl, supabaseKey),
-    // Track C: deals sequential with 2s delays (stagger 1s to avoid both tracks hitting Pipedrive at t=0)
+    // Track B: dashboard — API phase parallel, then DB phase parallel
+    runPhasedTrack(trackB, supabaseUrl, supabaseKey),
+    // Track C: deals — API phase parallel (stagger 2s to spread Pipedrive load)
     trackC.length > 0
-      ? new Promise<FunctionResult[]>((resolve) => setTimeout(() => resolve(runSequentialTrack(trackC, supabaseUrl, supabaseKey)), 1000))
+      ? new Promise<FunctionResult[]>((resolve) => setTimeout(() => resolve(runPhasedTrack(trackC, supabaseUrl, supabaseKey)), PIPEDRIVE_DELAY))
       : Promise.resolve([]),
   ]);
 
