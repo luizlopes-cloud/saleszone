@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 import { T } from "@/lib/constants";
@@ -38,7 +37,6 @@ interface HeaderProps {
 }
 
 export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed, lastUpdated, user, onLogout, userRole, activeModule, onModuleChange }: HeaderProps) {
-  const router = useRouter();
   const [metaDropdownOpen, setMetaDropdownOpen] = useState(false);
   const metaDropdownRef = useRef<HTMLDivElement>(null);
   const isMetaAdsView = (META_ADS_VIEWS as readonly string[]).includes(mainView);
@@ -411,7 +409,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
             >
               {userRole === "diretor" && (
                 <button
-                  onClick={() => { router.push("/admin"); setUserDropdownOpen(false); }}
+                  onClick={() => { setMainView("admin"); setUserDropdownOpen(false); }}
                   style={{
                     display: "flex",
                     alignItems: "center",
@@ -433,7 +431,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
                 </button>
               )}
               <button
-                onClick={() => { router.push("/backlog"); setUserDropdownOpen(false); }}
+                onClick={() => { setMainView("backlog"); setUserDropdownOpen(false); }}
                 style={{
                   display: "flex",
                   alignItems: "center",

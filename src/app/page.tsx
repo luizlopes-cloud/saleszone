@@ -22,6 +22,8 @@ import { BaselineView } from "@/components/dashboard/baseline-view";
 import { DiagnosticoVendasView } from "@/components/dashboard/diagnostico-vendas-view";
 import { ForecastView } from "@/components/dashboard/forecast-view";
 import { LeadtimeView } from "@/components/dashboard/leadtime-view";
+import { BacklogView } from "@/components/backlog/backlog-view";
+import { AdminView } from "@/components/dashboard/admin-view";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -501,6 +503,8 @@ export default function Dashboard() {
         {mainView === "diagnostico-vendas" && <DiagnosticoVendasView data={diagVendasData} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "forecast" && <ForecastView data={forecastData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "leadtime" && <LeadtimeView data={leadtimeData} loading={loading} daysBack={leadtimeDays} onDaysChange={(d) => { setLeadtimeDays(d); setLeadtimeData(null); fetchLeadtime(d); }} lastUpdated={lastUpdated} />}
+        {mainView === "backlog" && <BacklogView />}
+        {mainView === "admin" && <AdminView userRole={userRole} />}
         {mainView === "venda" && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
             <p style={{ fontSize: "16px" }}>Aba Venda — em construção</p>
