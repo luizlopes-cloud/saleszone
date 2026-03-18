@@ -4,7 +4,7 @@
 Dashboard de acompanhamento de vendas por squads para a Seazone (Pipeline SZI).
 Centraliza dados do Pipedrive, Meta Ads e Google Calendar em uma interface unificada.
 
-- **Deploy:** Vercel (squad-dashboard-theta.vercel.app)
+- **Deploy:** Vercel (saleszone.vercel.app)
 - **GitHub:** fernandopereira-ship-it/squad-dashboard
 - **Supabase:** projeto `ewgqbkdriflarmmifrvs` (plano Pro)
 
@@ -34,7 +34,7 @@ Next.js API Routes (/api/dashboard/*) — leem do Supabase, agregam por squad
 React Client Components — exibem tabs, charts, tabelas
     |
     v
-Vercel (squad-dashboard-theta.vercel.app)
+Vercel (saleszone.vercel.app)
 ```
 
 ## Estrutura do Projeto
@@ -350,16 +350,19 @@ O botao sincroniza TODAS as abas de uma vez (nao so a aba atual). Usa modos **li
 - `deals-light`: pula `deals-lost` e `deals-flow` (muito pesados, timeout 504)
 - As funcoes pesadas rodam no **pg_cron a cada 2h**
 
-**Paralelizacao em 2 fases (max 6 EFs concorrentes, max 3 Pipedrive):**
-- **Fase 1:** `[meta-ads, calendar, baserow]` (non-Pipedrive) + `[daily-open, daily-won, alignment]` (Pipedrive batch 1) — tudo em `Promise.all`. Max 3 Pipedrive + 3 other = 6 EFs
-- **Fase 2:** `[deals-open, deals-won, presales]` (Pipedrive batch 2) + `[metas, rollup]` (DB-only) — tudo em `Promise.all`. Inicia apos Fase 1
-- Tempo total ≈ `Fase1 (~10s) + Fase2 (~7s)` ≈ **~17s**
-- **CUIDADO:** 9 EFs simultaneas causa timeout — Supabase/Pipedrive nao aguenta. Max 6 concorrentes, max 3 Pipedrive por fase
-- Timeout por chamada: 45s. Retry somente em HTTP 504 (NAO em timeout de cliente — retrying sob carga piora)
+**Concurrency Pool (max 4 workers, slowest-first):**
+- Steps API ordenados por duracao estimada (presales=0 mais lento, baserow=8 mais rapido)
+- Pool de 4 workers processa steps em FIFO — max 4 EFs concorrentes a qualquer momento
+- Steps DB-only (metas, monthly-rollup) rodam apos pool terminar
+- **Sem timeout artificial** — Vercel (300s) e Supabase (150s) sao os limites naturais
+- Retry somente em HTTP 504 (delay 3s). Sem retry em timeout de cliente
+- `durationMs` retornado em cada resultado para diagnostico
+- Tempo total ≈ **~35-40s** (limitado pela funcao mais lenta: presales ~35s)
+- **CUIDADO — Meta API rate limit:** `meta-ads` pode dar 403 se rodar proximo ao pg_cron ou apos multiplas tentativas. Rate limit reseta em ~15 min
 
 **Timer:** botao mostra segundos decorridos durante sync: `"Atualizando... (12s)"`
 
-**Timestamp:** apos sync, `lastUpdated` e salvo e passado para todas as views. Componente `DataSourceFooter` (em `ui.tsx`) renderiza `"Pipedrive · DD/MM/YYYY HH:MM"` no rodape de cada view
+**Timestamp:** apos sync, `lastUpdated` e salvo no `localStorage` e passado para todas as views. Persiste entre recarregamentos da pagina. Componente `DataSourceFooter` (em `ui.tsx`) renderiza `"Pipedrive · DD/MM/YYYY HH:MM"` no rodape de cada view
 
 **Apos sync:** limpa TODOS os caches do frontend. A aba atual re-busca dados imediatamente; outras abas buscam dados frescos ao serem acessadas.
 
