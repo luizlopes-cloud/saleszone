@@ -36,7 +36,16 @@ export default function Dashboard() {
     return DEFAULT_MODULE;
   });
   const moduleConfig = getModuleConfig(activeModule);
-  const [mainView, setMainView] = useState("campanhas");
+  const [mainView, setMainViewRaw] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("mainView") || "campanhas";
+    }
+    return "campanhas";
+  });
+  const setMainView = (v: string) => {
+    setMainViewRaw(v);
+    localStorage.setItem("mainView", v);
+  };
   const [activeTab, setActiveTab] = useState<TabKey>("mql");
   const [loading, setLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(() => {
