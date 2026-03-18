@@ -38,10 +38,13 @@ export default function BacklogPage() {
   const fetchContributions = useCallback(async () => {
     try {
       const res = await fetch("/api/backlog/contributions");
-      if (!res.ok) return;
       const data = await res.json();
+      console.log("[backlog] contributions response:", res.status, data);
+      if (!res.ok) return;
       setContributors(data.contributors || []);
-    } catch {} finally {
+    } catch (err) {
+      console.error("[backlog] contributions fetch error:", err);
+    } finally {
       setContribLoading(false);
     }
   }, []);
