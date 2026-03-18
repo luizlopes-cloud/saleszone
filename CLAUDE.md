@@ -63,6 +63,7 @@ src/
       dashboard/diagnostico-vendas/route.ts  — Leadtime de follow-up por closer (deals abertos sem atividade)
       dashboard/forecast/route.ts            — Forecast: previsao de vendas do mes (pipeline aberto × conv. historica)
       dashboard/leadtime/route.ts             — Leadtime: tempo medio por etapa do funil (?days=N filtro periodo)
+      backlog/contributions/route.ts           — Contribuicoes GitHub: stats do repo filtradas por users cadastrados
   components/dashboard/
     header.tsx                               — Navegacao, usuario, botao Atualizar. Dropdown "Meta Ads" agrupa Campanhas/Diagnostico Mkt/Orcamento/Planejamento. Dropdown "Vendas" agrupa Perf. Vendas/Base-Line/Diagnostico Vendas/Ociosidade/Leadtime
     acompanhamento-view.tsx                  — Heatmap 28 dias + metas
@@ -550,6 +551,7 @@ O botao envia: `["dashboard-light", "meta-ads", "deals-light", "calendar", "pres
 - `NEXT_PUBLIC_SUPABASE_URL` — URL do Supabase
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — Anon key
 - `SUPABASE_SERVICE_ROLE_KEY` — Service role key (server-side only)
+- `GITHUB_TOKEN` — Token GitHub com acesso ao repo `seazone-socios/saleszone` (usado pela rota contributions)
 
 ## Comandos
 ```bash
@@ -557,6 +559,16 @@ npm run dev          # Dev server (porta 3000)
 npm run build        # Build producao
 npm run lint         # ESLint
 ```
+
+## Backlog — Contribuicoes GitHub
+- **API:** `/api/backlog/contributions` — busca stats do GitHub API (`/repos/{owner}/{repo}/stats/contributors`) e filtra por usuarios cadastrados em `user_profiles`
+- **Repo:** `seazone-socios/saleszone` (migrado de `fernandopereira-ship-it/squad-dashboard`)
+- **Matching duplo:** match primario por `github_username` (campo em `user_profiles`), fallback por email (busca email publico do GitHub via `/users/{login}` e compara com `user_profiles.email`)
+- **CUIDADO — github_username vs login real:** o `github_username` cadastrado no Admin deve ser o login usado para commitar no repo. Se o usuario commita como `ambrosi-seazone` mas o Admin tem `mathambrosi`, o match direto falha. O fallback por email so funciona se o email publico no GitHub for o mesmo do perfil
+- **CUIDADO — GitHub API 202:** a stats API retorna 202 enquanto computa. A rota faz retry ate 3x com delay de 2s
+- **CUIDADO — cache Vercel:** a rota usa `force-dynamic` e `cache: "no-store"` no fetch, mas se os numeros parecem do repo antigo, verificar env vars na Vercel
+- **Logs de diagnostico:** a rota loga `[contributions]` com Supabase URL, profiles, GitHub logins, email lookups e resultado do filtro. Ver em Vercel Function Logs
+- **Usuario ativo:** `ambrosi-seazone` (matheus.ambrosi@seazone.com.br) — commits futuros sao todos com este login. Login antigo `mathambrosi` so aparece em commits historicos e depende do fallback por email
 
 ## Automação Fireflies (GitHub Actions)
 - **Workflow:** `.github/workflows/sync-fireflies.yml` — cron `0 8 * * *` (5h BRT)
