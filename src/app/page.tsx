@@ -39,7 +39,13 @@ export default function Dashboard() {
   const [mainView, setMainView] = useState("campanhas");
   const [activeTab, setActiveTab] = useState<TabKey>("mql");
   const [loading, setLoading] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("lastUpdated");
+      return saved ? new Date(saved) : null;
+    }
+    return null;
+  });
   const [acompData, setAcompData] = useState<Record<string, AcompanhamentoData>>({});
   const [alinhData, setAlinhData] = useState<AlinhamentoData | null>(null);
   const [misalignedDeals, setMisalignedDeals] = useState<MisalignedDealsData | null>(null);
@@ -427,7 +433,9 @@ export default function Dashboard() {
       clearAllCaches();
       // Re-fetch the current view immediately
       await fetchCurrentView();
-      setLastUpdated(new Date());
+      const now = new Date();
+      setLastUpdated(now);
+      localStorage.setItem("lastUpdated", now.toISOString());
     } catch (err) {
       console.error("Refresh error:", err);
       setSyncWarning("Erro ao atualizar: a conexão foi interrompida. Os dados podem estar incompletos.");
