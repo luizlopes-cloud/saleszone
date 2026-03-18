@@ -44,7 +44,7 @@ export async function GET() {
     let res: Response | null = null;
     for (let attempt = 0; attempt < 3; attempt++) {
       res = await fetch(
-        "https://api.github.com/repos/fernandopereira-ship-it/squad-dashboard/stats/contributors",
+        "https://api.github.com/repos/seazone-socios/saleszone/stats/contributors",
         {
           headers: {
             Authorization: `Bearer ${token}`,
