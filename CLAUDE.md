@@ -5,7 +5,7 @@ Dashboard de acompanhamento de vendas por squads para a Seazone (Pipeline SZI).
 Centraliza dados do Pipedrive, Meta Ads e Google Calendar em uma interface unificada.
 
 - **Deploy:** Vercel (saleszone.vercel.app)
-- **GitHub:** fernandopereira-ship-it/squad-dashboard
+- **GitHub:** seazone-socios/saleszone
 - **Supabase:** projeto `ewgqbkdriflarmmifrvs` (plano Pro)
 
 ## Stack
