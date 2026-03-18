@@ -350,12 +350,12 @@ O botao sincroniza TODAS as abas de uma vez (nao so a aba atual). Usa modos **li
 - `deals-light`: pula `deals-lost` e `deals-flow` (muito pesados, timeout 504)
 - As funcoes pesadas rodam no **pg_cron a cada 2h**
 
-**Paralelizacao (3 tracks):**
+**Paralelizacao (3 tracks, steps paralelos dentro de cada track):**
 - **Track A (paralelo):** `meta-ads` + `calendar` + `baserow` — APIs independentes, rodam todos em `Promise.all`
-- **Track B (sequencial):** dashboard Pipedrive: `daily-open → 2s → daily-won → 2s → alignment → metas → rollup`
-- **Track C (sequencial):** deals Pipedrive: `deals-open → 2s → deals-won → 2s → presales` (stagger 1s para nao bater no Pipedrive ao mesmo tempo que Track B)
-- Tracks A, B, C rodam em paralelo. Tempo total = `max(A, B, C)` ≈ **19-20s**
-- Delay entre chamadas Pipedrive: **2s** (rate limit Pipedrive e 80 req/2s, seguro). DB-only (`metas`, `monthly-rollup`) sem delay
+- **Track B (phased):** dashboard Pipedrive: Fase 1 `[daily-open, daily-won, alignment]` em paralelo → Fase 2 `[metas, rollup]` em paralelo (DB-only, sem delay)
+- **Track C (phased, stagger 2s):** deals Pipedrive: `[deals-open, deals-won, presales]` todos em paralelo (inicia 2s apos Track B para espalhar carga)
+- Tracks A, B, C rodam em paralelo. Tempo total = `max(A, B, C)` ≈ **12-15s**
+- Steps dentro de cada track sao independentes (escrevem em sources/tabelas diferentes) e rodam em paralelo via `Promise.all`
 
 **Retry:** cada chamada Edge Function tem `AbortSignal.timeout(30s)` + 1 retry automatico em caso de 504 ou timeout (espera 5s antes de retry)
 
