@@ -71,22 +71,80 @@ export async function GET() {
 
     const data: GitHubContributor[] = await res.json();
 
+    console.log("[contributions] Supabase URL:", process.env.NEXT_PUBLIC_SUPABASE_URL);
+    console.log("[contributions] GitHub contributors count:", data.length);
+    console.log("[contributions] GitHub logins:", data.map((c) => c.author.login));
+
     // Fetch user profiles with github_username
     const { data: profiles } = await supabase
       .from("user_profiles")
       .select("id, full_name, email, github_username");
 
+    console.log("[contributions] Profiles with github_username:",
+      (profiles || []).filter((p) => p.github_username).map((p) => ({
+        name: p.full_name,
+        gh: p.github_username,
+        email: p.email,
+      }))
+    );
+
+    // Map by github_username (primary match)
     const ghMap = new Map(
       (profiles || [])
         .filter((p) => p.github_username)
         .map((p) => [p.github_username!.toLowerCase(), p])
     );
 
-    // Show only contributors linked to registered users
+    // Map by email (fallback match)
+    const emailMap = new Map(
+      (profiles || [])
+        .filter((p) => p.email)
+        .map((p) => [p.email!.toLowerCase(), p])
+    );
+
+    // Fetch GitHub user emails for fallback matching
+    const ghEmailCache = new Map<string, string | null>();
+    const loginsToCheck = data
+      .filter((c) => !ghMap.has(c.author.login.toLowerCase()))
+      .map((c) => c.author.login);
+
+    if (loginsToCheck.length > 0) {
+      console.log("[contributions] Logins without direct match, checking emails:", loginsToCheck);
+      await Promise.all(
+        loginsToCheck.map(async (login) => {
+          try {
+            const userRes = await fetch(`https://api.github.com/users/${login}`, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/vnd.github.v3+json",
+              },
+            });
+            if (userRes.ok) {
+              const userData = await userRes.json();
+              ghEmailCache.set(login.toLowerCase(), userData.email?.toLowerCase() || null);
+            }
+          } catch {
+            // Ignore individual user fetch errors
+          }
+        })
+      );
+      console.log("[contributions] GitHub email lookups:", Object.fromEntries(ghEmailCache));
+    }
+
+    // Show only contributors linked to registered users (by username or email)
     const contributors = data
-      .filter((c) => ghMap.has(c.author.login.toLowerCase()))
+      .filter((c) => {
+        const login = c.author.login.toLowerCase();
+        if (ghMap.has(login)) return true;
+        // Fallback: match by GitHub email → profile email
+        const ghEmail = ghEmailCache.get(login);
+        if (ghEmail && emailMap.has(ghEmail)) return true;
+        return false;
+      })
       .map((c) => {
-      const profile = ghMap.get(c.author.login.toLowerCase());
+      const login = c.author.login.toLowerCase();
+      const profile = ghMap.get(login)
+        || (ghEmailCache.get(login) ? emailMap.get(ghEmailCache.get(login)!) : undefined);
       const totalAdded = c.weeks.reduce((sum, w) => sum + w.a, 0);
       const totalDeleted = c.weeks.reduce((sum, w) => sum + w.d, 0);
 
@@ -111,6 +169,9 @@ export async function GET() {
         })),
       };
     });
+
+    console.log("[contributions] After filter:", contributors.length, "contributors");
+    console.log("[contributions] Matched:", contributors.map((c) => c.github_login));
 
     // Sort by total commits descending
     contributors.sort((a, b) => b.totalCommits - a.totalCommits);
