@@ -82,8 +82,10 @@ export async function GET() {
         .map((p) => [p.github_username!.toLowerCase(), p])
     );
 
-    // Show all contributors, highlight linked system users
-    const contributors = data.map((c) => {
+    // Show only contributors linked to registered users
+    const contributors = data
+      .filter((c) => ghMap.has(c.author.login.toLowerCase()))
+      .map((c) => {
       const profile = ghMap.get(c.author.login.toLowerCase());
       const totalAdded = c.weeks.reduce((sum, w) => sum + w.a, 0);
       const totalDeleted = c.weeks.reduce((sum, w) => sum + w.d, 0);
