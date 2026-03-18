@@ -40,21 +40,26 @@ export async function GET() {
   }
 
   try {
-    const res = await fetch(
-      "https://api.github.com/repos/fernandopereira-ship-it/squad-dashboard/stats/contributors",
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: "application/vnd.github.v3+json",
-        },
-        cache: "no-store",
-      }
-    );
+    // GitHub may return 202 while computing stats — retry up to 3 times
+    let res: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      res = await fetch(
+        "https://api.github.com/repos/fernandopereira-ship-it/squad-dashboard/stats/contributors",
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/vnd.github.v3+json",
+          },
+          cache: "no-store",
+        }
+      );
+      console.log("[contributions] GitHub API status:", res.status, "attempt:", attempt + 1);
+      if (res.status !== 202) break;
+      // Wait 2s before retrying
+      await new Promise((r) => setTimeout(r, 2000));
+    }
 
-    console.log("[contributions] GitHub API status:", res.status);
-
-    if (res.status === 202) {
-      // GitHub is computing stats, retry later
+    if (!res || res.status === 202) {
       return NextResponse.json({ contributors: [], computing: true });
     }
 
