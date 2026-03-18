@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { LeadtimeData, LeadtimeStageRow, LeadtimeDealRow } from "@/lib/types";
+import { DataSourceFooter } from "./ui";
 
 interface Props {
   data: LeadtimeData | null;
   loading: boolean;
   daysBack: number;
   onDaysChange: (days: number) => void;
+  lastUpdated?: Date | null;
 }
 
 function fmt(n: number): string {
@@ -59,7 +61,7 @@ function daysColor(val: number, avg: number): string {
   return T.fg;
 }
 
-export function LeadtimeView({ data, loading, daysBack, onDaysChange }: Props) {
+export function LeadtimeView({ data, loading, daysBack, onDaysChange, lastUpdated }: Props) {
   if (loading && !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", color: T.mutedFg }}>
@@ -172,6 +174,7 @@ export function LeadtimeView({ data, loading, daysBack, onDaysChange }: Props) {
 
       {/* Leadtime por Closer */}
       <CloserSection byCloser={data.byCloser} globalAvg={data.avgCycleDays} />
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
   );
 }

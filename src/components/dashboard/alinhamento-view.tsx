@@ -3,16 +3,17 @@
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
 import type { AlinhamentoData, MisalignedDealsData } from "@/lib/types";
-import { StatPill, tdStyle, thBaseStyle } from "./ui";
+import { StatPill, tdStyle, thBaseStyle, DataSourceFooter } from "./ui";
 
 interface Props {
   data: AlinhamentoData | null;
   misalignedDeals: MisalignedDealsData | null;
   loading: boolean;
   moduleConfig: ModuleConfig;
+  lastUpdated?: Date | null;
 }
 
-export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig }: Props) {
+export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, lastUpdated }: Props) {
   if (loading && !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px", color: T.cinza600 }}>
@@ -345,6 +346,7 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig }
           </div>
         );
       })()}
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
 }

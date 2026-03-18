@@ -3,20 +3,21 @@
 import { useState } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { CampanhasData, MetaAdRow, MediaFilter } from "@/lib/types";
-import { MediaFilterToggle } from "./ui";
+import { MediaFilterToggle, DataSourceFooter } from "./ui";
 
 interface Props {
   data: CampanhasData | null;
   loading: boolean;
   mediaFilter: MediaFilter;
   setMediaFilter: (f: MediaFilter) => void;
+  lastUpdated?: Date | null;
 }
 
 function formatBRL(v: number): string {
   return `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function CampanhasView({ data, loading, mediaFilter, setMediaFilter }: Props) {
+export function CampanhasView({ data, loading, mediaFilter, setMediaFilter, lastUpdated }: Props) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showInfo, setShowInfo] = useState(false);
 
@@ -265,6 +266,7 @@ export function CampanhasView({ data, loading, mediaFilter, setMediaFilter }: Pr
           Meta Ads · Conta SZI · Dados do mês
         </span>
       </div>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
 }

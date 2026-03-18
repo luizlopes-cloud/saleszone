@@ -28,6 +28,7 @@ interface HeaderProps {
   setMainView: (v: string) => void;
   onRefresh: () => void;
   loading: boolean;
+  syncElapsed?: number;
   lastUpdated?: Date | null;
   user?: { email: string; name: string };
   onLogout?: () => void;
@@ -36,7 +37,7 @@ interface HeaderProps {
   onModuleChange: (moduleId: string) => void;
 }
 
-export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated, user, onLogout, userRole, activeModule, onModuleChange }: HeaderProps) {
+export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed, lastUpdated, user, onLogout, userRole, activeModule, onModuleChange }: HeaderProps) {
   const router = useRouter();
   const [metaDropdownOpen, setMetaDropdownOpen] = useState(false);
   const metaDropdownRef = useRef<HTMLDivElement>(null);
@@ -363,7 +364,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <button onClick={onRefresh} disabled={loading} style={pillBtnPrimaryStyle()}>
-          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> {loading ? "Atualizando..." : "Atualizar"}
+          <RefreshCw size={12} className={loading ? "animate-spin" : ""} /> {loading ? `Atualizando...${syncElapsed != null ? ` (${syncElapsed}s)` : ""}` : "Atualizar"}
         </button>
         {lastUpdated && (
           <span style={{ fontSize: "11px", color: T.mutedFg, whiteSpace: "nowrap" }}>

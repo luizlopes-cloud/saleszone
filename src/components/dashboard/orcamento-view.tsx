@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { OrcamentoData } from "@/lib/types";
-import { TH, cellStyle, cellRightStyle } from "./ui";
+import { TH, cellStyle, cellRightStyle, DataSourceFooter } from "./ui";
 
 function Tooltip({ text, children }: { text: string; children: React.ReactNode }) {
   const [show, setShow] = useState(false);
@@ -42,6 +42,7 @@ interface OrcamentoViewProps {
   data: OrcamentoData | null;
   loading: boolean;
   onBudgetSave: (value: number) => void;
+  lastUpdated?: Date | null;
 }
 
 function formatBRL(value: number): string {
@@ -70,7 +71,7 @@ const cardStyle = {
   minWidth: "200px",
 };
 
-export function OrcamentoView({ data, loading, onBudgetSave }: OrcamentoViewProps) {
+export function OrcamentoView({ data, loading, onBudgetSave, lastUpdated }: OrcamentoViewProps) {
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState("");
 
@@ -437,6 +438,7 @@ export function OrcamentoView({ data, loading, onBudgetSave }: OrcamentoViewProp
       <div style={{ fontSize: "11px", color: T.mutedFg, textAlign: "right" }}>
         Meta Ads · Atualizado {data.snapshotDate}
       </div>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
   );
 }

@@ -3,10 +3,12 @@
 import React, { useState, useMemo } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { BaselineData, BaselineCloserData } from "@/lib/types";
+import { DataSourceFooter } from "./ui";
 
 interface Props {
   data: BaselineData | null;
   loading: boolean;
+  lastUpdated?: Date | null;
 }
 
 type CellMode = "conversion" | "opp" | "won";
@@ -505,7 +507,7 @@ function BaselineChart({ data, cellMode }: { data: BaselineData; cellMode: CellM
   );
 }
 
-export function BaselineView({ data, loading }: Props) {
+export function BaselineView({ data, loading, lastUpdated }: Props) {
   const [cellMode, setCellMode] = useState<CellMode>("conversion");
 
   if (loading && !data) {
@@ -530,6 +532,7 @@ export function BaselineView({ data, loading }: Props) {
       <CellToggle mode={cellMode} setMode={setCellMode} />
       <CohortTable data={data} mode={cellMode} />
       <BaselineChart data={data} cellMode={cellMode} />
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
   );
 }

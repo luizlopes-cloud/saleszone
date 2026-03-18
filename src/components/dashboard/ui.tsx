@@ -262,6 +262,30 @@ export function MediaFilterToggle({ value, onChange }: { value: MediaFilter; onC
   );
 }
 
+export function DataSourceFooter({ lastUpdated }: { lastUpdated?: Date | null }) {
+  if (!lastUpdated) return null;
+  const dateStr = lastUpdated.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const timeStr = lastUpdated.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "6px",
+        padding: "12px 0 0",
+        marginTop: "16px",
+        borderTop: `1px solid ${T.border}`,
+        fontSize: "11px",
+        color: T.mutedFg,
+      }}
+    >
+      <span>Pipedrive</span>
+      <span style={{ opacity: 0.4 }}>·</span>
+      <span>{dateStr} {timeStr}</span>
+    </div>
+  );
+}
+
 export const viewBtnStyle: CSSProperties = {
   padding: "5px 14px",
   borderRadius: "9999px",

@@ -4,7 +4,7 @@ import { useState, useMemo, Fragment } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
 import type { CampanhasData, MetaAdRow, CampanhasEmpSummary, MediaFilter } from "@/lib/types";
-import { MediaFilterToggle } from "./ui";
+import { MediaFilterToggle, DataSourceFooter } from "./ui";
 
 interface Props {
   data: CampanhasData | null;
@@ -12,6 +12,7 @@ interface Props {
   mediaFilter: MediaFilter;
   setMediaFilter: (f: MediaFilter) => void;
   moduleConfig: ModuleConfig;
+  lastUpdated?: Date | null;
 }
 
 function formatBRL(v: number): string {
@@ -40,7 +41,7 @@ const SEV_COLORS = {
   OK: { border: T.verde600, bg: T.verde50, text: T.verde700, cardBg: T.verde600 },
 } as const;
 
-export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter, moduleConfig }: Props) {
+export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter, moduleConfig, lastUpdated }: Props) {
   const [filtroEmp, setFiltroEmp] = useState("todos");
   const [filtroSev, setFiltroSev] = useState("todos");
   const [filtroSquad, setFiltroSquad] = useState("todos");
@@ -603,6 +604,7 @@ export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter,
           </table>
         </div>
       </Section>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
 }

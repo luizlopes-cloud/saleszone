@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { T } from "@/lib/constants";
 import { getModuleConfig, DEFAULT_MODULE } from "@/lib/modules";
@@ -57,6 +57,8 @@ export default function Dashboard() {
   const [leadtimeData, setLeadtimeData] = useState<LeadtimeData | null>(null);
   const [leadtimeDays, setLeadtimeDays] = useState(90);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  const [syncElapsed, setSyncElapsed] = useState<number | null>(null);
+  const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     const supabase = createClient();
@@ -397,6 +399,13 @@ export default function Dashboard() {
   const handleRefresh = async () => {
     setLoading(true);
     setSyncWarning(null);
+    setSyncElapsed(0);
+    // Start elapsed timer
+    if (syncTimerRef.current) clearInterval(syncTimerRef.current);
+    const startTime = Date.now();
+    syncTimerRef.current = setInterval(() => {
+      setSyncElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
     try {
       const syncRes = await fetch("/api/sync", {
         method: "POST",
@@ -421,13 +430,16 @@ export default function Dashboard() {
       console.error("Refresh error:", err);
       setSyncWarning("Erro ao atualizar: a conexão foi interrompida. Os dados podem estar incompletos.");
     } finally {
+      if (syncTimerRef.current) clearInterval(syncTimerRef.current);
+      syncTimerRef.current = null;
+      setSyncElapsed(null);
       setLoading(false);
     }
   };
 
   return (
     <div style={{ fontFamily: T.font, backgroundColor: T.cinza50, minHeight: "100vh", letterSpacing: "0.02em" }}>
-      <Header mainView={mainView} setMainView={setMainView} onRefresh={handleRefresh} loading={loading} lastUpdated={lastUpdated} user={user} onLogout={handleLogout} userRole={userRole} activeModule={activeModule} onModuleChange={handleModuleChange} />
+      <Header mainView={mainView} setMainView={setMainView} onRefresh={handleRefresh} loading={loading} syncElapsed={syncElapsed ?? undefined} lastUpdated={lastUpdated} user={user} onLogout={handleLogout} userRole={userRole} activeModule={activeModule} onModuleChange={handleModuleChange} />
       {syncWarning && (
         <div
           style={{
@@ -471,23 +483,24 @@ export default function Dashboard() {
             activeTab={activeTab}
             setActiveTab={(tab: TabKey) => setActiveTab(tab)}
             loading={loading}
+            lastUpdated={lastUpdated}
           />
         )}
-        {mainView === "alinhamento" && <AlinhamentoView data={alinhData} misalignedDeals={misalignedDeals} loading={loading} moduleConfig={moduleConfig} />}
-        {mainView === "ociosidade" && <OciosidadeView data={ocioData} loading={loading} />}
-        {mainView === "balanceamento" && <BalanceamentoView data={balancData} ocioData={ocioData} loading={loading} />}
-        {mainView === "campanhas" && <CampanhasView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} />}
-        {mainView === "presales" && <PresalesView data={presalesData} loading={loading} moduleConfig={moduleConfig} />}
-        {mainView === "resultados" && <ResultadosView data={funilData} loading={loading} />}
-        {mainView === "diagnostico-mkt" && <DiagnosticoMktView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} moduleConfig={moduleConfig} />}
-        {mainView === "planejamento" && <PlanejamentoView data={planejData} loading={loading} daysBack={planejDays} onDaysChange={(d) => { setPlanejDays(d); setPlanejData(null); fetchPlanej(d); }} moduleConfig={moduleConfig} />}
-        {mainView === "orcamento" && <OrcamentoView data={orcData} loading={loading} onBudgetSave={handleBudgetSave} />}
-        {mainView === "perf-prevendas" && <PerformancePreVendasView data={perfData} loading={loading} daysBack={perfDays} onDaysChange={(d) => { setPerfDays(d); setPerfData(null); fetchPerformance(d); }} moduleConfig={moduleConfig} />}
-        {mainView === "perf-vendas" && <PerformanceVendasView data={perfData} loading={loading} daysBack={perfDays} onDaysChange={(d) => { setPerfDays(d); setPerfData(null); fetchPerformance(d); }} moduleConfig={moduleConfig} />}
-        {mainView === "baseline" && <BaselineView data={baselineData} loading={loading} />}
-        {mainView === "diagnostico-vendas" && <DiagnosticoVendasView data={diagVendasData} loading={loading} moduleConfig={moduleConfig} />}
-        {mainView === "forecast" && <ForecastView data={forecastData} loading={loading} />}
-        {mainView === "leadtime" && <LeadtimeView data={leadtimeData} loading={loading} daysBack={leadtimeDays} onDaysChange={(d) => { setLeadtimeDays(d); setLeadtimeData(null); fetchLeadtime(d); }} />}
+        {mainView === "alinhamento" && <AlinhamentoView data={alinhData} misalignedDeals={misalignedDeals} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
+        {mainView === "ociosidade" && <OciosidadeView data={ocioData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "balanceamento" && <BalanceamentoView data={balancData} ocioData={ocioData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "campanhas" && <CampanhasView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} lastUpdated={lastUpdated} />}
+        {mainView === "presales" && <PresalesView data={presalesData} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
+        {mainView === "resultados" && <ResultadosView data={funilData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "diagnostico-mkt" && <DiagnosticoMktView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
+        {mainView === "planejamento" && <PlanejamentoView data={planejData} loading={loading} daysBack={planejDays} onDaysChange={(d) => { setPlanejDays(d); setPlanejData(null); fetchPlanej(d); }} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
+        {mainView === "orcamento" && <OrcamentoView data={orcData} loading={loading} onBudgetSave={handleBudgetSave} lastUpdated={lastUpdated} />}
+        {mainView === "perf-prevendas" && <PerformancePreVendasView data={perfData} loading={loading} daysBack={perfDays} onDaysChange={(d) => { setPerfDays(d); setPerfData(null); fetchPerformance(d); }} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
+        {mainView === "perf-vendas" && <PerformanceVendasView data={perfData} loading={loading} daysBack={perfDays} onDaysChange={(d) => { setPerfDays(d); setPerfData(null); fetchPerformance(d); }} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
+        {mainView === "baseline" && <BaselineView data={baselineData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "diagnostico-vendas" && <DiagnosticoVendasView data={diagVendasData} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
+        {mainView === "forecast" && <ForecastView data={forecastData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "leadtime" && <LeadtimeView data={leadtimeData} loading={loading} daysBack={leadtimeDays} onDaysChange={(d) => { setLeadtimeDays(d); setLeadtimeData(null); fetchLeadtime(d); }} lastUpdated={lastUpdated} />}
         {mainView === "venda" && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
             <p style={{ fontSize: "16px" }}>Aba Venda — em construção</p>

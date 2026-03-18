@@ -4,11 +4,12 @@ import { useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { FunilData, FunilEmpreendimento } from "@/lib/types";
-import { StatPill, TH, cellRightStyle, cellStyle } from "./ui";
+import { StatPill, TH, cellRightStyle, cellStyle, DataSourceFooter } from "./ui";
 
 interface ResultadosViewProps {
   data: FunilData | null;
   loading: boolean;
+  lastUpdated?: Date | null;
 }
 
 const STAGES = [
@@ -196,7 +197,7 @@ function SquadTable({ squad, expanded, onToggle }: {
   );
 }
 
-export function ResultadosView({ data, loading }: ResultadosViewProps) {
+export function ResultadosView({ data, loading, lastUpdated }: ResultadosViewProps) {
   const [expandedSquads, setExpandedSquads] = useState<Set<number>>(new Set([1, 2, 3]));
 
   if (loading && !data) {
@@ -311,6 +312,7 @@ export function ResultadosView({ data, loading }: ResultadosViewProps) {
           />
         ))}
       </div>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
   );
 }

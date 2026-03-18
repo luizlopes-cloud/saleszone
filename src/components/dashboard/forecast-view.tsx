@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { ForecastData, ForecastSquadRow } from "@/lib/types";
+import { DataSourceFooter } from "./ui";
 
 interface Props {
   data: ForecastData | null;
   loading: boolean;
+  lastUpdated?: Date | null;
 }
 
 function fmt(n: number, dec = 1): string {
@@ -53,7 +55,7 @@ const tdStyle: React.CSSProperties = {
   fontVariantNumeric: "tabular-nums",
 };
 
-export function ForecastView({ data, loading }: Props) {
+export function ForecastView({ data, loading, lastUpdated }: Props) {
   const [expandedSquads, setExpandedSquads] = useState<Set<number>>(new Set());
 
   if (loading && !data) {
@@ -216,6 +218,7 @@ export function ForecastView({ data, loading }: Props) {
         <div style={{ fontSize: "11px", fontWeight: 600, color: T.cinza600, textTransform: "uppercase", marginBottom: "6px" }}>Metodologia</div>
         <p style={{ fontSize: "12px", color: T.cinza700, margin: 0, lineHeight: 1.6 }}>{data.metodologia}</p>
       </div>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
   );
 }

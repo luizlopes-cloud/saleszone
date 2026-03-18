@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, ChevronLeft, Columns3, Info } from "lucide-react";
 import { T, TABS, SQUAD_COLORS, TAB_COLORS, NUM_DAYS, MONTHS_PT } from "@/lib/constants";
 import type { TabKey, AcompanhamentoData } from "@/lib/types";
-import { Pill, Tag, TH, cellStyle, cellRightStyle, hdrBaseStyle } from "./ui";
+import { Pill, Tag, TH, cellStyle, cellRightStyle, hdrBaseStyle, DataSourceFooter } from "./ui";
 
 function heatColor(value: number, min: number, max: number): string | undefined {
   if (value === 0) return undefined;
@@ -35,9 +35,10 @@ interface Props {
   activeTab: TabKey;
   setActiveTab: (tab: TabKey) => void;
   loading: boolean;
+  lastUpdated?: Date | null;
 }
 
-export function AcompanhamentoView({ data, activeTab, setActiveTab, loading }: Props) {
+export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, lastUpdated }: Props) {
   const [expanded, setExpanded] = useState<Record<number, boolean>>({ 1: true, 2: true, 3: true });
   const [showTeamCols, setShowTeamCols] = useState(false);
   const [hCol, setHCol] = useState<number | null>(null);
@@ -444,6 +445,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading }: P
           Pipedrive · {new Date().toLocaleDateString("pt-BR")}
         </span>
       </div>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
 }

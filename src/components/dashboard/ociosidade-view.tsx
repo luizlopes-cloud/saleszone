@@ -2,10 +2,12 @@
 
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { OciosidadeData, OciosidadeCloser } from "@/lib/types";
+import { DataSourceFooter } from "./ui";
 
 interface Props {
   data: OciosidadeData | null;
   loading: boolean;
+  lastUpdated?: Date | null;
 }
 
 // Color scale by occupancy %
@@ -59,7 +61,7 @@ function firstName(name: string): string {
   return name.split(" ")[0];
 }
 
-export function OciosidadeView({ data, loading }: Props) {
+export function OciosidadeView({ data, loading, lastUpdated }: Props) {
   if (loading && !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px", color: T.cinza600 }}>
@@ -543,6 +545,7 @@ export function OciosidadeView({ data, loading }: Props) {
           Google Calendar · Closers SZI · Atualizado {new Date(data.syncedAt).toLocaleString("pt-BR")}
         </span>
       </div>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
 }

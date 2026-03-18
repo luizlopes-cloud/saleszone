@@ -4,11 +4,13 @@ import { useState, useMemo } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
 import type { PresalesData, PresellerSummary } from "@/lib/types";
+import { DataSourceFooter } from "./ui";
 
 interface Props {
   data: PresalesData | null;
   loading: boolean;
   moduleConfig: ModuleConfig;
+  lastUpdated?: Date | null;
 }
 
 function formatMinutes(m: number): string {
@@ -54,7 +56,7 @@ function statusLabel(minutes: number | null): string {
 
 const MAIN_PVS = ["Luciana Patrício", "Luciana Patricio", "Natália Saramago", "Hellen Dias", "Jeniffer Correa"];
 
-export function PresalesView({ data, loading, moduleConfig }: Props) {
+export function PresalesView({ data, loading, moduleConfig, lastUpdated }: Props) {
   if (loading && !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px", color: T.cinza600 }}>
@@ -345,6 +347,7 @@ export function PresalesView({ data, loading, moduleConfig }: Props) {
           </tbody>
         </table>
       </div>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
 }

@@ -5,6 +5,7 @@ import { ChevronRight } from "lucide-react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
 import type { PerformanceData, PerformanceEmpBreakdown, PerformanceEmpRow } from "@/lib/types";
+import { DataSourceFooter } from "./ui";
 
 interface Props {
   data: PerformanceData | null;
@@ -12,6 +13,7 @@ interface Props {
   daysBack: number;
   onDaysChange: (d: number) => void;
   moduleConfig: ModuleConfig;
+  lastUpdated?: Date | null;
 }
 
 const PERIOD_OPTIONS = [
@@ -272,7 +274,7 @@ function PresellerEmpRows({ byEmp }: { byEmp: PerformanceEmpBreakdown[] }) {
 // =============================================
 // PERFORMANCE PRÉ-VENDAS (MIA + Pré-Vendedores)
 // =============================================
-export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange, moduleConfig }: Props) {
+export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange, moduleConfig, lastUpdated }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpand = (key: string) => {
     setExpanded((prev) => {
@@ -449,6 +451,7 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
           );
         })}
       </div>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
 }
@@ -629,7 +632,7 @@ function OppToWonChart({ lines, title, maxMonths }: { lines: ChartLine[]; title?
 // =============================================
 // PERFORMANCE VENDAS (Closers)
 // =============================================
-export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, moduleConfig }: Props) {
+export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, moduleConfig, lastUpdated }: Props) {
   type CloserSortKey = "name" | "opp" | "won" | "oppToWon";
   type ChartView = "consolidado" | "todos" | "squad";
   const [closerSort, setCloserSort] = useState<CloserSortKey>("oppToWon");
@@ -857,6 +860,7 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, m
 
       {/* EMPREENDIMENTOS — OPP→WON */}
       <EmpPerformanceSection emps={data.allEmps} squads={squads} daysBack={daysBack} consolidatedTimeSeries={data.consolidatedTimeSeries} maxMonths={daysBack > 0 ? Math.max(Math.round(daysBack / 30), 1) : 0} />
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
 }

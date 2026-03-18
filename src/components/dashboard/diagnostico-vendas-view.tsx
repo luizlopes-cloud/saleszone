@@ -4,11 +4,13 @@ import { useState, useMemo } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
 import type { DiagVendasData, DiagVendasDealRow, DiagVendasCloserSummary, VendasSeveridade } from "@/lib/types";
+import { DataSourceFooter } from "./ui";
 
 interface Props {
   data: DiagVendasData | null;
   loading: boolean;
   moduleConfig: ModuleConfig;
+  lastUpdated?: Date | null;
 }
 
 const SEV_COLORS: Record<VendasSeveridade, { border: string; bg: string; text: string }> = {
@@ -38,7 +40,7 @@ type SortDir = "asc" | "desc";
 
 const SEV_ORDER: Record<string, number> = { CRITICO: 0, ALERTA: 1, OK: 2 };
 
-export function DiagnosticoVendasView({ data, loading, moduleConfig }: Props) {
+export function DiagnosticoVendasView({ data, loading, moduleConfig, lastUpdated }: Props) {
   const [filtroSquad, setFiltroSquad] = useState("todos");
   const [filtroCloser, setFiltroCloser] = useState("todos");
   const [filtroSev, setFiltroSev] = useState("todos");
@@ -304,6 +306,7 @@ export function DiagnosticoVendasView({ data, loading, moduleConfig }: Props) {
           </table>
         </div>
       </Section>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
 }

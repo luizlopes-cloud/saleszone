@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300; // 5 min — sync sequencial de 6+ Edge Functions leva ~41s+
+export const maxDuration = 300; // 5 min
 
 // Each step runs as a separate Edge Function call to stay within 150MB memory limit.
 // Order matters: daily-open replaces counts, won/lost merge into existing.
@@ -99,6 +99,16 @@ const FUNCTION_MAP: Record<string, Array<{ name: string; body?: Record<string, u
   ],
 };
 
+// Pipedrive-dependent function keys (need rate-limit delays between calls)
+const PIPEDRIVE_FUNCTIONS = new Set([
+  "dashboard", "dashboard-light", "deals", "deals-light", "presales",
+  "mktp-dashboard", "mktp-dashboard-light", "mktp-deals", "mktp-deals-light", "mktp-presales",
+  "szs-dashboard", "szs-dashboard-light", "szs-deals", "szs-deals-light", "szs-presales",
+]);
+
+// DB-only modes that don't hit external APIs — no delay needed before them
+const DB_ONLY_MODES = new Set(["metas", "monthly-rollup"]);
+
 interface SyncRequest {
   functions: string[];
 }
@@ -107,6 +117,50 @@ interface FunctionResult {
   function: string;
   status: "success" | "error";
   error?: string;
+}
+
+const CALL_TIMEOUT = 30_000; // 30s per Edge Function call
+const RETRY_DELAY = 5_000;   // 5s before retry
+const PIPEDRIVE_DELAY = 4_000; // 4s between Pipedrive calls
+
+async function callEdgeFunction(
+  supabaseUrl: string,
+  supabaseKey: string,
+  step: { name: string; body?: Record<string, unknown> },
+  label: string,
+): Promise<FunctionResult> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch(`${supabaseUrl}/functions/v1/${step.name}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${supabaseKey}`,
+        },
+        body: step.body ? JSON.stringify(step.body) : undefined,
+        signal: AbortSignal.timeout(CALL_TIMEOUT),
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        // Retry on 504 (gateway timeout)
+        if (response.status === 504 && attempt === 0) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY));
+          continue;
+        }
+        return { function: label, status: "error", error: `${response.status}: ${text}` };
+      }
+      return { function: label, status: "success" };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      // Retry on timeout (AbortError)
+      if (attempt === 0 && err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY));
+        continue;
+      }
+      return { function: label, status: "error", error: msg };
+    }
+  }
+  return { function: label, status: "error", error: "Max retries exceeded" };
 }
 
 export async function POST(request: Request) {
@@ -143,69 +197,56 @@ export async function POST(request: Request) {
     );
   }
 
-  // Separate Pipedrive-dependent functions from others so we can interleave
-  const PIPEDRIVE_FUNCTIONS = new Set(["dashboard", "dashboard-light", "deals", "deals-light", "presales", "mktp-dashboard", "mktp-dashboard-light", "mktp-deals", "mktp-deals-light", "mktp-presales", "szs-dashboard", "szs-dashboard-light", "szs-deals", "szs-deals-light", "szs-presales"]);
-
-  const pipedriveSteps: Array<{ label: string; step: { name: string; body?: Record<string, unknown> } }> = [];
-  const otherSteps: Array<{ label: string; step: { name: string; body?: Record<string, unknown> } }> = [];
+  // Split into Track A (non-Pipedrive, run in parallel) and Track B (Pipedrive, sequential with delays)
+  type Step = { label: string; step: { name: string; body?: Record<string, unknown> } };
+  const trackA: Step[] = []; // non-Pipedrive: meta-ads, calendar, baserow — run all in parallel
+  const trackB: Step[] = []; // Pipedrive-dependent: sequential with 4s delays (except DB-only modes)
 
   for (const fn of body.functions) {
     const steps = FUNCTION_MAP[fn];
     for (const step of steps) {
       const label = `${fn}:${step.body?.mode || step.name}`;
       if (PIPEDRIVE_FUNCTIONS.has(fn)) {
-        pipedriveSteps.push({ label, step });
+        trackB.push({ label, step });
       } else {
-        otherSteps.push({ label, step });
+        trackA.push({ label, step });
       }
     }
   }
 
-  // Interleave: run non-Pipedrive steps between Pipedrive steps to spread out API calls.
-  // Pattern: pipedrive, other, pipedrive, other, ... (1:1 to maximize breathing room)
-  const ordered: Array<{ label: string; step: { name: string; body?: Record<string, unknown> } }> = [];
-  let pi = 0, oi = 0;
-  while (pi < pipedriveSteps.length || oi < otherSteps.length) {
-    if (pi < pipedriveSteps.length) ordered.push(pipedriveSteps[pi++]);
-    if (oi < otherSteps.length) ordered.push(otherSteps[oi++]);
-  }
+  // Track A: all non-Pipedrive calls in parallel
+  const runTrackA = async (): Promise<FunctionResult[]> => {
+    if (trackA.length === 0) return [];
+    return Promise.all(
+      trackA.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)),
+    );
+  };
 
-  const results: FunctionResult[] = [];
-  let lastWasPipedrive = false;
+  // Track B: Pipedrive calls sequential, 4s delay between real Pipedrive calls, no delay before DB-only
+  const runTrackB = async (): Promise<FunctionResult[]> => {
+    const results: FunctionResult[] = [];
+    let lastWasPipedrive = false;
 
-  for (const { label, step } of ordered) {
-    const isPipedrive = PIPEDRIVE_FUNCTIONS.has(label.split(":")[0]);
+    for (const { label, step } of trackB) {
+      const mode = step.body?.mode as string | undefined;
+      const isDbOnly = mode ? DB_ONLY_MODES.has(mode) : false;
 
-    // Add delay between consecutive Pipedrive calls to avoid 429
-    if (isPipedrive && lastWasPipedrive) {
-      await new Promise((r) => setTimeout(r, 4000));
-    }
-
-    try {
-      const response = await fetch(`${supabaseUrl}/functions/v1/${step.name}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${supabaseKey}`,
-        },
-        body: step.body ? JSON.stringify(step.body) : undefined,
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        results.push({ function: label, status: "error", error: `${response.status}: ${text}` });
-      } else {
-        results.push({ function: label, status: "success" });
+      // Add delay only between consecutive real Pipedrive API calls (skip for DB-only)
+      if (!isDbOnly && lastWasPipedrive) {
+        await new Promise((r) => setTimeout(r, PIPEDRIVE_DELAY));
       }
-    } catch (err) {
-      results.push({
-        function: label,
-        status: "error",
-        error: err instanceof Error ? err.message : "Unknown error",
-      });
-    }
 
-    lastWasPipedrive = isPipedrive;
-  }
+      const result = await callEdgeFunction(supabaseUrl, supabaseKey, step, label);
+      results.push(result);
+
+      lastWasPipedrive = !isDbOnly;
+    }
+    return results;
+  };
+
+  // Run both tracks in parallel
+  const [trackAResults, trackBResults] = await Promise.all([runTrackA(), runTrackB()]);
+  const results = [...trackBResults, ...trackAResults];
 
   const hasErrors = results.some((r) => r.status === "error");
   return NextResponse.json({ results }, { status: hasErrors ? 207 : 200 });

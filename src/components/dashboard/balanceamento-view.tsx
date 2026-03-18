@@ -4,11 +4,13 @@ import { useState } from "react";
 import { T, SQUAD_COLORS, MQL_INTENCOES, MQL_FAIXAS, MQL_PAGAMENTOS } from "@/lib/constants";
 import type { RegrasMqlData, RegrasMqlEmp, RegrasMqlFonte, OciosidadeData } from "@/lib/types";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { DataSourceFooter } from "./ui";
 
 interface Props {
   data: RegrasMqlData | null;
   ocioData: OciosidadeData | null;
   loading: boolean;
+  lastUpdated?: Date | null;
 }
 
 interface SquadOcupacao {
@@ -425,7 +427,7 @@ function EmpRow({ emp }: { emp: RegrasMqlEmp }) {
   );
 }
 
-export function BalanceamentoView({ data, ocioData, loading }: Props) {
+export function BalanceamentoView({ data, ocioData, loading, lastUpdated }: Props) {
   if (loading && !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", color: T.cinza600 }}>
@@ -641,6 +643,7 @@ export function BalanceamentoView({ data, ocioData, loading }: Props) {
           )}
         </div>
       </div>
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
   );
 }

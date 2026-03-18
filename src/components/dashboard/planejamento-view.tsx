@@ -4,7 +4,7 @@ import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
 import type { PlanejamentoData, PlanejamentoEmpRow, PlanejamentoMetrics, HistoricoAdRow, HistoricoCampanhasData } from "@/lib/types";
-import { TH, cellStyle, cellRightStyle, Tag } from "./ui";
+import { TH, cellStyle, cellRightStyle, Tag, DataSourceFooter } from "./ui";
 
 interface PlanejamentoViewProps {
   data: PlanejamentoData | null;
@@ -12,6 +12,7 @@ interface PlanejamentoViewProps {
   daysBack: number;
   onDaysChange: (days: number) => void;
   moduleConfig: ModuleConfig;
+  lastUpdated?: Date | null;
 }
 
 function fmt(n: number): string {
@@ -867,7 +868,7 @@ const DAYS_OPTIONS = [
   { value: 365, label: "Último ano" },
 ];
 
-export function PlanejamentoView({ data, loading, daysBack, onDaysChange, moduleConfig }: PlanejamentoViewProps) {
+export function PlanejamentoView({ data, loading, daysBack, onDaysChange, moduleConfig, lastUpdated }: PlanejamentoViewProps) {
   const ACTIVE_EMPS = useMemo(() => new Set<string>(moduleConfig.squads.flatMap((s) => [...s.empreendimentos])), [moduleConfig.squads]);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "mql", dir: "desc" });
   const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all");
@@ -1209,6 +1210,7 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
 
       {/* Histórico de Campanhas — collapsible, lazy load */}
       <HistoricoCampanhasSection moduleConfig={moduleConfig} />
+      <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
   );
 }
