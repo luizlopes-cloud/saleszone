@@ -693,6 +693,8 @@ export interface BacklogTask {
   assigned_to: string | null;
   assigned_name?: string | null;
   definition_of_done: string;
+  image_url?: string | null;
+  priority: number;
   due_date: string | null;
   position: number;
   created_by: string;
@@ -708,6 +710,7 @@ export interface BacklogComment {
   author_name?: string;
   content: string;
   created_at: string;
+  updated_at?: string | null;
 }
 
 export interface ContributorStats {

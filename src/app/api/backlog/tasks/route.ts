@@ -102,7 +102,7 @@ export async function PATCH(request: NextRequest) {
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
   // Validate allowed fields
-  const allowed = ["title", "description", "type", "status", "assigned_to", "definition_of_done", "due_date", "position"];
+  const allowed = ["title", "description", "type", "status", "assigned_to", "definition_of_done", "due_date", "position", "image_url", "priority"];
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   for (const key of allowed) {
     if (key in fields) {

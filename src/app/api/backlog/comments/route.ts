@@ -49,6 +49,68 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ comments: enriched });
 }
 
+// PATCH — Edita comentário (somente autor)
+export async function PATCH(request: NextRequest) {
+  const supabase = await createClient();
+  const user = await getAuthUser(supabase);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await request.json();
+  const { id, content } = body;
+
+  if (!id || !content?.trim()) {
+    return NextResponse.json({ error: "id and content are required" }, { status: 400 });
+  }
+
+  // Verificar que o usuário é o autor
+  const { data: existing } = await supabase
+    .from("backlog_comments")
+    .select("author_id")
+    .eq("id", id)
+    .single();
+
+  if (!existing) return NextResponse.json({ error: "Comment not found" }, { status: 404 });
+  if (existing.author_id !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { data: comment, error } = await supabase
+    .from("backlog_comments")
+    .update({ content: content.trim(), updated_at: new Date().toISOString() })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ comment: { ...comment, author_name: user.full_name } });
+}
+
+// DELETE — Remove comentário (somente autor)
+export async function DELETE(request: NextRequest) {
+  const supabase = await createClient();
+  const user = await getAuthUser(supabase);
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await request.json();
+  const { id } = body;
+
+  if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+  // Verificar que o usuário é o autor
+  const { data: existing } = await supabase
+    .from("backlog_comments")
+    .select("author_id")
+    .eq("id", id)
+    .single();
+
+  if (!existing) return NextResponse.json({ error: "Comment not found" }, { status: 404 });
+  if (existing.author_id !== user.id) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const { error } = await supabase.from("backlog_comments").delete().eq("id", id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ ok: true });
+}
+
 // POST — Cria comentário
 export async function POST(request: NextRequest) {
   const supabase = await createClient();

@@ -17,6 +17,7 @@ export function BacklogView() {
   const router = useRouter();
   const [tasks, setTasks] = useState<BacklogTask[]>([]);
   const [users, setUsers] = useState<UserOption[]>([]);
+  const [currentUserId, setCurrentUserId] = useState("");
   const [loading, setLoading] = useState(true);
   const [showNewModal, setShowNewModal] = useState(false);
   const [contributors, setContributors] = useState<ContributorStats[]>([]);
@@ -30,6 +31,7 @@ export function BacklogView() {
       const data = await res.json();
       setTasks(data.tasks || []);
       setUsers((data.profiles || []).map((p: { id: string; full_name: string }) => ({ id: p.id, full_name: p.full_name })));
+      if (data.currentUserId) setCurrentUserId(data.currentUserId);
     } catch {} finally {
       setLoading(false);
     }
@@ -122,6 +124,7 @@ export function BacklogView() {
         onUpdateTask={handleUpdateTask}
         onDeleteTask={handleDeleteTask}
         onNewTask={() => setShowNewModal(true)}
+        currentUserId={currentUserId}
       />
 
       {/* GitHub Contributions */}
