@@ -362,7 +362,7 @@ O botao sincroniza TODAS as abas de uma vez (nao so a aba atual). Usa modos **li
 
 **Timer:** botao mostra segundos decorridos durante sync: `"Atualizando... (12s)"`
 
-**Timestamp:** apos sync, `lastUpdated` e salvo no `localStorage` e passado para todas as views. Persiste entre recarregamentos da pagina. Componente `DataSourceFooter` (em `ui.tsx`) renderiza `"Pipedrive · DD/MM/YYYY HH:MM"` no rodape de cada view
+**Persistencia localStorage:** `lastUpdated` (timestamp do ultimo sync) e `mainView` (aba ativa) sao salvos no `localStorage`. Ao recarregar a pagina, o dashboard restaura a aba e o horario da ultima atualizacao. Componente `DataSourceFooter` (em `ui.tsx`) renderiza `"Pipedrive · DD/MM/YYYY HH:MM"` no rodape de cada view
 
 **Apos sync:** limpa TODOS os caches do frontend. A aba atual re-busca dados imediatamente; outras abas buscam dados frescos ao serem acessadas.
 
