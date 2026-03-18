@@ -99,21 +99,39 @@ const FUNCTION_MAP: Record<string, Array<{ name: string; body?: Record<string, u
   ],
 };
 
-// Pipedrive-dependent function keys — limit concurrent calls to avoid 429 rate limiting.
-// Dashboard and deals hit different endpoints, safe in separate batches.
-const PIPEDRIVE_DASHBOARD = new Set([
-  "dashboard", "dashboard-light",
-  "mktp-dashboard", "mktp-dashboard-light",
-  "szs-dashboard", "szs-dashboard-light",
-]);
-const PIPEDRIVE_DEALS = new Set([
-  "deals", "deals-light", "presales",
-  "mktp-deals", "mktp-deals-light", "mktp-presales",
-  "szs-deals", "szs-deals-light", "szs-presales",
-]);
-
-// DB-only modes — no external API calls, run after Pipedrive batch 1 completes
+// DB-only modes — no external API calls, run after all API steps complete
 const DB_ONLY_MODES = new Set(["metas", "monthly-rollup"]);
+
+// Priority map: lower = slower = starts first in the pool.
+// Ensures slowest functions (presales ~35s, meta-ads ~22s) begin at t=0.
+const STEP_PRIORITY: Record<string, number> = {
+  presales: 0,
+  "meta-ads": 1,
+  "daily-open": 2,
+  "daily-won": 3,
+  alignment: 4,
+  "deals-open": 5,
+  "deals-won": 6,
+  calendar: 7,
+  baserow: 8,
+};
+
+function getStepPriority(label: string): number {
+  // label format: "fn-key:mode-or-name", e.g. "mktp-presales:sync-mktp-presales"
+  // Extract the function key (before ':') and match against known step names
+  const fnKey = label.split(":")[0];
+  const mode = label.split(":")[1] ?? "";
+
+  // Try mode first (e.g. "daily-open"), then check if fnKey ends with a known step
+  if (mode in STEP_PRIORITY) return STEP_PRIORITY[mode];
+  for (const [key, pri] of Object.entries(STEP_PRIORITY)) {
+    if (fnKey.endsWith(key)) return pri;
+  }
+  return 99; // unknown — run last
+}
+
+const POOL_SIZE = 4; // Max concurrent Edge Functions
+const RETRY_DELAY = 3_000; // 3s before retry on 504
 
 interface SyncRequest {
   functions: string[];
@@ -123,10 +141,8 @@ interface FunctionResult {
   function: string;
   status: "success" | "error";
   error?: string;
+  durationMs?: number;
 }
-
-const CALL_TIMEOUT = 45_000; // 45s per Edge Function call
-const RETRY_DELAY = 5_000;   // 5s before retry on 504
 
 async function callEdgeFunction(
   supabaseUrl: string,
@@ -134,6 +150,7 @@ async function callEdgeFunction(
   step: { name: string; body?: Record<string, unknown> },
   label: string,
 ): Promise<FunctionResult> {
+  const t0 = Date.now();
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fetch(`${supabaseUrl}/functions/v1/${step.name}`, {
@@ -143,7 +160,6 @@ async function callEdgeFunction(
           Authorization: `Bearer ${supabaseKey}`,
         },
         body: step.body ? JSON.stringify(step.body) : undefined,
-        signal: AbortSignal.timeout(CALL_TIMEOUT),
       });
       if (!response.ok) {
         const text = await response.text();
@@ -152,19 +168,32 @@ async function callEdgeFunction(
           await new Promise((r) => setTimeout(r, RETRY_DELAY));
           continue;
         }
-        return { function: label, status: "error", error: `${response.status}: ${text}` };
+        return { function: label, status: "error", error: `${response.status}: ${text}`, durationMs: Date.now() - t0 };
       }
-      return { function: label, status: "success" };
+      return { function: label, status: "success", durationMs: Date.now() - t0 };
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Unknown error";
-      // Don't retry on client-side timeout — function is overloaded, retrying adds more load
-      return { function: label, status: "error", error: msg };
+      return { function: label, status: "error", error: msg, durationMs: Date.now() - t0 };
     }
   }
-  return { function: label, status: "error", error: "Max retries exceeded" };
+  return { function: label, status: "error", error: "Max retries exceeded", durationMs: Date.now() - t0 };
 }
 
 type Step = { label: string; step: { name: string; body?: Record<string, unknown> } };
+
+/** Pool of N concurrent workers processing items in FIFO order. */
+async function runPool<T>(items: T[], fn: (item: T) => Promise<FunctionResult>): Promise<FunctionResult[]> {
+  const results = new Array<FunctionResult>(items.length);
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      results[i] = await fn(items[i]);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(POOL_SIZE, items.length) }, () => worker()));
+  return results;
+}
 
 export async function POST(request: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -200,49 +229,38 @@ export async function POST(request: Request) {
     );
   }
 
-  // Split into 3 groups to limit concurrent Pipedrive calls (max ~3 at a time):
-  //   nonPipedrive: meta-ads, calendar, baserow — independent APIs, all parallel
-  //   batch1:       dashboard steps (daily-open, daily-won, alignment) — Pipedrive batch 1
-  //   batch2:       deals + presales steps — Pipedrive batch 2
-  //   dbOnly:       metas, monthly-rollup — DB-only, after batch1
-  //
-  // Execution:
-  //   Phase 1: [nonPipedrive + batch1] in parallel (max 3 Pipedrive + 3 other = 6 EFs)
-  //   Phase 2: [batch2 + dbOnly] in parallel (max 3 Pipedrive + 2 DB = 5 EFs)
-  const nonPipedrive: Step[] = [];
-  const batch1: Step[] = [];
-  const batch2: Step[] = [];
-  const dbOnly: Step[] = [];
+  // Separate API steps from DB-only steps.
+  // API steps run in a concurrency pool (max 4 workers, sorted slowest-first).
+  // DB-only steps (metas, rollup) run after all API steps complete.
+  const apiSteps: Step[] = [];
+  const dbSteps: Step[] = [];
 
   for (const fn of body.functions) {
     for (const step of FUNCTION_MAP[fn]) {
       const label = `${fn}:${step.body?.mode || step.name}`;
       const mode = (step.body?.mode as string) ?? "";
       if (DB_ONLY_MODES.has(mode)) {
-        dbOnly.push({ label, step });
-      } else if (PIPEDRIVE_DASHBOARD.has(fn)) {
-        batch1.push({ label, step });
-      } else if (PIPEDRIVE_DEALS.has(fn)) {
-        batch2.push({ label, step });
+        dbSteps.push({ label, step });
       } else {
-        nonPipedrive.push({ label, step });
+        apiSteps.push({ label, step });
       }
     }
   }
 
+  // Sort API steps by priority (slowest first — presales, meta-ads start at t=0)
+  apiSteps.sort((a, b) => getStepPriority(a.label) - getStepPriority(b.label));
+
   const call = ({ label, step }: Step) => callEdgeFunction(supabaseUrl, supabaseKey, step, label);
   const results: FunctionResult[] = [];
 
-  // Phase 1: non-Pipedrive + dashboard Pipedrive calls (max 3 PD concurrent)
-  const phase1 = [...nonPipedrive, ...batch1];
-  if (phase1.length > 0) {
-    results.push(...await Promise.all(phase1.map(call)));
+  // Phase 1: Run API steps through concurrency pool (max 4 concurrent)
+  if (apiSteps.length > 0) {
+    results.push(...await runPool(apiSteps, call));
   }
 
-  // Phase 2: deals/presales Pipedrive + DB-only (batch1 done, safe to run metas/rollup + batch2)
-  const phase2 = [...batch2, ...dbOnly];
-  if (phase2.length > 0) {
-    results.push(...await Promise.all(phase2.map(call)));
+  // Phase 2: DB-only steps (metas, rollup) — depend on API data, run after pool finishes
+  if (dbSteps.length > 0) {
+    results.push(...await Promise.all(dbSteps.map(call)));
   }
 
   const hasErrors = results.some((r) => r.status === "error");
