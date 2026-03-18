@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, X, UserPlus, Shield, Edit2, UserX, Trash2, BarChart3, Link2, Copy, Check } from "lucide-react";
+import { ArrowLeft, Plus, X, UserPlus, Shield, Edit2, UserX, Trash2, BarChart3, Link2, Copy, Check, Github } from "lucide-react";
 import { T } from "@/lib/constants";
 import type { UserProfile, UserInvitation, UserRole } from "@/lib/types";
 
@@ -21,6 +21,8 @@ export default function AdminPage() {
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editRole, setEditRole] = useState<UserRole>("operador");
+  const [editingGithubId, setEditingGithubId] = useState<string | null>(null);
+  const [editGithub, setEditGithub] = useState("");
   const [inviteLinks, setInviteLinks] = useState<Array<{ id: string; token: string; role: string; created_by: string; max_uses: number; used_count: number; active: boolean; created_at: string; expires_at: string }>>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [generatingLink, setGeneratingLink] = useState(false);
@@ -134,6 +136,21 @@ export default function AdminPage() {
       });
       if (!res.ok) throw new Error("Erro ao atualizar");
       setEditingId(null);
+      fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro desconhecido");
+    }
+  };
+
+  const handleUpdateGithub = async (id: string, github_username: string) => {
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, github_username }),
+      });
+      if (!res.ok) throw new Error("Erro ao atualizar");
+      setEditingGithubId(null);
       fetchData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro desconhecido");
@@ -348,6 +365,7 @@ export default function AdminPage() {
                 <th style={thStyle}>Papel</th>
                 <th style={thStyle}>Status</th>
                 <th style={thStyle}>Desde</th>
+                <th style={thStyle}>GitHub</th>
                 <th style={{ ...thStyle, textAlign: "right" }}>Ações</th>
               </tr>
             </thead>
@@ -380,6 +398,45 @@ export default function AdminPage() {
                   </td>
                   <td style={tdStyle}>{statusBadge(p.status)}</td>
                   <td style={{ ...tdStyle, color: T.mutedFg, fontSize: "12px" }}>{formatDate(p.created_at)}</td>
+                  <td style={tdStyle}>
+                    {editingGithubId === p.id ? (
+                      <input
+                        value={editGithub}
+                        onChange={(e) => setEditGithub(e.target.value)}
+                        onBlur={() => { handleUpdateGithub(p.id, editGithub); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") { handleUpdateGithub(p.id, editGithub); } if (e.key === "Escape") { setEditingGithubId(null); } }}
+                        autoFocus
+                        placeholder="username"
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: "6px",
+                          border: `1px solid ${T.border}`,
+                          fontSize: "12px",
+                          outline: "none",
+                          width: "120px",
+                        }}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => { setEditingGithubId(p.id); setEditGithub((p as UserProfile & { github_username?: string }).github_username || ""); }}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                          padding: "2px 8px",
+                          borderRadius: "6px",
+                          border: `1px solid ${T.border}`,
+                          backgroundColor: "transparent",
+                          color: (p as UserProfile & { github_username?: string }).github_username ? T.fg : T.mutedFg,
+                          fontSize: "12px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <Github size={11} />
+                        {(p as UserProfile & { github_username?: string }).github_username || "—"}
+                      </button>
+                    )}
+                  </td>
                   <td style={{ ...tdStyle, textAlign: "right" }}>
                     <div style={{ display: "flex", gap: "6px", justifyContent: "flex-end" }}>
                       <button
@@ -402,7 +459,7 @@ export default function AdminPage() {
               ))}
               {profiles.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ ...tdStyle, textAlign: "center", color: T.mutedFg }}>
+                  <td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: T.mutedFg }}>
                     Nenhum usuário cadastrado
                   </td>
                 </tr>

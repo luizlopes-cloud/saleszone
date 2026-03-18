@@ -113,15 +113,16 @@ export async function PATCH(request: Request) {
   }
 
   const body = await request.json();
-  const { id, role, status } = body as { id: string; role?: string; status?: string };
+  const { id, role, status, github_username } = body as { id: string; role?: string; status?: string; github_username?: string };
 
   if (!id) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  const updates: Record<string, string> = { updated_at: new Date().toISOString() };
+  const updates: Record<string, string | null> = { updated_at: new Date().toISOString() };
   if (role && ["operador", "diretor"].includes(role)) updates.role = role;
   if (status && ["active", "inactive"].includes(status)) updates.status = status;
+  if (github_username !== undefined) updates.github_username = github_username || null;
 
   const { data, error } = await supabase
     .from("user_profiles")

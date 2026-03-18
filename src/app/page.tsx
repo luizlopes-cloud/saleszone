@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { T } from "@/lib/constants";
+import { getModuleConfig, DEFAULT_MODULE } from "@/lib/modules";
 import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, UserRole } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { Header } from "@/components/dashboard/header";
@@ -26,6 +27,13 @@ export default function Dashboard() {
   const router = useRouter();
   const [user, setUser] = useState<{ email: string; name: string } | undefined>();
   const [userRole, setUserRole] = useState<UserRole | null>(null);
+  const [activeModule, setActiveModule] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("activeModule") || DEFAULT_MODULE;
+    }
+    return DEFAULT_MODULE;
+  });
+  const moduleConfig = getModuleConfig(activeModule);
   const [mainView, setMainView] = useState("campanhas");
   const [activeTab, setActiveTab] = useState<TabKey>("mql");
   const [loading, setLoading] = useState(false);
@@ -93,7 +101,7 @@ export default function Dashboard() {
     setLoading(true);
     try {
       const params = filter === "paid" ? `?tab=${tab}&filter=paid` : `?tab=${tab}`;
-      const res = await fetch(`/api/dashboard${params}`);
+      const res = await fetch(`${moduleConfig.apiBase}${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setAcompData((prev) => ({ ...prev, [tab]: data }));
@@ -102,14 +110,14 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchAlinh = useCallback(async () => {
     setLoading(true);
     try {
       const [alinhRes, dealsRes] = await Promise.all([
-        fetch("/api/dashboard/alinhamento"),
-        fetch("/api/dashboard/alinhamento/deals"),
+        fetch(`${moduleConfig.apiBase}/alinhamento`),
+        fetch(`${moduleConfig.apiBase}/alinhamento/deals`),
       ]);
       if (alinhRes.ok) setAlinhData(await alinhRes.json());
       if (dealsRes.ok) setMisalignedDeals(await dealsRes.json());
@@ -118,13 +126,13 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchCamp = useCallback(async (filter: MediaFilter = "all") => {
     setLoading(true);
     try {
       const params = filter === "paid" ? "?filter=paid" : "";
-      const res = await fetch(`/api/dashboard/campanhas${params}`);
+      const res = await fetch(`${moduleConfig.apiBase}/campanhas${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setCampData(await res.json());
     } catch (err) {
@@ -132,12 +140,12 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchOcio = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/ociosidade");
+      const res = await fetch(`${moduleConfig.apiBase}/ociosidade`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setOcioData(await res.json());
     } catch (err) {
@@ -145,12 +153,12 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchBalanc = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/regras-mql");
+      const res = await fetch(`${moduleConfig.apiBase}/regras-mql`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setBalancData(await res.json());
     } catch (err) {
@@ -158,12 +166,12 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchPresales = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/presales");
+      const res = await fetch(`${moduleConfig.apiBase}/presales`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setPresalesData(await res.json());
     } catch (err) {
@@ -171,13 +179,13 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchFunil = useCallback(async (filter: MediaFilter = "all") => {
     setLoading(true);
     try {
       const params = filter === "paid" ? "?filter=paid" : "";
-      const res = await fetch(`/api/dashboard/funil${params}`);
+      const res = await fetch(`${moduleConfig.apiBase}/funil${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setFunilData(await res.json());
     } catch (err) {
@@ -185,7 +193,7 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const [planejDays, setPlanejDays] = useState(0);
 
@@ -193,7 +201,7 @@ export default function Dashboard() {
     setLoading(true);
     try {
       const params = days > 0 ? `?days=${days}` : "";
-      const res = await fetch(`/api/dashboard/planejamento${params}`);
+      const res = await fetch(`${moduleConfig.apiBase}/planejamento${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setPlanejData(await res.json());
     } catch (err) {
@@ -201,12 +209,12 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchOrc = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/orcamento");
+      const res = await fetch(`${moduleConfig.apiBase}/orcamento`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setOrcData(await res.json());
     } catch (err) {
@@ -214,13 +222,13 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchPerformance = useCallback(async (days: number = 90) => {
     setLoading(true);
     try {
       const params = days > 0 ? `?days=${days}` : "?days=-1";
-      const res = await fetch(`/api/dashboard/performance${params}`);
+      const res = await fetch(`${moduleConfig.apiBase}/performance${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setPerfData(await res.json());
     } catch (err) {
@@ -228,12 +236,12 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchBaseline = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/performance/baseline");
+      const res = await fetch(`${moduleConfig.apiBase}/performance/baseline`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setBaselineData(await res.json());
     } catch (err) {
@@ -241,12 +249,12 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchDiagVendas = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/diagnostico-vendas");
+      const res = await fetch(`${moduleConfig.apiBase}/diagnostico-vendas`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setDiagVendasData(await res.json());
     } catch (err) {
@@ -254,12 +262,12 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchForecast = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/dashboard/forecast");
+      const res = await fetch(`${moduleConfig.apiBase}/forecast`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setForecastData(await res.json());
     } catch (err) {
@@ -267,12 +275,12 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const fetchLeadtime = useCallback(async (days: number = 90) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/dashboard/leadtime?days=${days}`);
+      const res = await fetch(`${moduleConfig.apiBase}/leadtime?days=${days}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setLeadtimeData(await res.json());
     } catch (err) {
@@ -280,13 +288,13 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [moduleConfig.apiBase]);
 
   const handleBudgetSave = useCallback(async (value: number) => {
     const now = new Date();
     const mes = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     try {
-      await fetch("/api/dashboard/orcamento", {
+      await fetch(`${moduleConfig.apiBase}/orcamento`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mes, orcamentoTotal: value }),
@@ -295,7 +303,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error("Save budget error:", err);
     }
-  }, [fetchOrc]);
+  }, [fetchOrc, moduleConfig.apiBase]);
 
   // Re-fetch when mediaFilter changes — impacts all data views
   useEffect(() => {
@@ -343,9 +351,12 @@ export default function Dashboard() {
     }
   }, [activeTab, mainView]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Light sync: skip heavy functions (daily-lost, deals-lost, deals-flow) that are handled by pg_cron.
-  // Ordered to interleave Pipedrive-heavy with non-Pipedrive to avoid rate limiting.
-  const ALL_SYNC_FUNCTIONS = ["dashboard-light", "meta-ads", "deals-light", "calendar", "presales", "baserow"];
+  // Module change handler — clear caches and persist selection
+  const handleModuleChange = (modId: string) => {
+    setActiveModule(modId);
+    localStorage.setItem("activeModule", modId);
+    clearAllCaches();
+  };
 
   const clearAllCaches = () => {
     setAcompData({});
@@ -390,7 +401,7 @@ export default function Dashboard() {
       const syncRes = await fetch("/api/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ functions: ALL_SYNC_FUNCTIONS }),
+        body: JSON.stringify({ functions: moduleConfig.syncFunctions }),
       });
       const syncData = await syncRes.json().catch(() => null);
       if (syncData?.results) {
@@ -416,7 +427,7 @@ export default function Dashboard() {
 
   return (
     <div style={{ fontFamily: T.font, backgroundColor: T.cinza50, minHeight: "100vh", letterSpacing: "0.02em" }}>
-      <Header mainView={mainView} setMainView={setMainView} onRefresh={handleRefresh} loading={loading} lastUpdated={lastUpdated} user={user} onLogout={handleLogout} userRole={userRole} />
+      <Header mainView={mainView} setMainView={setMainView} onRefresh={handleRefresh} loading={loading} lastUpdated={lastUpdated} user={user} onLogout={handleLogout} userRole={userRole} activeModule={activeModule} onModuleChange={handleModuleChange} />
       {syncWarning && (
         <div
           style={{

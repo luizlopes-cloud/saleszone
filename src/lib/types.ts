@@ -683,6 +683,49 @@ export interface LeadtimeData {
   }>;
 }
 
+// Backlog — Kanban de Tarefas
+export interface BacklogTask {
+  id: string;
+  title: string;
+  description: string;
+  type: "feature" | "bug";
+  status: "backlog" | "fazendo" | "review" | "done";
+  assigned_to: string | null;
+  assigned_name?: string | null;
+  definition_of_done: string;
+  due_date: string | null;
+  position: number;
+  created_by: string;
+  created_by_name?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BacklogComment {
+  id: string;
+  task_id: string;
+  author_id: string;
+  author_name?: string;
+  content: string;
+  created_at: string;
+}
+
+export interface ContributorStats {
+  name: string;
+  email: string | null;
+  github_login: string;
+  totalCommits: number;
+  totalAdded: number;
+  totalDeleted: number;
+  lastCommitDate: string | null;
+  weeks: Array<{
+    week: string;
+    commits: number;
+    added: number;
+    deleted: number;
+  }>;
+}
+
 // Pré-Venda — Tempo de resposta dos pré-vendedores
 export interface PresalesDealRow {
   deal_id: number;

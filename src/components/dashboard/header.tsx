@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings } from "lucide-react";
+import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 import { T } from "@/lib/constants";
+import type { ModuleConfig } from "@/lib/modules";
+import { MODULES, MODULE_IDS } from "@/lib/modules";
 import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 
 const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento"] as const;
@@ -29,9 +31,11 @@ interface HeaderProps {
   user?: { email: string; name: string };
   onLogout?: () => void;
   userRole?: UserRole | null;
+  activeModule: string;
+  onModuleChange: (moduleId: string) => void;
 }
 
-export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated, user, onLogout, userRole }: HeaderProps) {
+export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated, user, onLogout, userRole, activeModule, onModuleChange }: HeaderProps) {
   const [metaDropdownOpen, setMetaDropdownOpen] = useState(false);
   const metaDropdownRef = useRef<HTMLDivElement>(null);
   const isMetaAdsView = (META_ADS_VIEWS as readonly string[]).includes(mainView);
@@ -93,7 +97,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
       <SeazoneIcon />
       <div style={{ flex: 1 }}>
         <h4 style={{ fontSize: "17px", fontWeight: 500, color: T.fg, margin: 0 }}>Acompanhamento de Vendas</h4>
-        <span style={{ fontSize: "11px", fontWeight: 400, color: T.mutedFg }}>Squads Manual · Pipeline SZI</span>
+        <span style={{ fontSize: "11px", fontWeight: 400, color: T.mutedFg }}>Squads Manual · Pipeline {MODULES[activeModule]?.shortLabel ?? "SZI"}</span>
       </div>
       <div
         style={{
@@ -425,6 +429,63 @@ export function Header({ mainView, setMainView, onRefresh, loading, lastUpdated,
                   <Settings size={13} /> Admin
                 </button>
               )}
+              <button
+                onClick={() => { window.location.href = "/backlog"; setUserDropdownOpen(false); }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  width: "100%",
+                  padding: "8px 12px",
+                  border: "none",
+                  borderRadius: "6px",
+                  backgroundColor: "transparent",
+                  color: T.cinza600,
+                  fontSize: "13px",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = T.cinza50)}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+              >
+                <ClipboardList size={13} /> Backlog
+              </button>
+              {/* Module Selector */}
+              <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
+              <div style={{ padding: "4px 12px 2px", fontSize: "10px", fontWeight: 600, color: T.cinza400, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                <Layers size={10} style={{ display: "inline", marginRight: "4px", verticalAlign: "middle" }} />Módulo
+              </div>
+              {MODULE_IDS.map((modId) => {
+                const mod = MODULES[modId];
+                const isActive = modId === activeModule;
+                return (
+                  <button
+                    key={modId}
+                    onClick={() => { onModuleChange(modId); setUserDropdownOpen(false); }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      width: "100%",
+                      padding: "8px 12px",
+                      border: "none",
+                      borderRadius: "6px",
+                      backgroundColor: isActive ? T.azul50 : "transparent",
+                      color: isActive ? T.azul600 : T.cinza600,
+                      fontWeight: isActive ? 600 : 400,
+                      fontSize: "13px",
+                      cursor: "pointer",
+                      textAlign: "left",
+                    }}
+                    onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = T.cinza50; }}
+                    onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = "transparent"; }}
+                  >
+                    {mod.label} ({mod.shortLabel})
+                    {isActive && <span style={{ marginLeft: "auto", fontSize: "11px" }}>●</span>}
+                  </button>
+                );
+              })}
+              <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
               <button
                 onClick={() => { onLogout?.(); setUserDropdownOpen(false); }}
                 style={{
