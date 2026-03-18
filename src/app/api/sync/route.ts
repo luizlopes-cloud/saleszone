@@ -99,21 +99,7 @@ const FUNCTION_MAP: Record<string, Array<{ name: string; body?: Record<string, u
   ],
 };
 
-// Pipedrive function groups — dashboard and deals/presales hit different endpoints,
-// so they can run in parallel sub-tracks without 429 risk.
-const PIPEDRIVE_DASHBOARD = new Set([
-  "dashboard", "dashboard-light",
-  "mktp-dashboard", "mktp-dashboard-light",
-  "szs-dashboard", "szs-dashboard-light",
-]);
-const PIPEDRIVE_DEALS = new Set([
-  "deals", "deals-light", "presales",
-  "mktp-deals", "mktp-deals-light", "mktp-presales",
-  "szs-deals", "szs-deals-light", "szs-presales",
-]);
-const PIPEDRIVE_ALL = new Set([...PIPEDRIVE_DASHBOARD, ...PIPEDRIVE_DEALS]);
-
-// DB-only modes that don't hit external APIs — no delay needed before them
+// DB-only modes that don't hit external APIs — run after all API calls complete
 const DB_ONLY_MODES = new Set(["metas", "monthly-rollup"]);
 
 interface SyncRequest {
@@ -128,7 +114,6 @@ interface FunctionResult {
 
 const CALL_TIMEOUT = 30_000; // 30s per Edge Function call
 const RETRY_DELAY = 5_000;   // 5s before retry
-const PIPEDRIVE_DELAY = 2_000; // 2s between Pipedrive calls (safe — rate limit is 80 req/2s)
 
 async function callEdgeFunction(
   supabaseUrl: string,
@@ -170,32 +155,6 @@ async function callEdgeFunction(
   return { function: label, status: "error", error: "Max retries exceeded" };
 }
 
-// Run steps in 2 phases: all API calls in parallel, then all DB-only calls in parallel.
-// Within a track, steps like daily-open/daily-won/alignment are independent (different source/table)
-// and can safely run concurrently. DB-only steps (metas, rollup) depend on API phase data.
-async function runPhasedTrack(
-  steps: Step[],
-  supabaseUrl: string,
-  supabaseKey: string,
-): Promise<FunctionResult[]> {
-  const apiPhase = steps.filter(s => !DB_ONLY_MODES.has((s.step.body?.mode as string) ?? ""));
-  const dbPhase = steps.filter(s => DB_ONLY_MODES.has((s.step.body?.mode as string) ?? ""));
-
-  const results: FunctionResult[] = [];
-
-  if (apiPhase.length > 0) {
-    const r = await Promise.all(apiPhase.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)));
-    results.push(...r);
-  }
-
-  if (dbPhase.length > 0) {
-    const r = await Promise.all(dbPhase.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)));
-    results.push(...r);
-  }
-
-  return results;
-}
-
 type Step = { label: string; step: { name: string; body?: Record<string, unknown> } };
 
 export async function POST(request: Request) {
@@ -232,43 +191,34 @@ export async function POST(request: Request) {
     );
   }
 
-  // 3 parallel tracks:
-  // Track A: non-Pipedrive (meta-ads, calendar, baserow) — all in Promise.all
-  // Track B: dashboard Pipedrive (daily-open → daily-won → alignment → metas → rollup)
-  // Track C: deals Pipedrive (deals-open → deals-won → presales)
-  // B and C hit different Pipedrive endpoints, safe to parallelize.
-  const trackA: Step[] = [];
-  const trackB: Step[] = [];
-  const trackC: Step[] = [];
-
+  // Collect all steps, split into API calls and DB-only calls.
+  // All API calls (Pipedrive + Meta Ads + Calendar + Baserow) run in parallel — Phase 1.
+  // DB-only calls (metas, monthly-rollup) run after Phase 1 completes — Phase 2.
+  // Pipedrive rate limit is ~80 req/2s; with ~6 Edge Functions each making 1-2 concurrent
+  // internal requests, peak is ~6-12 concurrent API calls — well within limits.
+  const allSteps: Step[] = [];
   for (const fn of body.functions) {
-    const steps = FUNCTION_MAP[fn];
-    for (const step of steps) {
-      const label = `${fn}:${step.body?.mode || step.name}`;
-      if (PIPEDRIVE_DASHBOARD.has(fn)) {
-        trackB.push({ label, step });
-      } else if (PIPEDRIVE_DEALS.has(fn)) {
-        trackC.push({ label, step });
-      } else {
-        trackA.push({ label, step });
-      }
+    for (const step of FUNCTION_MAP[fn]) {
+      allSteps.push({ label: `${fn}:${step.body?.mode || step.name}`, step });
     }
   }
 
-  const [trackAResults, trackBResults, trackCResults] = await Promise.all([
-    // Track A: all non-Pipedrive in parallel
-    trackA.length > 0
-      ? Promise.all(trackA.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)))
-      : Promise.resolve([]),
-    // Track B: dashboard — API phase parallel, then DB phase parallel
-    runPhasedTrack(trackB, supabaseUrl, supabaseKey),
-    // Track C: deals — API phase parallel (stagger 2s to spread Pipedrive load)
-    trackC.length > 0
-      ? new Promise<FunctionResult[]>((resolve) => setTimeout(() => resolve(runPhasedTrack(trackC, supabaseUrl, supabaseKey)), PIPEDRIVE_DELAY))
-      : Promise.resolve([]),
-  ]);
+  const apiPhase = allSteps.filter(s => !DB_ONLY_MODES.has((s.step.body?.mode as string) ?? ""));
+  const dbPhase = allSteps.filter(s => DB_ONLY_MODES.has((s.step.body?.mode as string) ?? ""));
 
-  const results = [...trackBResults, ...trackCResults, ...trackAResults];
+  const results: FunctionResult[] = [];
+
+  // Phase 1: ALL external API calls in parallel
+  if (apiPhase.length > 0) {
+    const r = await Promise.all(apiPhase.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)));
+    results.push(...r);
+  }
+
+  // Phase 2: DB-only calls in parallel (depend on Phase 1 data being written)
+  if (dbPhase.length > 0) {
+    const r = await Promise.all(dbPhase.map(({ label, step }) => callEdgeFunction(supabaseUrl, supabaseKey, step, label)));
+    results.push(...r);
+  }
   const hasErrors = results.some((r) => r.status === "error");
   return NextResponse.json({ results }, { status: hasErrors ? 207 : 200 });
 }
