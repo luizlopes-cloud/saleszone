@@ -207,7 +207,7 @@ export function OtimizacaoView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [allAds, setAllAds] = useState<AdPerformance[]>([])
-  const tab = "Investimentos"
+  const tab: string = "Investimentos"
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showSettings, setShowSettings] = useState(false)
   const [showAbout, setShowAbout] = useState(false)

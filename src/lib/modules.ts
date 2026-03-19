@@ -111,7 +111,7 @@ const SZS_SQUADS: readonly SquadDef[] = [
     marketing: "Laura",
     preVenda: "Larissa Marques",
     venda: "Maria Vitória",
-    empreendimentos: [], // SZS handles all empreendimentos like MKTP
+    empreendimentos: [], // SZS groups by cidade — discovered dynamically from DB data
   },
 ] as const;
 

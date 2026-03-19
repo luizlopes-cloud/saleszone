@@ -5,52 +5,78 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
 };
-// SZS: single squad (id=1) with all empreendimentos
-const EMPREENDIMENTOS: Record<number, string[]> = {
-  1: [
-    "Altavista", "Barra de São Miguel Spot", "Barra Grande Spot", "Barra Spot",
-    "Batel Spot", "Bonito Spot", "Bonito Spot II", "Cachoeira Beach Spot",
-    "Cachoeira Spot", "Campeche Spot", "Canas Beach Spot", "Canasvieiras Spot",
-    "Canela Spot", "Caraguá Spot", "Downtown", "Duetto", "Farol da Barra Spot",
-    "Foz Spot", "Ilha do Campeche II Spot", "Ilha do Campeche Spot", "Imbassaí Spot",
-    "Ingleses Spot", "Itacaré Spot", "Japaratinga Spot", "Jardim dos Namorados",
-    "Jurerê Beach Spot", "Jurerê Spot", "Jurerê Spot II", "Jurerê Spot III",
-    "Lagoa Spot", "Marista 144 Spot", "Maxxi Garden", "Meireles Spot",
-    "Morro das Pedras Spot", "Mosaico", "Natal Spot", "New Life",
-    "Novo Campeche Spot", "Novo Campeche Spot II", "Olímpia Spot", "Penha Spot",
-    "Pio 4", "Ponta das Canas Spot", "Ponta das Canas Spot II", "Reflect",
-    "Rosa Norte Spot", "Rosa Spot", "Rosa Sul Spot", "Salvador Spot",
-    "Santinho Spot", "Santo Antônio Spot", "Soul Guarajuba", "Sul da Ilha Spot",
-    "T58", "Top Club", "Trancoso Spot", "Urubici Spot", "Urubici Spot II",
-    "Vale do Ouro", "Vistas de Anitá I", "Vistas de Anitá II", "VN Ueno", "Zn Barra",
-  ],
-};
+// SZS: match campaigns by cidade (city name)
+// Full city list extracted from Pipedrive "Cidade onde fica o imóvel" enum field
+const CIDADES: string[] = [
+  "Florianópolis, SC", "Balneário Camboriú, SC", "Bombinhas, SC", "Itapema, SC",
+  "Porto Belo, SC", "Garopaba, SC", "Imbituba, SC", "Praia do Rosa, SC",
+  "Penha, SC", "Governador Celso Ramos, SC", "Balneário Piçarras, SC", "Itajaí, SC",
+  "Palhoça, SC", "São José, SC", "Joinville, SC", "Blumenau, SC", "Brusque, SC",
+  "Navegantes, SC", "Barra Velha, SC", "Camboriú, SC", "Urubici, SC", "Lages, SC",
+  "Criciúma, SC", "Salvador, BA", "Porto Seguro, BA", "Ilhéus, BA", "Itacaré, BA",
+  "Maraú, BA", "Cairu, BA", "Mata de São João, BA", "Camaçari, BA", "Lauro de Freitas, BA",
+  "Natal, RN", "Tibau do Sul, RN", "Maceió, AL", "Maragogi, AL", "Japaratinga, AL",
+  "Barra de São Miguel, AL", "Marechal Deodoro, AL", "Recife, PE", "Ipojuca, PE",
+  "João Pessoa, PB", "Fortaleza, CE", "Aquiraz, CE", "Gramado, RS", "Canela, RS",
+  "Porto Alegre, RS", "Torres, RS", "Capão da Canoa, RS", "Campos do Jordão, SP",
+  "Guarujá, SP", "Santos, SP", "Bertioga, SP", "Caraguatatuba, SP", "Ilhabela, SP",
+  "Ubatuba, SP", "São Sebastião, SP", "São Paulo, SP", "Olímpia, SP",
+  "Rio de Janeiro, RJ", "Angra dos Reis, RJ", "Armação dos Búzios, RJ",
+  "Cabo Frio, RJ", "Arraial do Cabo, RJ", "Niterói, RJ", "Petrópolis, RJ",
+  "Paraty, RJ", "Mangaratiba, RJ", "Belo Horizonte, MG", "Poços de Caldas, MG",
+  "Curitiba, PR", "Foz do Iguaçu, PR", "Goiânia, GO", "Caldas Novas, GO",
+  "Brasília, DF", "Bonito, MS", "Campo Grande, MS",
+];
+// Aliases for common campaign name variations
 const ALIASES: Record<string, string> = {
-  "vistas de anita": "Vistas de Anitá II",
+  "floripa": "Florianópolis, SC",
+  "balneario camboriu": "Balneário Camboriú, SC",
+  "bc ": "Balneário Camboriú, SC",
+  "jurere": "Florianópolis, SC",
+  "canasvieiras": "Florianópolis, SC",
+  "ingleses": "Florianópolis, SC",
+  "campeche": "Florianópolis, SC",
+  "santinho": "Florianópolis, SC",
+  "ponta das canas": "Florianópolis, SC",
+  "lagoa da conceicao": "Florianópolis, SC",
+  "praia do rosa": "Praia do Rosa, SC",
+  "rosa norte": "Praia do Rosa, SC",
+  "rosa sul": "Praia do Rosa, SC",
+  "rosa spot": "Praia do Rosa, SC",
+  "porto de galinhas": "Ipojuca, PE",
+  "pipa": "Tibau do Sul, RN",
+  "buzios": "Armação dos Búzios, RJ",
+  "jericoacoara": "Fortaleza, CE",
+  "jeri": "Fortaleza, CE",
+  "barra grande": "Maraú, BA",
+  "morro de sao paulo": "Cairu, BA",
+  "praia do forte": "Mata de São João, BA",
+  "guarajuba": "Camaçari, BA",
+  "trancoso": "Porto Seguro, BA",
+  "arraial d'ajuda": "Porto Seguro, BA",
 };
-// Nomes que não matcham com nenhum empreendimento mas devem ser identificados
 const GENERIC_CAMPAIGNS = ["genérica", "generica", "engajamento"];
-const ALL_EMPS: Array<{ name: string; squadId: number }> = [];
-for (const [sqId, emps] of Object.entries(EMPREENDIMENTOS)){
-  for (const name of emps)ALL_EMPS.push({
-    name,
-    squadId: Number(sqId)
-  });
-}
-ALL_EMPS.sort((a, b)=>b.name.length - a.name.length);
+// Build searchable list sorted by name length DESC (avoid partial matches)
+const ALL_CITIES: Array<{ name: string; searchName: string; squadId: number }> = CIDADES.map(c => ({
+  name: c,
+  searchName: c.split(",")[0].trim(), // "Florianópolis, SC" → "Florianópolis"
+  squadId: 1,
+}));
+ALL_CITIES.sort((a, b) => b.searchName.length - a.searchName.length);
 const META_ACCOUNT_ID = "act_721191188358261";
 function normalize(s: string) {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
-function matchEmpreendimento(campaignName: string) {
+function matchCidade(campaignName: string): { name: string; squadId: number } | null {
   const norm = normalize(campaignName);
-  for (const emp of ALL_EMPS){
-    if (norm.includes(normalize(emp.name))) return emp;
+  // Try matching city name (without state) in campaign name
+  for (const city of ALL_CITIES) {
+    if (norm.includes(normalize(city.searchName))) return city;
   }
-  for (const [alias, realName] of Object.entries(ALIASES)){
-    if (norm.includes(alias)) {
-      const emp = ALL_EMPS.find((e)=>e.name === realName);
-      if (emp) return emp;
+  // Try aliases
+  for (const [alias, realName] of Object.entries(ALIASES)) {
+    if (norm.includes(normalize(alias))) {
+      return { name: realName, squadId: 1 };
     }
   }
   // Generic/engagement campaigns
@@ -316,7 +342,7 @@ Deno.serve(async (req)=>{
     let unmatched = 0;
     const unmatchedCampaigns: string[] = [];
     for (const ins of lifetimeInsights){
-      const match = matchEmpreendimento(ins.campaign_name);
+      const match = matchCidade(ins.campaign_name);
       if (!match) {
         unmatched++;
         if (!unmatchedCampaigns.includes(ins.campaign_name)) unmatchedCampaigns.push(ins.campaign_name);

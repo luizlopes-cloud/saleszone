@@ -63,6 +63,7 @@ src/
       dashboard/diagnostico-vendas/route.ts  — Leadtime de follow-up por closer (deals abertos sem atividade)
       dashboard/forecast/route.ts            — Forecast: previsao de vendas do mes (pipeline aberto × conv. historica)
       dashboard/leadtime/route.ts             — Leadtime: tempo medio por etapa do funil (?days=N filtro periodo)
+      dashboard/avaliacoes/route.ts            — Avaliação de Reuniões: notas por closer via Fireflies + Claude
       backlog/contributions/route.ts           — Contribuicoes GitHub: stats do repo filtradas por users cadastrados
   components/dashboard/
     header.tsx                               — Navegacao, usuario, botao Atualizar. Dropdown "Meta Ads" agrupa Campanhas/Diagnostico Mkt/Orcamento/Planejamento. Dropdown "Vendas" agrupa Perf. Vendas/Base-Line/Diagnostico Vendas/Ociosidade/Leadtime
@@ -81,6 +82,7 @@ src/
     diagnostico-vendas-view.tsx              — Diagnostico Vendas: leadtime follow-up closers, deals sem atividade futura, atividades atrasadas
     forecast-view.tsx                        — Forecast: previsao de vendas (cards, range bar, pipeline por etapa, tabela squad/closer)
     leadtime-view.tsx                        — Leadtime: tempo medio por etapa do funil (criacao→venda), deal mais antigo por etapa, breakdown por closer
+    avaliacoes-view.tsx                     — Avaliação Reuniões: nota media por closer (5 pilares), reunioes x transcricoes
     ui.tsx                                   — Componentes reutilizaveis (MediaFilterToggle, Pill, TH, etc)
   lib/
     constants.ts                             — Squads, empreendimentos, closers, UI tokens (T)
@@ -340,7 +342,7 @@ Ordem dos botoes: `Resultados ▼ | Meta Ads ▼ | Alinhamento Squad | Pré-Vend
 - **Resultados** e um dropdown que agrupa: Funil, Acompanhamento, Forecast
 
 - **Meta Ads** e um dropdown que agrupa: Campanhas, Diagnostico Mkt, Orcamento, Planejamento
-- **Vendas** e um dropdown que agrupa: Perf. Vendas, Base-Line, Diagnostico Vendas, Ociosidade, Leadtime
+- **Vendas** e um dropdown que agrupa: Perf. Vendas, Base-Line, Diagnostico Vendas, Ociosidade, Leadtime, Avaliação Reuniões
 - Dropdowns usam `useState` + `useRef` + `useEffect` (click outside listener) em `header.tsx`
 - Constantes `META_ADS_VIEWS` e `VENDAS_VIEWS` definem os view keys agrupados
 - Botao fica ativo (dark bg) quando `mainView` e qualquer um dos valores do grupo
@@ -570,11 +572,29 @@ npm run lint         # ESLint
 - **Logs de diagnostico:** a rota loga `[contributions]` com Supabase URL, profiles, GitHub logins, email lookups e resultado do filtro. Ver em Vercel Function Logs
 - **Usuario ativo:** `ambrosi-seazone` (matheus.ambrosi@seazone.com.br) — commits futuros sao todos com este login. Login antigo `mathambrosi` so aparece em commits historicos e depende do fallback por email
 
+## Avaliação de Reuniões (Fireflies + Claude)
+- **Aba:** Vendas → Avaliação Reuniões
+- **API:** `/api/dashboard/avaliacoes?days=N` — busca eventos do calendar com transcrições e avaliações
+- **Dados:** tabela `squad_calendar_events` (colunas `fireflies_id`, `transcricao`, `avaliacao` JSONB, `diagnostico`)
+- **5 Pilares** (20% cada): Conhecimento do Produto, Técnicas de Venda, Rapport e Empatia, Foco no CTA, Objetividade
+- **Seções da view:**
+  1. **Nota Média por Closer** (principal) — header com 5 pilares + nota média. Expansível para cada reunião com justificativas, destaques e melhorias
+  2. **Reuniões × Transcrições** — tabela por closer: total reuniões, válidas, inválidas (expansível com motivo)
+- **Reuniões canceladas** excluídas da contagem
+- **Transcrições corrompidas** (nota 0 = ASR falhou) classificadas como inválidas e excluídas da média
+- **Filtro de período:** 7d / 14d / 30d / 60d / 90d
+- **Tipos de invalidez:** sem gravação (Fireflies não encontrou), transcrição curta (<500 chars), transcrição corrompida (áudio ilegível), alucinação detectada
+- **CUIDADO — ASR em idioma errado:** Fireflies às vezes transcreve PT como EN → gibberish. Closers mais afetados: Filipe, Priscila, Luana
+
 ## Automação Fireflies (GitHub Actions)
 - **Workflow:** `.github/workflows/sync-fireflies.yml` — cron `0 8 * * *` (5h BRT)
 - **Script:** `scripts/sync_fireflies.py` — busca transcripts, matching, avaliação Claude Sonnet
+- **Script auxiliar:** `/tmp/eval_pending.py` — avalia transcrições pendentes (com fireflies_id mas sem avaliacao)
+- **Fireflies API Key:** `97200a22-1632-4022-ae7e-8151f5a64e17` (guardar no vault do Supabase)
 - **Secrets GitHub:** FIREFLIES_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY
-- **Status:** PENDENTE — falta `ANTHROPIC_API_KEY` no GitHub Secrets
+- **Status:** Script funcional. ANTHROPIC_API_KEY pendente nos GitHub Secrets (conta `matheusalbertoambrosi@gmail.com`)
 - **REGRA:** Requests (não urllib) para Fireflies API — urllib dá 403
 - **REGRA:** Transcripts >35K chars = truncar antes de enviar ao Claude
 - **REGRA:** Alucinações: filtrar patterns conhecidos (opusdei, amara.org, etc)
+- **Matching:** email do closer + data + hora (tolerância 30min). Eventos já marcados com `fireflies_id` são pulados
+- **Avaliação manual alternativa:** Pode ser feita diretamente pelo Claude Code (sem ANTHROPIC_API_KEY) usando agentes que leem as transcrições do Supabase, avaliam e gravam via curl PATCH

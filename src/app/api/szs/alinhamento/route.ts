@@ -1,4 +1,4 @@
-// SZS (Serviços) module
+// SZS (Serviços) module — alinhamento with canal_group as squad
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
@@ -6,24 +6,46 @@ import type { AlinhamentoData } from "@/lib/types";
 
 const mc = getModuleConfig("szs");
 
+const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Expansão", "Spots", "Outros"];
+
 export const dynamic = "force-dynamic";
+
+// Paginated fetch helper (Supabase 1000-row limit)
+async function fetchAllPaginated(query: any): Promise<any[]> {
+  const all: any[] = [];
+  let offset = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
 
 export async function GET() {
   try {
     // Fetch alignment data from Supabase
-    const { data: alignRows, error } = await supabase
-      .from("szs_alignment")
-      .select("empreendimento, owner_name, count");
+    const alignRows = await fetchAllPaginated(
+      supabase
+        .from("szs_alignment")
+        .select("empreendimento, canal_group, owner_name, count")
+    );
 
-    if (error) throw new Error(`Supabase error: ${error.message}`);
-
-    // Build owner counts map: empreendimento → { owner → count }
+    // Build owner counts map: canal_group|cidade → { owner → count }
     const ownerCounts = new Map<string, Map<string, number>>();
-    for (const row of alignRows || []) {
-      if (!ownerCounts.has(row.empreendimento)) {
-        ownerCounts.set(row.empreendimento, new Map());
+    for (const row of alignRows) {
+      const canalGroup = row.canal_group || "Outros";
+      const cidade = row.empreendimento;
+      const gKey = `${canalGroup}|${cidade}`;
+      if (!ownerCounts.has(gKey)) {
+        ownerCounts.set(gKey, new Map());
       }
-      ownerCounts.get(row.empreendimento)!.set(row.owner_name, row.count);
+      const ownerMap = ownerCounts.get(gKey)!;
+      ownerMap.set(row.owner_name, (ownerMap.get(row.owner_name) || 0) + row.count);
     }
 
     // Match owner names (case-insensitive, accent-insensitive partial match)
@@ -37,10 +59,23 @@ export async function GET() {
     const PV_COLS = mc.presellers;
     const V_COLS = mc.closers;
 
-    // Build flat rows
-    const rows = mc.squads.flatMap((sq) =>
-      sq.empreendimentos.map((emp) => {
-        const counts = ownerCounts.get(emp) || new Map<string, number>();
+    // Build rows: each canal_group = squad, cidades within each group = empreendimentos
+    const rows = CANAL_GROUP_ORDER.flatMap((canalGroup, idx) => {
+      const sqId = idx + 1;
+      const sqName = canalGroup;
+
+      // Find all cidades for this canal group
+      const cidadeSet = new Set<string>();
+      for (const gKey of ownerCounts.keys()) {
+        if (gKey.startsWith(canalGroup + "|")) {
+          cidadeSet.add(gKey.split("|")[1]);
+        }
+      }
+      const sortedCidades = Array.from(cidadeSet).sort();
+
+      return sortedCidades.map((cidade) => {
+        const gKey = `${canalGroup}|${cidade}`;
+        const counts = ownerCounts.get(gKey) || new Map<string, number>();
         const pv: Record<string, number> = {};
         const v: Record<string, number> = {};
 
@@ -61,15 +96,15 @@ export async function GET() {
         });
 
         return {
-          sqId: sq.id,
-          sqName: sq.name,
-          emp,
-          correctPV: sq.preVenda,
-          correctV: sq.venda,
+          sqId,
+          sqName,
+          emp: cidade,
+          correctPV: mc.squads[0]?.preVenda || "",
+          correctV: mc.squads[0]?.venda || "",
           cells: { pv, v },
         };
-      })
-    );
+      });
+    });
 
     // Stats
     let total = 0;
@@ -80,11 +115,9 @@ export async function GET() {
         total += val;
         if (val > 0 && p !== row.correctPV) mis += val;
       });
-      const sqVIndices = mc.squadCloserMap[row.sqId] || [];
-      V_COLS.forEach((p, idx) => {
+      V_COLS.forEach((p) => {
         const val = row.cells.v[p] || 0;
         total += val;
-        if (val > 0 && !sqVIndices.includes(idx)) mis += val;
       });
     });
 

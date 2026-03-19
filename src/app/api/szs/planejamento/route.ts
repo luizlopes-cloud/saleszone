@@ -166,8 +166,8 @@ export async function GET(request: Request) {
       });
     }
 
+    // SZS: discover cities dynamically from the data
     const allEmps = new Set<string>();
-    for (const sq of mc.squads) for (const emp of sq.empreendimentos) allEmps.add(emp);
     for (const emp of curCounts.keys()) allEmps.add(emp);
     for (const emp of histCounts.keys()) allEmps.add(emp);
     for (const emp of curMeta.keys()) allEmps.add(emp);
@@ -175,7 +175,7 @@ export async function GET(request: Request) {
 
     const empRows: PlanejamentoEmpRow[] = [];
     for (const emp of allEmps) {
-      const squadId = EMP_TO_SQUAD.get(emp) || 0;
+      const squadId = EMP_TO_SQUAD.get(emp) || (mc.squads[0]?.id ?? 0);
       const cc = curCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
       const cm = curMeta.get(emp) || { leads: 0, spend: 0 };
       const hc = histCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };

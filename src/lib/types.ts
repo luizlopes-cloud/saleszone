@@ -319,17 +319,35 @@ export interface FunilEmpreendimento {
   oppToWon: number;          // won / opp (legacy/overall)
 }
 
+export interface FunilBairro {
+  bairro: string;
+  mql: number;
+  sql: number;
+  opp: number;
+  won: number;
+  reserva: number;
+  contrato: number;
+  leads: number;
+}
+
+export interface FunilCidade {
+  cidade: string;
+  bairros: FunilBairro[];
+  totals: FunilEmpreendimento;
+}
+
 export interface FunilSquad {
   id: number;
   name: string;
   empreendimentos: FunilEmpreendimento[];
-  totals: FunilEmpreendimento; // totais agregados do squad
+  cidades?: FunilCidade[];
+  totals: FunilEmpreendimento;
 }
 
 export interface FunilData {
   month: string; // YYYY-MM
   squads: FunilSquad[];
-  grand: FunilEmpreendimento; // totais globais
+  grand: FunilEmpreendimento;
 }
 
 // Planejamento — Conversão por mídia paga vs histórico
@@ -727,6 +745,76 @@ export interface ContributorStats {
     added: number;
     deleted: number;
   }>;
+}
+
+// Avaliação de Reuniões — Fireflies + Claude
+export interface AvaliacaoPilar {
+  nota: number;
+  justificativa: string;
+}
+
+export interface AvaliacaoJSON {
+  modelo: string;
+  versao: string;
+  pilares: {
+    conhecimento_produto: AvaliacaoPilar;
+    tecnicas_venda: AvaliacaoPilar;
+    rapport_empatia: AvaliacaoPilar;
+    foco_cta: AvaliacaoPilar;
+    objetividade: AvaliacaoPilar;
+  };
+  nota_final: number;
+  avaliado_em: string;
+  destaques_positivos: string[];
+  pontos_melhoria: string[];
+  dados_incorretos: string[];
+}
+
+export interface AvaliacaoReuniao {
+  eventId: string;
+  titulo: string;
+  dia: string;
+  hora: string;
+  closerName: string;
+  closerEmail: string;
+  empreendimento: string | null;
+  firefliesId: string | null;
+  transcricaoChars: number;
+  avaliacao: AvaliacaoJSON | null;
+  diagnostico: string | null;
+  cancelou: boolean;
+  duracaoMin: number | null;
+  invalidReason: string | null; // null = valid; otherwise reason
+}
+
+export interface AvaliacaoCloserSummary {
+  name: string;
+  squadId: number;
+  totalReunioes: number;
+  transcricoesValidas: number;
+  transcricoesInvalidas: number;
+  reunioesAvaliadas: number;
+  notaMedia: number | null;
+  pilares: {
+    conhecimento_produto: number | null;
+    tecnicas_venda: number | null;
+    rapport_empatia: number | null;
+    foco_cta: number | null;
+    objetividade: number | null;
+  };
+  reunioes: AvaliacaoReuniao[];
+}
+
+export interface AvaliacoesData {
+  closers: AvaliacaoCloserSummary[];
+  totals: {
+    totalReunioes: number;
+    transcricoesValidas: number;
+    transcricoesInvalidas: number;
+    reunioesAvaliadas: number;
+    notaMedia: number | null;
+  };
+  periodo: { from: string; to: string };
 }
 
 // Pré-Venda — Tempo de resposta dos pré-vendedores

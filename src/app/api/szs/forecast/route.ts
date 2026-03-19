@@ -65,7 +65,7 @@ export async function GET() {
           .from("szs_deals")
           .select("deal_id, stage_order, owner_name, empreendimento")
           .eq("status", "open")
-          .eq("is_marketing", true)
+          .not("canal", "in", "(582,583,1748,3189)")
           .not("empreendimento", "is", null)
           .range(o, o + ps - 1),
       ),
@@ -73,7 +73,7 @@ export async function GET() {
         supabase
           .from("szs_deals")
           .select("deal_id, status, stage_order, max_stage_order, lost_reason, add_time, won_time")
-          .eq("is_marketing", true)
+          .not("canal", "in", "(582,583,1748,3189)")
           .not("empreendimento", "is", null)
           .in("status", ["won", "lost"])
           .gte("add_time", d90Str)
@@ -84,7 +84,7 @@ export async function GET() {
           .from("szs_deals")
           .select("deal_id, add_time, won_time, max_stage_order")
           .eq("status", "won")
-          .eq("is_marketing", true)
+          .not("canal", "in", "(582,583,1748,3189)")
           .not("empreendimento", "is", null)
           .gte("won_time", d90Str)
           .range(o, o + ps - 1),
@@ -94,7 +94,7 @@ export async function GET() {
           .from("szs_deals")
           .select("deal_id, owner_name, empreendimento")
           .eq("status", "won")
-          .eq("is_marketing", true)
+          .not("canal", "in", "(582,583,1748,3189)")
           .gte("won_time", mesInicio)
           .lt("won_time", mesFim)
           .range(o, o + ps - 1),
@@ -287,7 +287,7 @@ export async function GET() {
       },
       stages,
       squads: squadsResult,
-      metodologia: `Deals abertos filtrados por canal Marketing (is_marketing). Taxa de conversão por etapa calculada com base nos últimos 90 dias: de todos os deals que passaram pela etapa X (max_stage_order >= X), qual % virou WON. Forecast = WON já ganhos no mês + Σ(deals abertos por etapa × taxa conversão da etapa).`,
+      metodologia: `Deals abertos filtrados excluindo canais Indicação de Corretor, Indicação de Franquia, Expansão, Spot Seazone. Taxa de conversão por etapa calculada com base nos últimos 90 dias: de todos os deals que passaram pela etapa X (max_stage_order >= X), qual % virou WON. Forecast = WON já ganhos no mês + Σ(deals abertos por etapa × taxa conversão da etapa).`,
     };
 
     return NextResponse.json(result);

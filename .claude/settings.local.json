@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"FunilData\\\\|FunilSquad\\\\|FunilEmpreendimento\" /Users/matheusambrosi/Claude-Code/squad-dashboard/src --include=\"*.tsx\" --include=\"*.ts\" 2>/dev/null | head -30)",
+      "Bash(ls -la /Users/matheusambrosi/Claude-Code/squad-dashboard/src/components/dashboard/ | grep -E \"\\\\.tsx$\")",
+      "Bash(ls -la /Users/matheusambrosi/Claude-Code/squad-dashboard/.env* 2>/dev/null || echo \"No .env files found\")",
+      "Bash(npm run:*)",
+      "Bash(npx next:*)",
+      "Bash(kill 20832 44380 2>/dev/null; sleep 1 && npx next dev -p 3005)",
+      "Bash(lsof -i :3000 -i :3001 -i :3002 -i :3005 -t 2>/dev/null | xargs kill -9 2>/dev/null; rm -f /Users/matheusambrosi/Claude-Code/squad-dashboard/.next/dev/lock)",
+      "Bash(source /Users/matheusambrosi/Claude-Code/squad-dashboard/.env.local && curl -s \"https://ewgqbkdriflarmmifrvs.supabase.co/rest/v1/rpc/vault_read_secret\" \\\\\n  -H \"apikey: $NEXT_PUBLIC_SUPABASE_ANON_KEY\" \\\\\n  -H \"Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY\" \\\\\n  -H \"Content-Type: application/json\" \\\\\n  -d '{\"secret_name\":\"PIPEDRIVE_API_TOKEN\"}')",
+      "Bash(curl -s \"https://seazone-fd92b9.pipedrive.com/api/v1/stages?pipeline_id=28&api_token=910712fcb9da117626038005c73f2ab352bed080\" | python3 -c \"\nimport json, sys\ndata = json.load\\(sys.stdin\\)\nfor s in data.get\\('data', []\\):\n    print\\(f\\\\\"  {s['id']:>4}  {s['order_nr']:>2}  {s['name']}\\\\\"\\)\")",
+      "Bash(curl:*)"
+    ]
+  }
+}
