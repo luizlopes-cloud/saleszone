@@ -35,7 +35,7 @@ async function fetchDeals(cutoff: string | null): Promise<DealRow[]> {
     let query = supabase
       .from("szs_deals")
       .select("deal_id, owner_name, empreendimento, status, max_stage_order, lost_reason, is_marketing, add_time")
-      .eq("is_marketing", true);
+      .not("canal", "in", "(582,583,1748,3189)");
     if (cutoff) query = query.gte("add_time", cutoff);
     query = query.range(offset, offset + PAGE - 1);
     const { data, error } = await query;

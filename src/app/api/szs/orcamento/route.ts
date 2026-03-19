@@ -1,10 +1,12 @@
-// SZS (Serviços) module
+// SZS (Serviços) module — orcamento with canal_group as squad
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { OrcamentoData, OrcamentoSquadBreakdown, OrcamentoEmpBreakdown, OrcamentoLogEntry } from "@/lib/types";
 
 const mc = getModuleConfig("szs");
+
+const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Expansão", "Spots", "Outros"];
 
 export const dynamic = "force-dynamic";
 
@@ -62,21 +64,31 @@ export async function GET() {
       }
     }
 
-    const empSpend = new Map<string, number>();
+    // Aggregate spend by canal_group (Meta Ads only relates to Marketing canal)
+    // For orcamento, we group by canal_group but Meta Ads spend is city-level
+    // We attribute all Meta Ads spend to "Marketing" canal group
+    const canalGroupSpend = new Map<string, number>();
     let gastoAtual = 0;
     for (const [, data] of adMaxSpend) {
       gastoAtual += data.spend;
-      const key = `${data.squadId}:${data.emp}`;
-      empSpend.set(key, (empSpend.get(key) || 0) + data.spend);
+      // All Meta Ads spend goes under "Marketing"
+      const cg = "Marketing";
+      canalGroupSpend.set(cg, (canalGroupSpend.get(cg) || 0) + data.spend);
     }
     gastoAtual = Math.round(gastoAtual * 100) / 100;
 
-    const empCampaigns = new Map<string, Set<string>>();
+    // Also track spend by city within Marketing for empreendimento breakdown
+    const citySpend = new Map<string, number>();
+    for (const [, data] of adMaxSpend) {
+      citySpend.set(data.emp, (citySpend.get(data.emp) || 0) + data.spend);
+    }
+
+    // Active campaigns by city
+    const cityCampaigns = new Map<string, Set<string>>();
     for (const row of metaLatestRes.data || []) {
       if (row.effective_status !== "ACTIVE") continue;
-      const key = `${row.squad_id}:${row.empreendimento}`;
-      if (!empCampaigns.has(key)) empCampaigns.set(key, new Set());
-      empCampaigns.get(key)!.add(row.campaign_name);
+      if (!cityCampaigns.has(row.empreendimento)) cityCampaigns.set(row.empreendimento, new Set());
+      cityCampaigns.get(row.empreendimento)!.add(row.campaign_name);
     }
 
     let gastoAtivo = 0;
@@ -113,32 +125,53 @@ export async function GET() {
       empExplicacao.set(row.empreendimento, row.explicacao || "");
     }
 
-    const squadsBreakdown: OrcamentoSquadBreakdown[] = mc.squads.map((sq) => {
-      const empreendimentos: OrcamentoEmpBreakdown[] = sq.empreendimentos.map((emp) => {
-        const key = `${sq.id}:${emp}`;
-        const empGasto = Math.round((empSpend.get(key) || 0) * 100) / 100;
-        const empCampCount = empCampaigns.get(key)?.size || 0;
+    // Build squads by canal_group
+    // For Marketing canal group: break down by city with Meta Ads data
+    // For other canal groups: single squad with no spend data (they don't use Meta Ads)
+    const squadsBreakdown: OrcamentoSquadBreakdown[] = CANAL_GROUP_ORDER.map((canalGroup, idx) => {
+      if (canalGroup === "Marketing") {
+        // Build city-level empreendimentos for Marketing
+        const allCidades = new Set<string>();
+        for (const cidade of citySpend.keys()) allCidades.add(cidade);
+        for (const cidade of cityCampaigns.keys()) allCidades.add(cidade);
+        for (const cidade of empBudgetRec.keys()) allCidades.add(cidade);
+
+        const sortedCidades = Array.from(allCidades).sort();
+        const empreendimentos: OrcamentoEmpBreakdown[] = sortedCidades.map((cidade) => {
+          const empGasto = Math.round((citySpend.get(cidade) || 0) * 100) / 100;
+          const empCampCount = cityCampaigns.get(cidade)?.size || 0;
+          return {
+            emp: cidade,
+            gastoAtual: empGasto,
+            gastoDiario: empCampCount > 0 && diasPassados > 0 ? Math.round((empGasto / diasPassados) * 100) / 100 : 0,
+            campaignsActive: empCampCount,
+            budgetRecomendado: empBudgetRec.get(cidade) || 0,
+            budgetExplicacao: empExplicacao.get(cidade) || "",
+          };
+        });
+
+        const sqGasto = empreendimentos.reduce((s, e) => s + e.gastoAtual, 0);
+        const sqCampaigns = empreendimentos.reduce((s, e) => s + e.campaignsActive, 0);
+
         return {
-          emp,
-          gastoAtual: empGasto,
-          gastoDiario: empCampCount > 0 && diasPassados > 0 ? Math.round((empGasto / diasPassados) * 100) / 100 : 0,
-          campaignsActive: empCampCount,
-          budgetRecomendado: empBudgetRec.get(emp) || 0,
-          budgetExplicacao: empExplicacao.get(emp) || "",
+          id: idx + 1,
+          name: canalGroup,
+          gastoAtual: Math.round(sqGasto * 100) / 100,
+          gastoDiario: diasPassados > 0 ? Math.round((sqGasto / diasPassados) * 100) / 100 : 0,
+          campaignsActive: sqCampaigns,
+          empreendimentos,
         };
-      });
-
-      const sqGasto = empreendimentos.reduce((s, e) => s + e.gastoAtual, 0);
-      const sqCampaigns = empreendimentos.reduce((s, e) => s + e.campaignsActive, 0);
-
-      return {
-        id: sq.id,
-        name: sq.name,
-        gastoAtual: Math.round(sqGasto * 100) / 100,
-        gastoDiario: diasPassados > 0 ? Math.round((sqGasto / diasPassados) * 100) / 100 : 0,
-        campaignsActive: sqCampaigns,
-        empreendimentos,
-      };
+      } else {
+        // Non-Marketing canal groups: no Meta Ads spend
+        return {
+          id: idx + 1,
+          name: canalGroup,
+          gastoAtual: 0,
+          gastoDiario: 0,
+          campaignsActive: 0,
+          empreendimentos: [],
+        };
+      }
     });
 
     // Log

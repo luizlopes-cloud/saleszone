@@ -1,12 +1,25 @@
-// SZS (Serviços) module
+// SZS (Serviços) module — funil with canal_group > cidade hierarchy
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { getModuleConfig } from "@/lib/modules";
 import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
 
-const mc = getModuleConfig("szs");
-
 export const dynamic = "force-dynamic";
+
+const SZS_METAS_WON: Record<string, Record<string, number>> = {
+  "2026-01": { Marketing: 66, Parceiros: 67, Expansão: 72, Spots: 48, Outros: 27 },
+  "2026-02": { Marketing: 69, Parceiros: 71, Expansão: 84, Spots: 26, Outros: 26 },
+  "2026-03": { Marketing: 70, Parceiros: 73, Expansão: 95, Spots: 39, Outros: 28 },
+  "2026-04": { Marketing: 73, Parceiros: 75, Expansão: 102, Spots: 17, Outros: 31 },
+  "2026-05": { Marketing: 73, Parceiros: 77, Expansão: 109, Spots: 0, Outros: 26 },
+  "2026-06": { Marketing: 73, Parceiros: 77, Expansão: 114, Spots: 49, Outros: 33 },
+  "2026-07": { Marketing: 71, Parceiros: 75, Expansão: 121, Spots: 0, Outros: 29 },
+  "2026-08": { Marketing: 71, Parceiros: 89, Expansão: 120, Spots: 0, Outros: 31 },
+  "2026-09": { Marketing: 78, Parceiros: 101, Expansão: 140, Spots: 28, Outros: 32 },
+  "2026-10": { Marketing: 71, Parceiros: 114, Expansão: 140, Spots: 0, Outros: 29 },
+  "2026-11": { Marketing: 73, Parceiros: 128, Expansão: 141, Spots: 0, Outros: 29 },
+  "2026-12": { Marketing: 75, Parceiros: 139, Expansão: 139, Spots: 31, Outros: 31 },
+};
+const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Expansão", "Spots", "Outros"];
 
 function rate(num: number, den: number): number {
   return den > 0 ? Math.round((num / den) * 10000) / 10000 : 0;
@@ -72,6 +85,22 @@ function sumFunil(rows: FunilEmpreendimento[], label: string): FunilEmpreendimen
   return buildFunil(label, impressions, clicks, leads, mql, sql, opp, won, reserva, contrato, spend);
 }
 
+// Paginated fetch helper (Supabase 1000-row limit)
+async function fetchAll(query: any): Promise<any[]> {
+  const all: any[] = [];
+  let offset = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const monthParam = req.nextUrl.searchParams.get("month");
@@ -81,29 +110,31 @@ export async function GET(req: NextRequest) {
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
 
-    const [metaRes, countsRes, stageRes] = await Promise.all([
-      supabase
-        .from("szs_meta_ads")
-        .select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month")
-        .gte("snapshot_date", startDate),
-      supabase
-        .from("szs_daily_counts")
-        .select("tab, empreendimento, count")
-        .in("tab", ["mql", "sql", "opp", "won"])
-        .gte("date", startDate),
-      supabase
-        .from("szs_daily_counts")
-        .select("tab, empreendimento, count")
-        .in("tab", ["reserva", "contrato"]),
+    const [metaData, countsData, stageData] = await Promise.all([
+      fetchAll(
+        supabase
+          .from("szs_meta_ads")
+          .select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month")
+          .gte("snapshot_date", startDate)
+      ),
+      fetchAll(
+        supabase
+          .from("szs_daily_counts")
+          .select("tab, empreendimento, canal_group, count")
+          .in("tab", ["mql", "sql", "opp", "won"])
+          .gte("date", startDate)
+      ),
+      fetchAll(
+        supabase
+          .from("szs_daily_counts")
+          .select("tab, empreendimento, canal_group, count")
+          .in("tab", ["reserva", "contrato"])
+      ),
     ]);
 
-    if (metaRes.error) throw new Error(`Meta Ads query error: ${metaRes.error.message}`);
-    if (countsRes.error) throw new Error(`Daily counts query error: ${countsRes.error.message}`);
-    if (stageRes.error) throw new Error(`Stage counts query error: ${stageRes.error.message}`);
-
-    // Agregar Meta Ads: max spend_month/leads_month por ad
+    // Agregar Meta Ads: max spend_month/leads_month por ad (city-level only)
     const adMax = new Map<string, { empreendimento: string; impressions: number; clicks: number; leads_month: number; spend_month: number }>();
-    for (const row of metaRes.data || []) {
+    for (const row of metaData) {
       const cur = adMax.get(row.ad_id);
       if (!cur || (Number(row.spend_month) || 0) > cur.spend_month) {
         adMax.set(row.ad_id, {
@@ -115,6 +146,7 @@ export async function GET(req: NextRequest) {
         });
       }
     }
+    // Meta Ads aggregated by city (Meta Ads doesn't have canal_group)
     const metaMap = new Map<string, { impressions: number; clicks: number; leads: number; spend: number }>();
     for (const ad of adMax.values()) {
       const cur = metaMap.get(ad.empreendimento) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
@@ -125,63 +157,110 @@ export async function GET(req: NextRequest) {
       metaMap.set(ad.empreendimento, cur);
     }
 
-    const countsMap = new Map<string, Record<string, number>>();
-    for (const row of countsRes.data || []) {
-      const key = row.empreendimento;
-      if (!countsMap.has(key)) countsMap.set(key, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      const cur = countsMap.get(key)!;
-      cur[row.tab] = (cur[row.tab] || 0) + (row.count || 0);
+    // Build counts by canal_group|cidade
+    const groupCidadeCountsMap = new Map<string, Record<string, number>>();
+
+    for (const row of countsData) {
+      const canalGroup = row.canal_group || "Outros";
+      const cidade = row.empreendimento;
+      const gKey = `${canalGroup}|${cidade}`;
+      if (!groupCidadeCountsMap.has(gKey)) groupCidadeCountsMap.set(gKey, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
+      groupCidadeCountsMap.get(gKey)![row.tab] = (groupCidadeCountsMap.get(gKey)![row.tab] || 0) + (row.count || 0);
     }
 
-    for (const row of stageRes.data || []) {
-      const key = row.empreendimento;
-      if (!countsMap.has(key)) countsMap.set(key, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      const cur = countsMap.get(key)!;
-      cur[row.tab] = (cur[row.tab] || 0) + (row.count || 0);
+    for (const row of stageData) {
+      const canalGroup = row.canal_group || "Outros";
+      const cidade = row.empreendimento;
+      const gKey = `${canalGroup}|${cidade}`;
+      if (!groupCidadeCountsMap.has(gKey)) groupCidadeCountsMap.set(gKey, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
+      groupCidadeCountsMap.get(gKey)![row.tab] = (groupCidadeCountsMap.get(gKey)![row.tab] || 0) + (row.count || 0);
     }
 
-    const squads: FunilSquad[] = mc.squads.map((sq) => {
-      const empRows: FunilEmpreendimento[] = sq.empreendimentos.map((emp) => {
-        const meta = metaMap.get(emp) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
-        const counts = countsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 };
+    // Build squads: each canal_group = one squad, cidades = empreendimentos
+    const squads: FunilSquad[] = CANAL_GROUP_ORDER.map((canalGroup, idx) => {
+      // Find all cidades for this canal group
+      const cidadeEntries: Array<{ cidade: string; counts: Record<string, number> }> = [];
+      for (const [gKey, counts] of groupCidadeCountsMap.entries()) {
+        if (!gKey.startsWith(canalGroup + "|")) continue;
+        const cidade = gKey.split("|")[1];
+        cidadeEntries.push({ cidade, counts });
+      }
+
+      // Canal group-level counts (sum of all cidades)
+      const groupCounts = { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 };
+      for (const { counts } of cidadeEntries) {
+        groupCounts.mql += counts.mql || 0;
+        groupCounts.sql += counts.sql || 0;
+        groupCounts.opp += counts.opp || 0;
+        groupCounts.won += counts.won || 0;
+        groupCounts.reserva += counts.reserva || 0;
+        groupCounts.contrato += counts.contrato || 0;
+      }
+
+      // Build cidade-level empreendimento rows
+      // Distribute Meta Ads spend proportionally by MQL count across cidades
+      const totalGroupMql = cidadeEntries.reduce((s, c) => s + (c.counts.mql || 0), 0);
+
+      const empRows: FunilEmpreendimento[] = cidadeEntries.map(({ cidade, counts }) => {
+        // Get Meta Ads data for this cidade (shared across canal groups)
+        const meta = metaMap.get(cidade) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
+
+        // Proportional share of Meta Ads spend based on MQL distribution within this canal group
+        const mqlShare = totalGroupMql > 0 ? (counts.mql || 0) / totalGroupMql : (cidadeEntries.length > 0 ? 1 / cidadeEntries.length : 0);
+
+        // Only "Marketing" canal group gets Meta Ads spend attribution
+        const isMarketing = canalGroup === "Marketing";
+        const cidadeSpend = isMarketing ? meta.spend * mqlShare : 0;
+        const cidadeImpressions = isMarketing ? Math.round(meta.impressions * mqlShare) : 0;
+        const cidadeClicks = isMarketing ? Math.round(meta.clicks * mqlShare) : 0;
+        const cidadeMetaLeads = isMarketing ? Math.round(meta.leads * mqlShare) : 0;
 
         let leads: number, mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
 
-        if (paidOnly) {
-          leads = meta.leads;
-          mql = Math.min(counts.mql, meta.leads);
-          const ratio = counts.mql > 0 ? mql / counts.mql : 0;
-          sql = Math.round(counts.sql * ratio);
-          opp = Math.round(counts.opp * ratio);
-          won = Math.round(counts.won * ratio);
+        if (paidOnly && isMarketing) {
+          leads = cidadeMetaLeads;
+          mql = Math.min(counts.mql || 0, cidadeMetaLeads);
+          const ratio = (counts.mql || 0) > 0 ? mql / (counts.mql || 0) : 0;
+          sql = Math.round((counts.sql || 0) * ratio);
+          opp = Math.round((counts.opp || 0) * ratio);
+          won = Math.round((counts.won || 0) * ratio);
           reserva = Math.round((counts.reserva || 0) * ratio);
           contrato = Math.round((counts.contrato || 0) * ratio);
         } else {
-          const mqiNaoPago = Math.max(counts.mql - meta.leads, 0);
-          leads = meta.leads + mqiNaoPago;
-          mql = counts.mql;
-          sql = counts.sql;
-          opp = counts.opp;
-          won = counts.won;
+          const mqiNaoPago = isMarketing ? Math.max((counts.mql || 0) - cidadeMetaLeads, 0) : (counts.mql || 0);
+          leads = cidadeMetaLeads + mqiNaoPago;
+          mql = counts.mql || 0;
+          sql = counts.sql || 0;
+          opp = counts.opp || 0;
+          won = counts.won || 0;
           reserva = counts.reserva || 0;
           contrato = counts.contrato || 0;
         }
 
-        return buildFunil(emp, meta.impressions, meta.clicks, leads, mql, sql, opp, won, reserva, contrato, meta.spend);
+        return buildFunil(cidade, cidadeImpressions, cidadeClicks, leads, mql, sql, opp, won, reserva, contrato, cidadeSpend);
       });
 
+      // Sort cidades by total count (mql+sql+opp+won) descending
+      empRows.sort((a, b) => (b.mql + b.sql + b.opp + b.won) - (a.mql + a.sql + a.opp + a.won));
+
       return {
-        id: sq.id,
-        name: sq.name,
+        id: idx + 1,
+        name: canalGroup,
         empreendimentos: empRows,
-        totals: sumFunil(empRows, sq.name),
+        totals: sumFunil(empRows, canalGroup),
       };
     });
 
-    const allEmps = squads.flatMap((sq) => sq.empreendimentos);
+    // Get metas for the month
+    const monthMetas = SZS_METAS_WON[month] || {};
+
+    // Filter out empty squads (no data and no meta)
+    const nonEmptySquads = squads.filter((sq) => sq.empreendimentos.length > 0 || (monthMetas[sq.name] || 0) > 0);
+
+    const allEmps = nonEmptySquads.flatMap((sq) => sq.empreendimentos);
     const grand = sumFunil(allEmps, "Total");
 
-    const result: FunilData = { month, squads, grand };
+    const result: FunilData = { month, squads: nonEmptySquads, grand };
     return NextResponse.json(result);
   } catch (error) {
     console.error("SZS Funil error:", error);

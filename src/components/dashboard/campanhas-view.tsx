@@ -11,13 +11,15 @@ interface Props {
   mediaFilter: MediaFilter;
   setMediaFilter: (f: MediaFilter) => void;
   lastUpdated?: Date | null;
+  moduleId?: string;
 }
 
 function formatBRL(v: number): string {
   return `R$ ${v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function CampanhasView({ data, loading, mediaFilter, setMediaFilter, lastUpdated }: Props) {
+export function CampanhasView({ data, loading, mediaFilter, setMediaFilter, lastUpdated, moduleId }: Props) {
+  const isSZS = moduleId === "szs";
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showInfo, setShowInfo] = useState(false);
 
@@ -254,7 +256,7 @@ export function CampanhasView({ data, loading, mediaFilter, setMediaFilter, last
               </table>
             ) : (
               <div style={{ padding: "16px", textAlign: "center", color: T.cinza400, fontSize: "13px" }}>
-                Sem ads ativos neste squad
+                Sem ads ativos {isSZS ? "nesta cidade" : "neste squad"}
               </div>
             )}
           </div>

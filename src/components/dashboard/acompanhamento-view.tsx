@@ -36,9 +36,11 @@ interface Props {
   setActiveTab: (tab: TabKey) => void;
   loading: boolean;
   lastUpdated?: Date | null;
+  moduleId?: string;
 }
 
-export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, lastUpdated }: Props) {
+export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, lastUpdated, moduleId }: Props) {
+  const isSZS = moduleId === "szs";
   const [expanded, setExpanded] = useState<Record<number, boolean>>({ 1: true, 2: true, 3: true });
   const [showTeamCols, setShowTeamCols] = useState(false);
   const [hCol, setHCol] = useState<number | null>(null);
@@ -220,7 +222,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
                 })()}
               </tr>
               <tr style={{ backgroundColor: T.cinza50 }}>
-                <TH w={120}>Squad</TH>
+                <TH w={120}>{isSZS ? "Canal" : "Squad"}</TH>
                 {showTeamCols ? (
                   <>
                     <TH w={90}>
@@ -244,7 +246,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
                     </span>
                   </TH>
                 )}
-                <TH w={170}>Empreendimento</TH>
+                <TH w={170}>{isSZS ? "Cidade" : "Empreendimento"}</TH>
                 <TH w={68} right>
                   Total
                 </TH>
@@ -437,7 +439,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
           {Object.entries(SQUAD_COLORS).map(([n, cc]) => (
             <div key={n} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
               <span style={{ width: "7px", height: "7px", borderRadius: "9999px", backgroundColor: cc }} />
-              <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>Squad {n}</span>
+              <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>{isSZS ? "Canal" : "Squad"} {n}</span>
             </div>
           ))}
         </div>

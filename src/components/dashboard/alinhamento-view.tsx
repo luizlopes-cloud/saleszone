@@ -14,6 +14,7 @@ interface Props {
 }
 
 export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, lastUpdated }: Props) {
+  const isSZS = moduleConfig?.id === "szs";
   if (loading && !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px", color: T.cinza600 }}>
@@ -107,8 +108,8 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, 
                 </th>
               </tr>
               <tr style={{ backgroundColor: T.cinza50 }}>
-                <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 50 }}>Squad</th>
-                <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 180 }}>Empreendimento</th>
+                <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 50 }}>{isSZS ? "Canal" : "Squad"}</th>
+                <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 180 }}>{isSZS ? "Cidade" : "Empreendimento"}</th>
                 {moduleConfig.presellers.map((p, i) => (
                   <th
                     key={`pv-${i}`}
@@ -252,7 +253,7 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, 
         return (
           <div style={{ marginTop: "24px" }}>
             <h3 style={{ fontSize: "14px", fontWeight: 600, color: T.fg, marginBottom: "12px" }}>
-              Deals Desalinhados por Squad
+              Deals Desalinhados por {isSZS ? "Canal" : "Squad"}
             </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {squadIds.map((sqId) => {
@@ -303,7 +304,7 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, 
                               <thead>
                                 <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                                   <th style={{ textAlign: "left", padding: "4px 8px", color: T.cinza600, fontWeight: 600 }}>
-                                    Empreendimento
+                                    {isSZS ? "Cidade" : "Empreendimento"}
                                   </th>
                                   <th style={{ textAlign: "left", padding: "4px 8px", color: T.cinza600, fontWeight: 600 }}>
                                     Deal

@@ -11,9 +11,19 @@ const BASE = `https://${PIPEDRIVE_DOMAIN}/api/v1`;
 const PIPELINE_ID = 14;
 const FIELD_CANAL = "93b3ada8b94bd1fc4898a25754d6bcac2713f835";
 const FIELD_EMPREENDIMENTO = "6d565fd4fce66c16da078f520a685fa2fa038272";
+const FIELD_CIDADE = "45a56c6ae1f43dad4992c3c23d4a2a32787d93d6";
+const FIELD_BAIRRO = "b080625d5e1ec11f518490717bfa9d22d393f036";
 const FIELD_QUALIFICACAO = "bc74bcc4326527cbeb331d1697d4c8812d68506e";
 const FIELD_REUNIAO = "bfafc352c5c6f2edbaa41bf6d1c6daa825fc9c16";
-const CANAL_MARKETING_ID = "12";
+// Canal group mapping: groups deals by channel for SZS module
+const CANAL_GROUPS: Record<string, string> = {
+  "12": "Marketing",
+  "582": "Parceiros",   // Indicação de Corretor
+  "583": "Parceiros",   // Indicação de Franquia
+  "1748": "Expansão",
+  "3189": "Spots",       // Spot Seazone
+};
+// Any canal ID not in this map → "Outros"
 const EMPREENDIMENTO_MAP: Record<string, string> = {
   "3313": "Altavista",
   "1132": "Barra de São Miguel Spot",
@@ -79,9 +89,320 @@ const EMPREENDIMENTO_MAP: Record<string, string> = {
   "2745": "VN Ueno",
   "3309": "Zn Barra",
 };
+const CIDADE_MAP: Record<string, string> = {
+  "1465": "Alagoinhas, BA",
+  "607": "Alfredo Wagner, SC",
+  "1781": "Alto Paraíso de Goiás, GO",
+  "2255": "Anchieta, ES",
+  "434": "Angra dos Reis, RJ",
+  "650": "Anitápolis, SC",
+  "4170": "Anápolis, GO",
+  "2484": "Aparecida de Goiânia, GO",
+  "3319": "Aparecida, SP",
+  "2515": "Apiúna, SC",
+  "3265": "Aquiraz, CE",
+  "2196": "Aracaju, SE",
+  "2680": "Aracati, CE",
+  "2563": "Aragoiânia, GO",
+  "2468": "Arapiraca, AL",
+  "2383": "Araranguá, SC",
+  "2469": "Araraquara, SP",
+  "2074": "Araruama, RJ",
+  "2629": "Araçariguama, SP",
+  "2153": "Arcoverde, PE",
+  "196": "Armação dos Búzios, RJ",
+  "436": "Arraial do Cabo, RJ",
+  "2666": "Atibaia, SP",
+  "2478": "Balneário Barra do Sul, SC",
+  "158": "Balneário Camboriú, SC",
+  "2455": "Balneário Pinhal, RS",
+  "431": "Balneário Piçarras, SC",
+  "2734": "Barra de Santo Antônio, AL",
+  "1079": "Barra de São Miguel, AL",
+  "1939": "Barra Mansa, RJ",
+  "1905": "Barra Velha, SC",
+  "1463": "Barreiras, BA",
+  "1940": "Barreirinhas, MA",
+  "4654": "Barueri, SP",
+  "632": "Bauru, SP",
+  "2667": "Baía Formosa, RN",
+  "3264": "Beberibe, CE",
+  "1901": "Belmonte, BA",
+  "1421": "Belo Horizonte, MG",
+  "3263": "Belém, PA",
+  "854": "Bento Gonçalves, RS",
+  "258": "Bertioga, SP",
+  "2470": "Bezerros, PE",
+  "1911": "Biguaçu, SC",
+  "2630": "Biritiba Mirim, SP",
+  "1848": "Blumenau, SC",
+  "2479": "Bom Jardim da Serra, SC",
+  "612": "Bom Retiro, SC",
+  "161": "Bombinhas, SC",
+  "3262": "Bonito, MS",
+  "2681": "Bragança Paulista, SP",
+  "1740": "Brasília, DF",
+  "2140": "Braço do Norte, SC",
+  "2608": "Brusque, SC",
+  "2184": "Cabedelo, PB",
+  "2489": "Cabo de Santo Agostinho, PE",
+  "235": "Cabo Frio, RJ",
+  "1912": "Cachoeira Paulista, SP",
+  "2631": "Cachoeiras de Macacu, RJ",
+  "1913": "Cachoeirinha, RS",
+  "440": "Cairu, BA",
+  "3261": "Cajueiro da Praia, PI",
+  "1387": "Caldas Novas, GO",
+  "3260": "Camanducaia, MG",
+  "1043": "Camaçari, BA",
+  "1853": "Camboriú, SC",
+  "2712": "Camorim, RJ",
+  "1914": "Campinas, SP",
+  "2388": "Campo Alegre, SC",
+  "1941": "Campo Grande, MS",
+  "233": "Campos do Jordão, SP",
+  "1791": "Canavieiras, BA",
+  "2222": "Candeias, BA",
+  "225": "Canela, RS",
+  "2115": "Canoas, RS",
+  "850": "Capão da Canoa, RS",
+  "425": "Caraguatatuba, SP",
+  "2223": "Caravelas, BA",
+  "1849": "Caruaru, PE",
+  "1978": "Casimiro de Abreu, RJ",
+  "4533": "Catalão, GO",
+  "2735": "Caucaia, CE",
+  "845": "Caxias do Sul, RS",
+  "2389": "Chapecó, SC",
+  "3259": "Conde, BA",
+  "2682": "Conde, PB",
+  "1422": "Conselheiro Lafaiete, MG",
+  "2312": "Coruripe, AL",
+  "2632": "Cotia, SP",
+  "2930": "Criciúma, SC",
+  "3258": "Cruz, CE",
+  "1742": "Cuiabá, MT",
+  "1887": "Curitiba, PR",
+  "2609": "Delfinópolis, MG",
+  "4289": "Dourados, MS",
+  "1915": "Duque de Caxias, RJ",
+  "2683": "Embu Guaçu, SP",
+  "1916": "Entre Rios, BA",
+  "1761": "Eunápolis, BA",
+  "1466": "Feira de Santana, BA",
+  "119": "Florianópolis, SC",
+  "1917": "Fortaleza, CE",
+  "3257": "Fortim, CE",
+  "2480": "Foz do Iguaçu, PR",
+  "3256": "Garibaldi, RS",
+  "239": "Garopaba, SC",
+  "2684": "Goianira, GO",
+  "1743": "Goiás, GO",
+  "1744": "Goiânia, GO",
+  "1946": "Gonçalves, MG",
+  "432": "Governador Celso Ramos, SC",
+  "4172": "Governador Valadares, MG",
+  "224": "Gramado, RS",
+  "2713": "Gravatá, PE",
+  "2337": "Guapimirim, RJ",
+  "2102": "Guaramiranga, CE",
+  "1448": "Guarapari, ES",
+  "2440": "Guaratinguetá, SP",
+  "3320": "Guaratuba, PR",
+  "1918": "Guarujá, SP",
+  "1919": "Guarulhos, SP",
+  "1769": "Guará, DF",
+  "2481": "Harmonia, RS",
+  "1745": "Hidrolândia, GO",
+  "1920": "Ibiúna, SP",
+  "2151": "Icapuí, CE",
+  "2543": "Iguape, SP",
+  "2714": "Ilha de Itamaracá, PE",
+  "426": "Ilhabela, SP",
+  "831": "Ilhéus, BA",
+  "241": "Imbituba, SC",
+  "2633": "Imbé, RS",
+  "1133": "Ipojuca, PE",
+  "1462": "Itabuna, BA",
+  "605": "Itacaré, BA",
+  "236": "Itajaí, SC",
+  "1850": "Itanhaém, SP",
+  "839": "Itaparica, BA",
+  "157": "Itapema, SC",
+  "2075": "Itapoá, SC",
+  "2150": "Itatiba, SP",
+  "2154": "Itatuba, PB",
+  "2268": "Itobi, SP",
+  "2076": "Itu, SP",
+  "4548": "Itumbiara, GO",
+  "1180": "Jaboatão dos Guararapes, PE",
+  "3137": "Jaguaruna, SC",
+  "590": "Japaratinga, AL",
+  "1921": "Jaraguá do Sul, SC",
+  "2610": "Jaú, SP",
+  "1464": "Jequié, BA",
+  "1254": "Joinville, SC",
+  "4649": "João Monlevade, MG",
+  "1406": "João Pessoa, PB",
+  "2116": "Juazeiro do Norte, CE",
+  "1467": "Juazeiro, BA",
+  "2141": "Juiz de Fora, MG",
+  "2931": "Lages, SC",
+  "1397": "Lauro de Freitas, BA",
+  "3255": "Lençóis, BA",
+  "2224": "Leopoldo Bulhões, GO",
+  "2155": "Londrina, PR",
+  "2715": "Luis Correia, PI",
+  "2668": "Luziânia, GO",
+  "2157": "Luís Eduardo Magalhães, BA",
+  "4619": "Macapá, AP",
+  "614": "Maceió, AL",
+  "2588": "Mairiporã, SP",
+  "1948": "Manaus, AM",
+  "437": "Mangaratiba, RJ",
+  "442": "Maragogi, AL",
+  "628": "Maraú, BA",
+  "1066": "Marechal Deodoro, AL",
+  "2471": "Marialva, PR",
+  "2564": "Maricá, RJ",
+  "1922": "Maringá, PR",
+  "649": "Mata de São João, BA",
+  "3254": "Matinhos, PR",
+  "2634": "Miguel Pereira, RJ",
+  "2185": "Mogi das Cruzes, SP",
+  "2441": "Mongaguá, SP",
+  "1851": "Natal, RN",
+  "2142": "Navegantes, SC",
+  "438": "Niterói, RJ",
+  "2313": "Nova Petrópolis, RS",
+  "2611": "Nova Prata, RS",
+  "2490": "Nova Santa Rita, RS",
+  "427": "Olímpia, SP",
+  "2371": "Orleans, SC",
+  "3253": "Ouro Preto, MG",
+  "177": "Outros",
+  "1168": "Palhoça, SC",
+  "1949": "Palmas, TO",
+  "2736": "Palmeira, SC",
+  "3252": "Palmeiras, BA",
+  "2472": "Paraipaba, CE",
+  "1852": "Paranavaí, PR",
+  "2491": "Paraty, RJ",
+  "1923": "Paripueira, AL",
+  "1886": "Passo de Camaragibe, AL",
+  "2669": "Paulista, PE",
+  "2589": "Pelotas, RS",
+  "433": "Penha, SC",
+  "2482": "Peruíbe, SP",
+  "439": "Petrópolis, RJ",
+  "1854": "Piatã, BA",
+  "1746": "Pirenópolis, GO",
+  "2152": "Pitimbu, PB",
+  "3251": "Pomerode, SC",
+  "1924": "Ponta Grossa, PR",
+  "4494": "Ponta Porã, MS",
+  "2612": "Pontal do Paraná, PR",
+  "392": "Porto Alegre, RS",
+  "159": "Porto Belo, SC",
+  "1724": "Porto de Pedras, AL",
+  "441": "Porto Seguro, BA",
+  "2156": "Pouso Alegre, MG",
+  "1142": "Poços de Caldas, MG",
+  "2186": "Prado, BA",
+  "242": "Praia do Rosa, SC",
+  "2402": "Praia Grande, SC",
+  "428": "Praia Grande, SP",
+  "4301": "Presidente Prudente, SP",
+  "613": "Rancho Queimado, SC",
+  "1179": "Recife, PE",
+  "2635": "Ribeirão das Neves, MG",
+  "630": "Ribeirão Preto, SP",
+  "2143": "Rio das Ostras, RJ",
+  "1202": "Rio de Janeiro, RJ",
+  "2565": "Rio do Sul, SC",
+  "3250": "Salinópolis, PA",
+  "653": "Salvador, BA",
+  "1177": "Santa Cruz Cabrália, BA",
+  "232": "Torres, RS",
+  "429": "Santos, SP",
+  "430": "São Sebastião, SP",
+  "384": "Ubatuba, SP",
+  "631": "São José do Rio Preto, SP",
+  "695": "Uberaba, MG",
+  "698": "Uberlândia, MG",
+  "455": "Urubici, SC",
+  "1058": "São Miguel dos Milagres, AL",
+  "1178": "Tamandaré, PE",
+  "1182": "Sinop, MT",
+  "1239": "Teixeira de Freitas, BA",
+  "1310": "São Paulo, SP",
+  "1461": "Vitória da Conquista, BA",
+  "1468": "Tibau do Sul, RN",
+  "1727": "Vitória, ES",
+  "1770": "Taguatinga, DF",
+  "1793": "Uruçuca, BA",
+  "1855": "Teresópolis, RJ",
+  "1856": "Vila Velha, ES",
+  "1858": "Tangará da Serra, MT",
+  "1885": "São Pedro da Aldeia, RJ",
+  "1899": "Teresina, PI",
+  "1925": "Sapucaí-Mirim, MG",
+  "1926": "São José, SC",
+  "1952": "São Carlos, SP",
+  "1976": "São Pedro de Alcântara, SC",
+  "1977": "São Francisco do Sul, SC",
+  "2098": "Sorocaba, SP",
+  "2099": "Toledo, PR",
+  "2103": "Santa Maria, RS",
+  "2104": "Volta Redonda, RJ",
+  "2144": "Santo Amaro da Imperatriz, SC",
+  "2187": "Santa Luzia, MG",
+  "2188": "São José dos Campos, SP",
+  "2189": "São Vicente, SP",
+  "2225": "Tubarão, SC",
+  "2328": "São José dos Pinhais, PR",
+  "2338": "Una, BA",
+  "2349": "Serra Negra, SP",
+  "2350": "São Bernardo do Campo, SP",
+  "2372": "Vassouras, RJ",
+  "2390": "Santo André, SP",
+  "2391": "Timbó, SC",
+  "2456": "São Leopoldo, RS",
+  "2473": "Santo Antônio da Patrulha, RS",
+  "2477": "Santo Amaro do Maranhão, MA",
+  "2544": "Serra, ES",
+  "2566": "São Joaquim, SC",
+  "2590": "São Caetano do Sul, SP",
+  "2591": "São Tomé das Letras, MG",
+  "2613": "São Francisco de Paula, RS",
+  "2636": "São Roque, SP",
+  "2637": "Vera Cruz, BA",
+  "2685": "Senador Canedo, GO",
+  "2686": "Vespasiano, MG",
+  "2716": "Timburi, SP",
+  "2717": "Unaí, MG",
+  "3247": "São Miguel do Gostosos, RN",
+  "3248": "São Luís, MA",
+  "3249": "Santarém, PA",
+  "4547": "Valença, BA",
+  "4650": "Santo Ângelo, RS",
+  "856": "Xangri-lá, RS",
+  "1771": "Águas Claras, DF",
+  "4676": "Três Rios, RJ",
+  "4677": "Primavera do Leste, MT",
+  "4679": "Indaiatuba, SP",
+  "4682": "Cascavel, PR",
+  "4683": "São João del Rei, MG",
+  "4815": "São Miguel do Gostoso, RN",
+  "4816": "Schroeder, SC",
+  "4817": "Itaitinga, CE",
+  "4818": "Ipióca, AL",
+  "4819": "Caeté, MG",
+  "4820": "Alfredo Chaves, ES",
+};
 // SZS team: single squad with 5 closers
 const SQUADS: Array<{ id: number; closers: number; empreendimentos: string[] }> = [
-  { id: 1, closers: 5, empreendimentos: Object.values(EMPREENDIMENTO_MAP) },
+  { id: 1, closers: 5, empreendimentos: Object.values(CIDADE_MAP).filter(c => c !== "Outros") },
 ];
 const TOTAL_CLOSERS = SQUADS.reduce((sum, sq) => sum + sq.closers, 0);
 const TABS = ["mql", "sql", "opp", "won"] as const;
@@ -127,13 +448,25 @@ function getDateField(deal: any, tab: Tab): string | null {
   }
 }
 
-function isMarketingDeal(deal: any) {
-  return String(deal[FIELD_CANAL]) === CANAL_MARKETING_ID;
+function getCanalGroup(deal: any): string {
+  const canal = String(deal[FIELD_CANAL] || "");
+  return CANAL_GROUPS[canal] || "Outros";
 }
 
 function getEmpreendimento(deal: any) {
   const enumId = String(deal[FIELD_EMPREENDIMENTO] || "");
   return EMPREENDIMENTO_MAP[enumId] || null;
+}
+
+function getCidade(deal: any): string {
+  const enumId = String(deal[FIELD_CIDADE] || "");
+  return CIDADE_MAP[enumId] || "Sem cidade";
+}
+
+function getBairro(deal: any): string {
+  const val = deal[FIELD_BAIRRO];
+  if (!val || typeof val !== "string" || val.trim() === "") return "Sem bairro";
+  return val.trim().split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }
 
 function getDateRange() {
@@ -153,16 +486,17 @@ function countDeals(
   for (const deal of deals) {
     // Filter to SZS pipeline only (/deals endpoint returns ALL pipelines)
     if (deal.pipeline_id !== PIPELINE_ID) continue;
-    if (!isMarketingDeal(deal)) continue;
     mkt++;
-    const emp = getEmpreendimento(deal);
+    const canalGroup = getCanalGroup(deal);
+    const emp = getCidade(deal);
+    const bairro = getBairro(deal);
     if (!emp) continue;
     for (const tab of TABS) {
       const dateStr = getDateField(deal, tab);
       if (!dateStr) continue;
       const day = dateStr.substring(0, 10);
       if (day < startDate || day > endDate) continue;
-      const key = `${day}|${emp}`;
+      const key = `${day}|${canalGroup}|${emp}|${bairro}`;
       countsPerTab[tab].set(key, (countsPerTab[tab].get(key) || 0) + 1);
     }
   }
@@ -176,8 +510,8 @@ async function writeDailyCounts(supabase: any, countsPerTab: Record<Tab, Map<str
     const final = countsPerTab[tab];
 
     const rows = Array.from(final.entries()).map(([key, count]) => {
-      const [date, empreendimento] = key.split("|");
-      return { date, tab, empreendimento, count, source, synced_at: new Date().toISOString() };
+      const [date, canal_group, empreendimento, bairro] = key.split("|");
+      return { date, tab, canal_group, empreendimento, bairro, count, source, synced_at: new Date().toISOString() };
     });
 
     // Delete only rows from THIS source (idempotent — each source replaces only itself)
@@ -207,15 +541,16 @@ function countDealsByStage(
 ) {
   const today = new Date().toISOString().substring(0, 10);
   for (const deal of deals) {
-    if (!isMarketingDeal(deal)) continue;
-    const emp = getEmpreendimento(deal);
+    const canalGroup = getCanalGroup(deal);
+    const emp = getCidade(deal);
+    const bairro = getBairro(deal);
     if (!emp) continue;
     const stageId = deal.stage_id;
     if (stageId === STAGE_RESERVA) {
-      const key = `${today}|${emp}`;
+      const key = `${today}|${canalGroup}|${emp}|${bairro}`;
       stageCounts.reserva.set(key, (stageCounts.reserva.get(key) || 0) + 1);
     } else if (stageId === STAGE_CONTRATO) {
-      const key = `${today}|${emp}`;
+      const key = `${today}|${canalGroup}|${emp}|${bairro}`;
       stageCounts.contrato.set(key, (stageCounts.contrato.get(key) || 0) + 1);
     }
   }
@@ -228,8 +563,8 @@ async function writeStageCounts(supabase: any, stageCounts: Record<"reserva" | "
     const { error: delErr } = await supabase.from("szs_daily_counts").delete().eq("tab", tab);
     if (delErr) console.error(`Delete error ${tab}:`, delErr.message);
     const rows = Array.from(stageCounts[tab].entries()).map(([key, count]) => {
-      const [date, empreendimento] = key.split("|");
-      return { date, tab, empreendimento, count, synced_at: new Date().toISOString() };
+      const [date, canal_group, empreendimento, bairro] = key.split("|");
+      return { date, tab, canal_group, empreendimento, bairro, count, synced_at: new Date().toISOString() };
     });
     if (rows.length > 0) {
       const { error } = await supabase.from("szs_daily_counts").insert(rows);
@@ -350,7 +685,7 @@ async function syncAlignment(apiToken: string, supabase: any) {
   const counts = new Map<string, number>();
   const dealRows: Array<{deal_id: number; title: string; empreendimento: string; owner_name: string; synced_at: string}> = [];
   for (const deal of deals) {
-    const emp = getEmpreendimento(deal);
+    const emp = getCidade(deal);
     if (!emp) continue;
     // Pipeline endpoint returns user_id as integer (not object)
     const ownerId = typeof deal.user_id === "object" ? deal.user_id?.id : deal.user_id;
@@ -514,21 +849,23 @@ function countDealByStage(deal: any, maxOrder: number, monthly: Map<string, numb
   if (!addTime) return;
   const day = addTime.substring(0, 10);
   if (day < startDate || day > endDate) return;
-  const emp = getEmpreendimento(deal);
+  const emp = getCidade(deal);
+  const bairro = getBairro(deal);
   if (!emp) return;
+  const canalGroup = getCanalGroup(deal);
   const month = day.substring(0, 7);
 
   if (maxOrder >= MQL_MIN_ORDER) {
-    monthly.set(`${month}|${emp}|mql`, (monthly.get(`${month}|${emp}|mql`) || 0) + 1);
+    monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|mql`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|mql`) || 0) + 1);
   }
   if (maxOrder >= SQL_MIN_ORDER) {
-    monthly.set(`${month}|${emp}|sql`, (monthly.get(`${month}|${emp}|sql`) || 0) + 1);
+    monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|sql`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|sql`) || 0) + 1);
   }
   if (maxOrder >= OPP_MIN_ORDER) {
-    monthly.set(`${month}|${emp}|opp`, (monthly.get(`${month}|${emp}|opp`) || 0) + 1);
+    monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|opp`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|opp`) || 0) + 1);
   }
   if (deal.status === "won") {
-    monthly.set(`${month}|${emp}|won`, (monthly.get(`${month}|${emp}|won`) || 0) + 1);
+    monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|won`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|won`) || 0) + 1);
   }
 }
 
@@ -550,8 +887,7 @@ async function backfillOpenWon(apiToken: string, supabase: any) {
     if (!res.data || res.data.length === 0) break;
     for (const deal of res.data) {
       if (deal.pipeline_id !== PIPELINE_ID) continue;
-      if (!isMarketingDeal(deal)) continue;
-      if (!getEmpreendimento(deal)) continue;
+
       totalOpen++;
       const currentOrder = STAGE_ORDER[deal.stage_id] || 0;
       countDealByStage(deal, currentOrder, monthly, startDate, endDate);
@@ -573,8 +909,7 @@ async function backfillOpenWon(apiToken: string, supabase: any) {
         if (seenWon.has(deal.id)) continue;
         seenWon.add(deal.id);
         if (deal.pipeline_id !== PIPELINE_ID) continue;
-        if (!isMarketingDeal(deal)) continue;
-        if (!getEmpreendimento(deal)) continue;
+
         totalWon++;
         countDealByStage(deal, 12, monthly, startDate, endDate); // Won = passed all stages (SZS has 12 stages)
       }
@@ -585,8 +920,8 @@ async function backfillOpenWon(apiToken: string, supabase: any) {
 
   // Upsert (additive)
   const rows = Array.from(monthly.entries()).map(([key, count]) => {
-    const [month, empreendimento, tab] = key.split("|");
-    return { month, empreendimento, tab, count };
+    const [month, canal_group, empreendimento, bairro, tab] = key.split("|");
+    return { month, canal_group, empreendimento, bairro, tab, count };
   });
   if (rows.length > 0) {
     for (let i = 0; i < rows.length; i += 200) {
@@ -632,8 +967,7 @@ async function backfillLostWithFlow(apiToken: string, supabase: any, startFrom: 
       seenDealIds.add(deal.id);
       dealsScanned++;
       if (deal.pipeline_id !== PIPELINE_ID) continue;
-      if (!isMarketingDeal(deal)) continue;
-      if (!getEmpreendimento(deal)) continue;
+
       const addTime = deal.add_time;
       if (!addTime) continue;
       const day = addTime.substring(0, 10);
@@ -664,8 +998,8 @@ async function backfillLostWithFlow(apiToken: string, supabase: any, startFrom: 
 
   // Upsert (additive)
   const rows = Array.from(monthly.entries()).map(([key, count]) => {
-    const [month, empreendimento, tab] = key.split("|");
-    return { month, empreendimento, tab, count };
+    const [month, canal_group, empreendimento, bairro, tab] = key.split("|");
+    return { month, canal_group, empreendimento, bairro, tab, count };
   });
   if (rows.length > 0) {
     for (let i = 0; i < rows.length; i += 200) {
@@ -696,8 +1030,9 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
 
   function countDeal(deal: any) {
     if (deal.pipeline_id !== PIPELINE_ID) return;
-    if (!isMarketingDeal(deal)) return;
-    const emp = getEmpreendimento(deal);
+    const canalGroup = getCanalGroup(deal);
+    const emp = getCidade(deal);
+    const bairro = getBairro(deal);
     if (!emp) return;
     const addTime = deal.add_time;
     if (!addTime) return;
@@ -708,15 +1043,15 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
     const hasQualDate = !!deal[FIELD_QUALIFICACAO];
     const hasReunDate = !!deal[FIELD_REUNIAO];
 
-    monthly.set(`${month}|${emp}|mql`, (monthly.get(`${month}|${emp}|mql`) || 0) + 1);
+    monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|mql`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|mql`) || 0) + 1);
     if (stageOrder >= SQL_MIN_ORDER || hasQualDate) {
-      monthly.set(`${month}|${emp}|sql`, (monthly.get(`${month}|${emp}|sql`) || 0) + 1);
+      monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|sql`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|sql`) || 0) + 1);
     }
     if (stageOrder >= OPP_MIN_ORDER || hasReunDate) {
-      monthly.set(`${month}|${emp}|opp`, (monthly.get(`${month}|${emp}|opp`) || 0) + 1);
+      monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|opp`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|opp`) || 0) + 1);
     }
     if (deal.status === "won") {
-      monthly.set(`${month}|${emp}|won`, (monthly.get(`${month}|${emp}|won`) || 0) + 1);
+      monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|won`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|won`) || 0) + 1);
     }
   }
 
@@ -765,8 +1100,8 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
 
   // Upsert (replace) for current + prev month
   const rows = Array.from(monthly.entries()).map(([key, count]) => {
-    const [month, empreendimento, tab] = key.split("|");
-    return { month, empreendimento, tab, count, synced_at: new Date().toISOString() };
+    const [month, canal_group, empreendimento, bairro, tab] = key.split("|");
+    return { month, canal_group, empreendimento, bairro, tab, count, synced_at: new Date().toISOString() };
   });
 
   if (rows.length > 0) {
@@ -855,7 +1190,7 @@ Deno.serve(async (req) => {
           for (const d of res.data) {
             if (d.pipeline_id !== PIPELINE_ID) continue;
             sampleOpen++;
-            if (isMarketingDeal(d) && getEmpreendimento(d)) {
+            if (getCidade(d)) {
               mktOpen++;
               const sid = String(d.stage_id);
               stageDistOpen[sid] = (stageDistOpen[sid] || 0) + 1;
@@ -877,7 +1212,7 @@ Deno.serve(async (req) => {
               seenW.add(d.id);
               if (d.pipeline_id !== PIPELINE_ID) continue;
               sampleWon++;
-              if (isMarketingDeal(d) && getEmpreendimento(d)) {
+              if (getCidade(d)) {
                 mktWon++;
                 const sid = String(d.stage_id);
                 stageDistWon[sid] = (stageDistWon[sid] || 0) + 1;
@@ -900,7 +1235,7 @@ Deno.serve(async (req) => {
               seenL.add(d.id);
               if (d.pipeline_id !== PIPELINE_ID) continue;
               sampleLost++;
-              if (isMarketingDeal(d) && getEmpreendimento(d)) {
+              if (getCidade(d)) {
                 mktLost++;
                 const sid = String(d.stage_id);
                 stageDistLost[sid] = (stageDistLost[sid] || 0) + 1;

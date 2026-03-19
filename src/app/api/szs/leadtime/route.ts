@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
           .from("szs_deals")
           .select("deal_id, title, owner_name, add_time, won_time, stage_order, max_stage_order, empreendimento")
           .eq("status", "won")
-          .eq("is_marketing", true)
+          .not("canal", "in", "(582,583,1748,3189)")
           .not("empreendimento", "is", null)
           .gte("won_time", cutoffStr)
           .range(o, o + ps - 1),
@@ -87,7 +87,7 @@ export async function GET(request: NextRequest) {
           .from("szs_deals")
           .select("deal_id, title, owner_name, add_time, stage_order, empreendimento")
           .eq("status", "open")
-          .eq("is_marketing", true)
+          .not("canal", "in", "(582,583,1748,3189)")
           .not("empreendimento", "is", null)
           .range(o, o + ps - 1),
       ),

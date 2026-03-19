@@ -1,15 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
-import type { FunilData, FunilEmpreendimento } from "@/lib/types";
+import type { FunilData, FunilEmpreendimento, FunilCidade, FunilBairro } from "@/lib/types";
 import { StatPill, TH, cellRightStyle, cellStyle, DataSourceFooter } from "./ui";
 
 interface ResultadosViewProps {
   data: FunilData | null;
   loading: boolean;
   lastUpdated?: Date | null;
+  moduleId?: string;
 }
 
 const STAGES = [
@@ -39,6 +40,9 @@ const RATE_KEYS: Record<string, keyof FunilEmpreendimento> = {
   reserva: "reservaToContrato",
   contrato: "contratoToWon",
 };
+
+type SortKey = "emp" | "leads" | "mql" | "sql" | "opp" | "reserva" | "contrato" | "won" | "spend" | "cpl" | "cmql" | "copp" | "cpw";
+type SortDir = "asc" | "desc";
 
 function fmt(n: number): string {
   return n.toLocaleString("pt-BR");
@@ -92,11 +96,69 @@ function FunnelBar({ data }: { data: FunilEmpreendimento }) {
   );
 }
 
-function SquadTable({ squad, expanded, onToggle }: {
+function SortableHeader({ label, sortKey, currentSort, currentDir, onSort, right }: {
+  label: string;
+  sortKey: SortKey;
+  currentSort: SortKey;
+  currentDir: SortDir;
+  onSort: (key: SortKey) => void;
+  right?: boolean;
+}) {
+  const active = currentSort === sortKey;
+  return (
+    <th
+      onClick={() => onSort(sortKey)}
+      style={{
+        padding: "8px 10px",
+        fontSize: "10px",
+        fontWeight: 600,
+        color: active ? T.azul600 : T.cinza600,
+        textTransform: "uppercase",
+        letterSpacing: "0.03em",
+        textAlign: right ? "right" : "left",
+        cursor: "pointer",
+        userSelect: "none",
+        whiteSpace: "nowrap",
+        borderBottom: `1px solid ${T.border}`,
+      }}
+    >
+      <span style={{ display: "inline-flex", alignItems: "center", gap: "2px" }}>
+        {label}
+        {active && (currentDir === "asc" ? <ArrowUp size={10} /> : <ArrowDown size={10} />)}
+      </span>
+    </th>
+  );
+}
+
+function SquadTable({ squad, expanded, onToggle, groupLabel }: {
   squad: { id: number; name: string; empreendimentos: FunilEmpreendimento[]; totals: FunilEmpreendimento };
   expanded: boolean;
   onToggle: () => void;
+  groupLabel: string;
 }) {
+  const [sortKey, setSortKey] = useState<SortKey>("emp");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "emp" ? "asc" : "desc");
+    }
+  };
+
+  const sorted = [...squad.empreendimentos].sort((a, b) => {
+    const valA = a[sortKey as keyof FunilEmpreendimento];
+    const valB = b[sortKey as keyof FunilEmpreendimento];
+    if (typeof valA === "string" && typeof valB === "string") {
+      return sortDir === "asc" ? valA.localeCompare(valB) : valB.localeCompare(valA);
+    }
+    const nA = Number(valA) || 0;
+    const nB = Number(valB) || 0;
+    return sortDir === "asc" ? nA - nB : nB - nA;
+  });
+
   const t = squad.totals;
   const color = SQUAD_COLORS[squad.id] || T.azul600;
 
@@ -139,23 +201,23 @@ function SquadTable({ squad, expanded, onToggle }: {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <TH>Empreendimento</TH>
-                <TH right>Leads</TH>
-                <TH right>MQL</TH>
-                <TH right>SQL</TH>
-                <TH right>OPP</TH>
-                <TH right>Reserva</TH>
-                <TH right>Contrato</TH>
-                <TH right>WON</TH>
-                <TH right>Invest.</TH>
-                <TH right>CPL</TH>
-                <TH right>CMQL</TH>
-                <TH right>COPP</TH>
-                <TH right>CPW</TH>
+                <SortableHeader label={groupLabel} sortKey="emp" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
+                <SortableHeader label="Leads" sortKey="leads" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="MQL" sortKey="mql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="SQL" sortKey="sql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="OPP" sortKey="opp" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="Reserva" sortKey="reserva" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="Contrato" sortKey="contrato" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="WON" sortKey="won" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="Invest." sortKey="spend" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="CPL" sortKey="cpl" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="CMQL" sortKey="cmql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="COPP" sortKey="copp" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label="CPW" sortKey="cpw" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
               </tr>
             </thead>
             <tbody>
-              {squad.empreendimentos.map((e) => (
+              {sorted.map((e) => (
                 <tr key={e.emp}>
                   <td style={{ ...cellStyle, fontSize: "12px", fontWeight: 500 }}>
                     {e.emp.replace(" Spot", "").replace(" II", " II").replace(" III", " III")}
@@ -197,8 +259,123 @@ function SquadTable({ squad, expanded, onToggle }: {
   );
 }
 
-export function ResultadosView({ data, loading, lastUpdated }: ResultadosViewProps) {
+function CidadeDetailTable({ cidades }: { cidades: FunilCidade[] }) {
+  const [expandedCities, setExpandedCities] = useState<Set<string>>(new Set());
+  const [sortKey, setSortKey] = useState<SortKey>("mql");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir(key === "emp" ? "asc" : "desc");
+    }
+  };
+
+  const toggleCity = (cidade: string) => {
+    setExpandedCities((prev) => {
+      const next = new Set(prev);
+      if (next.has(cidade)) next.delete(cidade);
+      else next.add(cidade);
+      return next;
+    });
+  };
+
+  const sortedCidades = [...cidades].sort((a, b) => {
+    if (sortKey === "emp") {
+      return sortDir === "asc" ? a.cidade.localeCompare(b.cidade) : b.cidade.localeCompare(a.cidade);
+    }
+    const valA = (a.totals[sortKey as keyof FunilEmpreendimento] as number) || 0;
+    const valB = (b.totals[sortKey as keyof FunilEmpreendimento] as number) || 0;
+    return sortDir === "asc" ? valA - valB : valB - valA;
+  });
+
+  return (
+    <div style={{ border: `1px solid ${T.border}`, borderRadius: "8px", overflow: "hidden" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            <SortableHeader label="Cidade" sortKey="emp" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} />
+            <SortableHeader label="Leads" sortKey="leads" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="MQL" sortKey="mql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="SQL" sortKey="sql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="OPP" sortKey="opp" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="Reserva" sortKey="reserva" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="Contrato" sortKey="contrato" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="WON" sortKey="won" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="Invest." sortKey="spend" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="CMQL" sortKey="cmql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="COPP" sortKey="copp" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label="CPW" sortKey="cpw" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+          </tr>
+        </thead>
+        <tbody>
+          {sortedCidades.map((c) => {
+            const t = c.totals;
+            const isExpanded = expandedCities.has(c.cidade);
+            const hasBairros = c.bairros.length > 1 || (c.bairros.length === 1 && c.bairros[0].bairro !== "Sem bairro");
+            return (
+              <>
+                <tr
+                  key={c.cidade}
+                  onClick={() => hasBairros && toggleCity(c.cidade)}
+                  style={{
+                    backgroundColor: T.cinza50,
+                    cursor: hasBairros ? "pointer" : "default",
+                  }}
+                >
+                  <td style={{ ...cellStyle, fontSize: "12px", fontWeight: 600 }}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      {hasBairros && (isExpanded ? <ChevronDown size={12} color={T.cinza600} /> : <ChevronRight size={12} color={T.cinza600} />)}
+                      {c.cidade}
+                    </span>
+                  </td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmt(t.leads)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmt(t.mql)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmt(t.sql)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmt(t.opp)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmt(t.reserva)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmt(t.contrato)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 700, color: T.verde600 }}>{fmt(t.won)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmtMoney(t.spend)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmtMoney(t.cmql)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmtMoney(t.copp)}</td>
+                  <td style={{ ...cellRightStyle, fontWeight: 600 }}>{fmtMoney(t.cpw)}</td>
+                </tr>
+                {isExpanded && c.bairros.map((b) => (
+                  <tr key={`${c.cidade}|${b.bairro}`}>
+                    <td style={{ ...cellStyle, fontSize: "11px", fontWeight: 400, paddingLeft: "28px", color: T.cinza700 }}>
+                      {b.bairro}
+                    </td>
+                    <td style={cellRightStyle}>{fmt(b.leads)}</td>
+                    <td style={cellRightStyle}>{fmt(b.mql)}</td>
+                    <td style={cellRightStyle}>{fmt(b.sql)}</td>
+                    <td style={cellRightStyle}>{fmt(b.opp)}</td>
+                    <td style={cellRightStyle}>{fmt(b.reserva)}</td>
+                    <td style={cellRightStyle}>{fmt(b.contrato)}</td>
+                    <td style={{ ...cellRightStyle, color: T.verde600 }}>{fmt(b.won)}</td>
+                    <td style={cellRightStyle}>—</td>
+                    <td style={cellRightStyle}>—</td>
+                    <td style={cellRightStyle}>—</td>
+                    <td style={cellRightStyle}>—</td>
+                  </tr>
+                ))}
+              </>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ResultadosView({ data, loading, lastUpdated, moduleId }: ResultadosViewProps) {
   const [expandedSquads, setExpandedSquads] = useState<Set<number>>(new Set([1, 2, 3]));
+
+  const isSZS = moduleId === "szs";
+  const sectionTitle = isSZS ? "Detalhamento por Canal" : "Detalhamento por Squad";
+  const groupLabel = isSZS ? "Canal" : "Empreendimento";
 
   if (loading && !data) {
     return (
@@ -300,17 +477,22 @@ export function ResultadosView({ data, loading, lastUpdated }: ResultadosViewPro
         <FunnelBar data={g} />
       </div>
 
-      {/* Squad tables */}
+      {/* Detail tables */}
       <div>
-        <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: "0 0 10px 0" }}>Detalhamento por Squad</h3>
-        {data.squads.map((sq) => (
-          <SquadTable
-            key={sq.id}
-            squad={sq}
-            expanded={expandedSquads.has(sq.id)}
-            onToggle={() => toggleSquad(sq.id)}
-          />
-        ))}
+        <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: "0 0 10px 0" }}>{sectionTitle}</h3>
+        {isSZS && data.squads[0]?.cidades ? (
+          <CidadeDetailTable cidades={data.squads[0].cidades} />
+        ) : (
+          data.squads.map((sq) => (
+            <SquadTable
+              key={sq.id}
+              squad={sq}
+              expanded={expandedSquads.has(sq.id)}
+              onToggle={() => toggleSquad(sq.id)}
+              groupLabel={groupLabel}
+            />
+          ))
+        )}
       </div>
       <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
