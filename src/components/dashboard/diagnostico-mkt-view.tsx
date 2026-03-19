@@ -42,6 +42,7 @@ const SEV_COLORS = {
 } as const;
 
 export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter, moduleConfig, lastUpdated }: Props) {
+  const isSZS = moduleConfig?.id === "szs";
   const [filtroEmp, setFiltroEmp] = useState("todos");
   const [filtroSev, setFiltroSev] = useState("todos");
   const [filtroSquad, setFiltroSquad] = useState("todos");
@@ -177,11 +178,11 @@ export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter,
       </div>
 
       {/* Resumo por Empreendimento — agrupado por Squad */}
-      <Section title="Resumo por Empreendimento">
+      <Section title={isSZS ? "Resumo por Bairro" : "Resumo por Empreendimento"}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={{ ...thStyle, textAlign: "left" }}>Empreendimento</th>
+              <th style={{ ...thStyle, textAlign: "left" }}>{isSZS ? "Cidade" : "Empreendimento"}</th>
               <th style={{ ...thStyle, textAlign: "right", width: 70 }}>Ads</th>
               <th style={{ ...thStyle, textAlign: "right", width: 70, color: T.destructive }}>Críticos</th>
               <th style={{ ...thStyle, textAlign: "right", width: 70, color: T.laranja500 }}>Alertas</th>
@@ -460,7 +461,7 @@ export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter,
         {/* Filtros */}
         <div style={{ display: "flex", gap: "12px", marginBottom: "12px", flexWrap: "wrap", padding: "12px 16px 0" }}>
           <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: T.cinza700 }}>
-            Empreendimento
+            {isSZS ? "Cidade" : "Empreendimento"}
             <select
               value={filtroEmp}
               onChange={(e) => setFiltroEmp(e.target.value)}
@@ -487,7 +488,7 @@ export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter,
             </select>
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: T.cinza700 }}>
-            Squad
+            {isSZS ? "Canal" : "Squad"}
             <select
               value={filtroSquad}
               onChange={(e) => setFiltroSquad(e.target.value)}
@@ -508,8 +509,8 @@ export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter,
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1500px" }}>
             <thead>
               <tr>
-                <SortTh label="Squad" col="squad_id" align="left" minW={60} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                <SortTh label="Empreendimento" col="empreendimento" align="left" minW={130} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label={isSZS ? "Canal" : "Squad"} col="squad_id" align="left" minW={60} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label={isSZS ? "Cidade" : "Empreendimento"} col="empreendimento" align="left" minW={130} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Ad" col="ad_name" align="left" minW={180} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Gasto" col="spend" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Leads" col="leads" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />

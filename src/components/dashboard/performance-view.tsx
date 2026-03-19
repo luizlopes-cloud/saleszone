@@ -275,6 +275,7 @@ function PresellerEmpRows({ byEmp }: { byEmp: PerformanceEmpBreakdown[] }) {
 // PERFORMANCE PRÉ-VENDAS (MIA + Pré-Vendedores)
 // =============================================
 export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange, moduleConfig, lastUpdated }: Props) {
+  const isSZS = moduleConfig?.id === "szs";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const toggleExpand = (key: string) => {
     setExpanded((prev) => {
@@ -317,7 +318,7 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
             <tr>
               <th style={{ ...thStyle, textAlign: "left", minWidth: 160 }}>Nome</th>
               <th style={{ ...thStyle, textAlign: "center", minWidth: 50 }}>Papel</th>
-              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>Squad</th>
+              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>{isSZS ? "Canal" : "Squad"}</th>
               <th style={{ ...thStyle, textAlign: "center" }}>Recebidos</th>
               <th style={{ ...thStyle, textAlign: "center" }}>→SQL</th>
               <th style={{ ...thStyle, textAlign: "center" }}>→OPP</th>
@@ -382,7 +383,7 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
 
       {/* VISÃO POR SQUAD — PV + MIA */}
       <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-        Visão por Squad
+        Visão por {isSZS ? "Canal" : "Squad"}
       </h3>
       <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
         {squads.map((sq) => {
@@ -633,6 +634,7 @@ function OppToWonChart({ lines, title, maxMonths }: { lines: ChartLine[]; title?
 // PERFORMANCE VENDAS (Closers)
 // =============================================
 export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, moduleConfig, lastUpdated }: Props) {
+  const isSZS = moduleConfig?.id === "szs";
   type CloserSortKey = "name" | "opp" | "won" | "oppToWon";
   type ChartView = "consolidado" | "todos" | "squad";
   const [closerSort, setCloserSort] = useState<CloserSortKey>("oppToWon");
@@ -702,7 +704,7 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, m
           }}
         >
           {(["consolidado", "todos", "squad"] as const).map((v) => {
-            const labels: Record<string, string> = { consolidado: "Consolidado", todos: "Por Vendedor", squad: "Por Squad" };
+            const labels: Record<string, string> = { consolidado: "Consolidado", todos: "Por Vendedor", squad: isSZS ? "Por Canal" : "Por Squad" };
             return (
               <button
                 key={v}
@@ -751,7 +753,7 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, m
           <thead>
             <tr>
               <SortTh label="Nome" col="name" align="left" minW={160} sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
-              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>Squad</th>
+              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>{isSZS ? "Canal" : "Squad"}</th>
               <SortTh label="OPP" col="opp" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
               <SortTh label="WON" col="won" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
               <SortTh label="OPP→WON" col="oppToWon" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
@@ -803,7 +805,7 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, m
 
       {/* VISÃO POR SQUAD — Closers */}
       <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-        Visão por Squad
+        Visão por {isSZS ? "Canal" : "Squad"}
       </h3>
       <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
         {squads.map((sq) => {
@@ -859,7 +861,7 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, m
       </div>
 
       {/* EMPREENDIMENTOS — OPP→WON */}
-      <EmpPerformanceSection emps={data.allEmps} squads={squads} daysBack={daysBack} consolidatedTimeSeries={data.consolidatedTimeSeries} maxMonths={daysBack > 0 ? Math.max(Math.round(daysBack / 30), 1) : 0} />
+      <EmpPerformanceSection emps={data.allEmps} squads={squads} daysBack={daysBack} consolidatedTimeSeries={data.consolidatedTimeSeries} maxMonths={daysBack > 0 ? Math.max(Math.round(daysBack / 30), 1) : 0} isSZS={isSZS} />
       <DataSourceFooter lastUpdated={lastUpdated} />
     </>
   );
@@ -868,12 +870,13 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, m
 // =============================================
 // Empreendimento Performance Section
 // =============================================
-function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries, maxMonths }: {
+function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries, maxMonths, isSZS }: {
   emps: PerformanceEmpRow[];
   squads: PerformanceData["squads"];
   daysBack: number;
   consolidatedTimeSeries?: PerformanceData["consolidatedTimeSeries"];
   maxMonths?: number;
+  isSZS?: boolean;
 }) {
   type EmpChartView = "consolidado" | "todos" | "squad";
   type EmpSortKey = "emp" | "opp" | "won" | "oppToWon";
@@ -903,7 +906,7 @@ function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries,
       {/* Chart */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "10px", marginTop: "32px", flexWrap: "wrap" }}>
         <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, margin: 0, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          OPP→WON por Empreendimento — Média Flutuante {daysBack > 0 ? (daysBack >= 365 ? `${Math.round(daysBack / 30)}m` : `${daysBack}d`) : "Tudo"}
+          OPP→WON por {isSZS ? "Cidade" : "Empreendimento"} — Média Flutuante {daysBack > 0 ? (daysBack >= 365 ? `${Math.round(daysBack / 30)}m` : `${daysBack}d`) : "Tudo"}
         </h3>
         <div
           style={{
@@ -916,7 +919,7 @@ function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries,
           }}
         >
           {(["consolidado", "todos", "squad"] as const).map((v) => {
-            const labels: Record<string, string> = { consolidado: "Consolidado", todos: "Todos Emps", squad: "Por Squad" };
+            const labels: Record<string, string> = { consolidado: "Consolidado", todos: isSZS ? "Todas Cidades" : "Todos Emps", squad: isSZS ? "Por Canal" : "Por Squad" };
             return (
               <button
                 key={v}
@@ -950,7 +953,7 @@ function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries,
 
       {/* Table */}
       <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-        Empreendimentos
+        {isSZS ? "Cidades" : "Empreendimentos"}
       </h3>
       <div
         style={{
@@ -965,8 +968,8 @@ function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries,
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <SortTh label="Empreendimento" col="emp" align="left" minW={200} sortKey={empSort} sortDir={empDir} onSort={toggleEmpSort} />
-              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>Squad</th>
+              <SortTh label={isSZS ? "Cidade" : "Empreendimento"} col="emp" align="left" minW={200} sortKey={empSort} sortDir={empDir} onSort={toggleEmpSort} />
+              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>{isSZS ? "Canal" : "Squad"}</th>
               <SortTh label="OPP" col="opp" sortKey={empSort} sortDir={empDir} onSort={toggleEmpSort} />
               <SortTh label="WON" col="won" sortKey={empSort} sortDir={empDir} onSort={toggleEmpSort} />
               <SortTh label="OPP→WON" col="oppToWon" sortKey={empSort} sortDir={empDir} onSort={toggleEmpSort} />

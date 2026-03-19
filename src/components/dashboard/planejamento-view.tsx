@@ -445,6 +445,7 @@ function MetricsCells({ r, avgCpl, vis }: { r: { spend: number; leads: number; m
 }
 
 function HistoricoCampanhasSection({ moduleConfig }: { moduleConfig: ModuleConfig }) {
+  const isSZS = moduleConfig?.id === "szs";
   const ACTIVE_EMPS = useMemo(() => new Set<string>(moduleConfig.squads.flatMap((s) => [...s.empreendimentos])), [moduleConfig]);
   const [histData, setHistData] = useState<HistoricoCampanhasData | null>(null);
   const [histLoading, setHistLoading] = useState(true);
@@ -615,7 +616,7 @@ function HistoricoCampanhasSection({ moduleConfig }: { moduleConfig: ModuleConfi
           <>
             <div style={{ display: "flex", gap: "10px", marginBottom: "12px", alignItems: "center", flexWrap: "wrap" }}>
               <select value={filtroEmp} onChange={e => setFiltroEmp(e.target.value)} style={selectStyle}>
-                <option value="todos">Todos empreendimentos</option>
+                <option value="todos">{isSZS ? "Todos bairros" : "Todos empreendimentos"}</option>
                 <option value="comercializacao">Em comercialização</option>
                 {empreendimentos.map(emp => (
                   <option key={emp} value={emp}>{emp || "(sem empreendimento)"}</option>
@@ -707,7 +708,7 @@ function HistoricoCampanhasSection({ moduleConfig }: { moduleConfig: ModuleConfi
                   <tr>
                     <SortTh label="" col="name" align="left" minW={24} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     <SortTh label="Nome" col="name" align="left" minW={200} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-                    <SortTh label="Empreend." col="empreendimento" align="left" minW={120} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                    <SortTh label={isSZS ? "Cidade" : "Empreend."} col="empreendimento" align="left" minW={120} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                     {visibleCols.has("conversoes") && <>
                       <SortTh label="Leads" col="leads" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                       <SortTh label="MQL" col="mql" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
@@ -869,6 +870,7 @@ const DAYS_OPTIONS = [
 ];
 
 export function PlanejamentoView({ data, loading, daysBack, onDaysChange, moduleConfig, lastUpdated }: PlanejamentoViewProps) {
+  const isSZS = moduleConfig?.id === "szs";
   const ACTIVE_EMPS = useMemo(() => new Set<string>(moduleConfig.squads.flatMap((s) => [...s.empreendimentos])), [moduleConfig.squads]);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "mql", dir: "desc" });
   const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all");
@@ -1054,7 +1056,7 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
         <div style={{ padding: "14px 16px 0", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: 0 }}>
-              Conversão Histórica por Empreendimento
+              Conversão Histórica por {isSZS ? "Cidade" : "Empreendimento"}
             </h3>
             <InfoTooltip text={FILTER_TOOLTIP} />
           </div>
@@ -1091,10 +1093,10 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
                 outline: "none",
               }}
             >
-              <option value={0}>Todas as Squads</option>
-              <option value={1}>Squad 1</option>
-              <option value={2}>Squad 2</option>
-              <option value={3}>Squad 3</option>
+              <option value={0}>{isSZS ? "Todos os Canais" : "Todas as Squads"}</option>
+              <option value={1}>{isSZS ? "Canal" : "Squad"} 1</option>
+              <option value={2}>{isSZS ? "Canal" : "Squad"} 2</option>
+              <option value={3}>{isSZS ? "Canal" : "Squad"} 3</option>
             </select>
             <span style={{ fontSize: "10px", color: T.cinza400 }}>
               Total acumulado ({DAYS_OPTIONS.find((o) => o.value === daysBack)?.label.toLowerCase() || "últimos 12 meses"})
@@ -1105,8 +1107,8 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr>
-                <SortableTH label="Empreendimento" sortKey="emp" currentSort={sort} onSort={handleSort} />
-                <SortableTH label="Squad" sortKey="squad" currentSort={sort} onSort={handleSort} center />
+                <SortableTH label={isSZS ? "Cidade" : "Empreendimento"} sortKey="emp" currentSort={sort} onSort={handleSort} />
+                <SortableTH label={isSZS ? "Canal" : "Squad"} sortKey="squad" currentSort={sort} onSort={handleSort} center />
                 <SortableTH label="Ativo" sortKey="active" currentSort={sort} onSort={handleSort} center />
                 <SortableTH label="MQL" sortKey="mql" currentSort={sort} onSort={handleSort} right />
                 <SortableTH label="SQL" sortKey="sql" currentSort={sort} onSort={handleSort} right />
@@ -1143,7 +1145,7 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
         }}
       >
         <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: "0 0 12px 0" }}>
-          Resultados por Squad
+          Resultados por {isSZS ? "Canal" : "Squad"}
         </h3>
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           {squadSummaries.map((sq) => {
@@ -1174,7 +1176,7 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
                 }}
               >
                 <div style={{ backgroundColor: color, padding: "8px 14px", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#FFF" }}>Squad {sq.id}</span>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#FFF" }}>{isSZS ? "Canal" : "Squad"} {sq.id}</span>
                   <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.8)" }}>
                     {sq.empreendimentos.length} emp.
                   </span>

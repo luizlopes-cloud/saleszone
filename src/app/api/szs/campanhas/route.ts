@@ -1,4 +1,4 @@
-// SZS (Serviços) module
+// SZS (Serviços) module — campanhas with cidade as squad
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   try {
     const dateParam = req.nextUrl.searchParams.get("date");
-    const filterParam = req.nextUrl.searchParams.get("filter"); // "paid" or null
+    const filterParam = req.nextUrl.searchParams.get("filter");
     const paidOnly = filterParam === "paid";
     let snapshotDate = dateParam;
 
@@ -36,7 +36,6 @@ export async function GET(req: NextRequest) {
     const monthPrefix = snapshotDate!.substring(0, 7);
     const startDate = `${monthPrefix}-01`;
 
-    // Queries paralelas: Meta Ads (último snapshot + todos do mês para max spend) + Contagens + WON
     const [metaRes, metaAllRes, countsRes, crossWonRes] = await Promise.all([
       supabase
         .from("szs_meta_ads")
@@ -44,13 +43,11 @@ export async function GET(req: NextRequest) {
         .eq("snapshot_date", snapshotDate)
         .order("spend", { ascending: false })
         .limit(10000),
-      // Todos os snapshots do mês para calcular max spend_month/leads_month por ad
       supabase
         .from("szs_meta_ads")
         .select("ad_id, spend_month, leads_month")
         .gte("snapshot_date", startDate)
         .limit(10000),
-      // TODO: SZS may need its own RPC for emp counts summary
       supabase.rpc("get_szs_emp_counts_summary", { p_start_date: startDate }),
       supabase.rpc("get_szs_ad_won_cross_emp"),
     ]);
@@ -73,7 +70,6 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // Aplicar max spend/leads nos ads do snapshot mais recente
     const ads = (metaRes.data || []).map((ad) => {
       const maxData = adMaxSpend.get(ad.ad_id);
       return {
@@ -85,7 +81,6 @@ export async function GET(req: NextRequest) {
 
     const latestAdIds = new Set(ads.map((a) => a.ad_id));
 
-    // Maps pré-agregados pela RPC (lifetime + mês)
     const countsMapAll = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
     const countsMapMonth = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
     for (const row of countsRes.data || []) {
@@ -103,7 +98,6 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    // Map<ad_id, won_other>
     const crossWonMap = new Map<string, number>();
     for (const row of crossWonRes.data || []) {
       crossWonMap.set(row.ad_id, Number(row.won_other) || 0);
@@ -122,142 +116,136 @@ export async function GET(req: NextRequest) {
     const criticos = ads.filter((r) => r.severidade === "CRITICO").length;
     const alertas = ads.filter((r) => r.severidade === "ALERTA").length;
 
-    // Per squad
-    const squads: CampanhasSquadSummary[] = mc.squads.map((sq) => {
-      const sqAds = ads.filter((r) => r.squad_id === sq.id);
-      const empMap = new Map<string, typeof sqAds>();
-      for (const ad of sqAds) {
-        const key = ad.empreendimento;
-        if (!empMap.has(key)) empMap.set(key, []);
-        empMap.get(key)!.push(ad);
+    // Group ads by empreendimento (city)
+    const empAdMap = new Map<string, typeof ads>();
+    for (const ad of ads) {
+      const key = ad.empreendimento;
+      if (!empAdMap.has(key)) empAdMap.set(key, []);
+      empAdMap.get(key)!.push(ad);
+    }
+
+    // Discover all cities from ads + counts
+    const allCidades = new Set<string>([...empAdMap.keys(), ...countsMapMonth.keys()]);
+    const sortedCidades = Array.from(allCidades).sort();
+
+    // Build squads: each city = one squad
+    const squads: CampanhasSquadSummary[] = sortedCidades.map((cidade, idx) => {
+      const sqAds = empAdMap.get(cidade) || [];
+
+      // For campanhas, since Meta Ads doesn't have bairro, the city itself is the single empreendimento
+      const empAds = sqAds;
+      const spend = empAds.reduce((s, r) => s + Number(r.spend_month || 0), 0);
+      const impressions = empAds.reduce((s, r) => s + (r.impressions || 0), 0);
+      const clicks = empAds.reduce((s, r) => s + (r.clicks || 0), 0);
+      const metaLeads = empAds.reduce((s, r) => s + (r.leads_month || 0), 0);
+
+      const counts = countsMapMonth.get(cidade) || { mql: 0, sql: 0, opp: 0, won: 0 };
+      let empMql = counts.mql, empSql = counts.sql, empOpp = counts.opp, empWon = counts.won;
+      if (paidOnly) {
+        empMql = Math.min(counts.mql, metaLeads);
+        const ratio = counts.mql > 0 ? empMql / counts.mql : 0;
+        empSql = Math.round(counts.sql * ratio);
+        empOpp = Math.round(counts.opp * ratio);
+        empWon = Math.round(counts.won * ratio);
       }
 
-      const empreendimentos: CampanhasEmpSummary[] = sq.empreendimentos.map((emp) => {
-        const empAds = empMap.get(emp) || [];
-        const spend = empAds.reduce((s, r) => s + Number(r.spend_month || 0), 0);
-        const impressions = empAds.reduce((s, r) => s + (r.impressions || 0), 0);
-        const clicks = empAds.reduce((s, r) => s + (r.clicks || 0), 0);
-        const metaLeads = empAds.reduce((s, r) => s + (r.leads_month || 0), 0);
+      const nonPaidMql = paidOnly ? 0 : Math.max(counts.mql - metaLeads, 0);
+      const leads = metaLeads + nonPaidMql;
 
-        const counts = countsMapMonth.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
-        let empMql = counts.mql, empSql = counts.sql, empOpp = counts.opp, empWon = counts.won;
-        if (paidOnly) {
-          empMql = Math.min(counts.mql, metaLeads);
-          const ratio = counts.mql > 0 ? empMql / counts.mql : 0;
-          empSql = Math.round(counts.sql * ratio);
-          empOpp = Math.round(counts.opp * ratio);
-          empWon = Math.round(counts.won * ratio);
-        }
+      const empLifetime = countsMapAll.get(cidade) || { mql: 0, sql: 0, opp: 0, won: 0 };
+      const adsDetail: MetaAdRow[] = empAds
+        .map((r) => {
+          const sp = Number(r.spend_month || 0);
+          const ld = r.leads_month || 0;
+          const spendShare = spend > 0 ? sp / spend : 0;
+          const adMql = Math.round(empLifetime.mql * spendShare);
+          const adSql = Math.round(empLifetime.sql * spendShare);
+          const adOpp = Math.round(empLifetime.opp * spendShare);
+          const adWon = Math.round(empLifetime.won * spendShare);
+          return {
+            ad_id: r.ad_id,
+            campaign_name: r.campaign_name || "",
+            adset_name: r.adset_name || "",
+            ad_name: r.ad_name || "",
+            empreendimento: r.empreendimento,
+            squad_id: r.squad_id,
+            impressions: r.impressions || 0,
+            clicks: r.clicks || 0,
+            spend: sp,
+            leads: ld,
+            cpl: ld > 0 ? Math.round((sp / ld) * 100) / 100 : 0,
+            ctr: Number(r.ctr),
+            cpm: Number(r.cpm),
+            frequency: Number(r.frequency),
+            cpc: Number(r.cpc),
+            severidade: r.severidade as "CRITICO" | "ALERTA" | "OK" | "OPORTUNIDADE",
+            diagnostico: r.diagnostico || null,
+            effective_status: (r.effective_status || "ACTIVE") as "ACTIVE" | "PAUSED",
+            mql: adMql,
+            sql: adSql,
+            opp: adOpp,
+            won: adWon,
+            wonOutro: crossWonMap.get(r.ad_id) || 0,
+            cmql: adMql > 0 ? Math.round((sp / adMql) * 100) / 100 : 0,
+            csql: adSql > 0 ? Math.round((sp / adSql) * 100) / 100 : 0,
+            copp: adOpp > 0 ? Math.round((sp / adOpp) * 100) / 100 : 0,
+            cpw: adWon > 0 ? Math.round((sp / adWon) * 100) / 100 : 0,
+          };
+        })
+        .sort((a, b) => {
+          if (a.spend === 0 && b.spend > 0) return 1;
+          if (b.spend === 0 && a.spend > 0) return -1;
+          if (a.leads > 0 && b.leads > 0) return a.cpl - b.cpl;
+          if (a.leads > 0 && b.leads === 0) return -1;
+          if (b.leads > 0 && a.leads === 0) return 1;
+          if (a.clicks > 0 && b.clicks > 0) return a.cpc - b.cpc;
+          if (a.clicks > 0 && b.clicks === 0) return -1;
+          if (b.clicks > 0 && a.clicks === 0) return 1;
+          return b.spend - a.spend;
+        });
 
-        const nonPaidMql = paidOnly ? 0 : Math.max(counts.mql - metaLeads, 0);
-        const leads = metaLeads + nonPaidMql;
+      const empSummary: CampanhasEmpSummary = {
+        emp: cidade,
+        ads: empAds.length,
+        spend: Math.round(spend * 100) / 100,
+        impressions,
+        clicks,
+        leads,
+        cpl: metaLeads > 0 ? Math.round((spend / metaLeads) * 100) / 100 : 0,
+        cpc: clicks > 0 ? Math.round((spend / clicks) * 100) / 100 : 0,
+        cmql: empMql > 0 ? Math.round((spend / empMql) * 100) / 100 : 0,
+        csql: empSql > 0 ? Math.round((spend / empSql) * 100) / 100 : 0,
+        copp: empOpp > 0 ? Math.round((spend / empOpp) * 100) / 100 : 0,
+        criticos: empAds.filter((r) => r.severidade === "CRITICO").length,
+        alertas: empAds.filter((r) => r.severidade === "ALERTA").length,
+        mql: empMql,
+        sql: empSql,
+        opp: empOpp,
+        won: empWon,
+        wonOutro: adsDetail.reduce((s, a) => s + a.wonOutro, 0),
+        cpw: empWon > 0 ? Math.round((spend / empWon) * 100) / 100 : 0,
+        adsDetail,
+      };
 
-        const empLifetime = countsMapAll.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
-        const adsDetail: MetaAdRow[] = empAds
-          .map((r) => {
-            const sp = Number(r.spend_month || 0);
-            const ld = r.leads_month || 0;
-            const spendShare = spend > 0 ? sp / spend : 0;
-            const adMql = Math.round(empLifetime.mql * spendShare);
-            const adSql = Math.round(empLifetime.sql * spendShare);
-            const adOpp = Math.round(empLifetime.opp * spendShare);
-            const adWon = Math.round(empLifetime.won * spendShare);
-            return {
-              ad_id: r.ad_id,
-              campaign_name: r.campaign_name || "",
-              adset_name: r.adset_name || "",
-              ad_name: r.ad_name || "",
-              empreendimento: r.empreendimento,
-              squad_id: r.squad_id,
-              impressions: r.impressions || 0,
-              clicks: r.clicks || 0,
-              spend: sp,
-              leads: ld,
-              cpl: ld > 0 ? Math.round((sp / ld) * 100) / 100 : 0,
-              ctr: Number(r.ctr),
-              cpm: Number(r.cpm),
-              frequency: Number(r.frequency),
-              cpc: Number(r.cpc),
-              severidade: r.severidade as "CRITICO" | "ALERTA" | "OK" | "OPORTUNIDADE",
-              diagnostico: r.diagnostico || null,
-              effective_status: (r.effective_status || "ACTIVE") as "ACTIVE" | "PAUSED",
-              mql: adMql,
-              sql: adSql,
-              opp: adOpp,
-              won: adWon,
-              wonOutro: crossWonMap.get(r.ad_id) || 0,
-              cmql: adMql > 0 ? Math.round((sp / adMql) * 100) / 100 : 0,
-              csql: adSql > 0 ? Math.round((sp / adSql) * 100) / 100 : 0,
-              copp: adOpp > 0 ? Math.round((sp / adOpp) * 100) / 100 : 0,
-              cpw: adWon > 0 ? Math.round((sp / adWon) * 100) / 100 : 0,
-            };
-          })
-          .sort((a, b) => {
-            if (a.spend === 0 && b.spend > 0) return 1;
-            if (b.spend === 0 && a.spend > 0) return -1;
-            if (a.leads > 0 && b.leads > 0) return a.cpl - b.cpl;
-            if (a.leads > 0 && b.leads === 0) return -1;
-            if (b.leads > 0 && a.leads === 0) return 1;
-            if (a.clicks > 0 && b.clicks > 0) return a.cpc - b.cpc;
-            if (a.clicks > 0 && b.clicks === 0) return -1;
-            if (b.clicks > 0 && a.clicks === 0) return 1;
-            return b.spend - a.spend;
-          });
-
-        return {
-          emp,
-          ads: empAds.length,
-          spend: Math.round(spend * 100) / 100,
-          impressions,
-          clicks,
-          leads,
-          cpl: metaLeads > 0 ? Math.round((spend / metaLeads) * 100) / 100 : 0,
-          cpc: clicks > 0 ? Math.round((spend / clicks) * 100) / 100 : 0,
-          cmql: empMql > 0 ? Math.round((spend / empMql) * 100) / 100 : 0,
-          csql: empSql > 0 ? Math.round((spend / empSql) * 100) / 100 : 0,
-          copp: empOpp > 0 ? Math.round((spend / empOpp) * 100) / 100 : 0,
-          criticos: empAds.filter((r) => r.severidade === "CRITICO").length,
-          alertas: empAds.filter((r) => r.severidade === "ALERTA").length,
-          mql: empMql,
-          sql: empSql,
-          opp: empOpp,
-          won: empWon,
-          wonOutro: adsDetail.reduce((s, a) => s + a.wonOutro, 0),
-          cpw: empWon > 0 ? Math.round((spend / empWon) * 100) / 100 : 0,
-          adsDetail,
-        };
-      });
-
-      const sqSpend = sqAds.reduce((s, r) => s + Number(r.spend_month || 0), 0);
-      const sqMetaLeads = sqAds.reduce((s, r) => s + (r.leads_month || 0), 0);
-      const sqLeads = empreendimentos.reduce((s, e) => s + e.leads, 0);
-      const sqSpendMonth = sqSpend;
-      const sqLeadsMonth = sqLeads;
-
-      let sqMqlMonth = 0, sqSqlMonth = 0, sqOppMonth = 0, sqWonMonth = 0;
-      for (const e of empreendimentos) {
-        sqMqlMonth += e.mql;
-        sqSqlMonth += e.sql;
-        sqOppMonth += e.opp;
-        sqWonMonth += e.won;
-      }
+      const sqSpend = spend;
+      const sqMetaLeads = metaLeads;
 
       return {
-        id: sq.id,
-        name: sq.name,
-        empreendimentos,
+        id: idx + 1,
+        name: cidade,
+        empreendimentos: [empSummary],
         totalSpend: Math.round(sqSpend * 100) / 100,
-        totalLeads: sqLeads,
+        totalLeads: leads,
         avgCpl: sqMetaLeads > 0 ? Math.round((sqSpend / sqMetaLeads) * 100) / 100 : 0,
-        criticos: sqAds.filter((r) => r.severidade === "CRITICO").length,
-        alertas: sqAds.filter((r) => r.severidade === "ALERTA").length,
-        totalMql: sqMqlMonth,
-        totalSql: sqSqlMonth,
-        totalOpp: sqOppMonth,
-        totalWon: sqWonMonth,
-        cpw: sqWonMonth > 0 ? Math.round((sqSpend / sqWonMonth) * 100) / 100 : 0,
-        totalSpendMonth: Math.round(sqSpendMonth * 100) / 100,
-        totalLeadsMonth: sqLeadsMonth,
+        criticos: empAds.filter((r) => r.severidade === "CRITICO").length,
+        alertas: empAds.filter((r) => r.severidade === "ALERTA").length,
+        totalMql: empMql,
+        totalSql: empSql,
+        totalOpp: empOpp,
+        totalWon: empWon,
+        cpw: empWon > 0 ? Math.round((sqSpend / empWon) * 100) / 100 : 0,
+        totalSpendMonth: Math.round(sqSpend * 100) / 100,
+        totalLeadsMonth: leads,
         spendAlert: false,
       };
     });
@@ -331,7 +319,7 @@ export async function GET(req: NextRequest) {
     const totalLeadsMonth = totalLeads;
 
     // Alerta de gasto por squad
-    const targetPerSquad = totalSpendMonth / (mc.squads.length || 1);
+    const targetPerSquad = totalSpendMonth / (sortedCidades.length || 1);
     if (targetPerSquad > 0) {
       for (const sq of squads) {
         const deviation = Math.abs(sq.totalSpendMonth - targetPerSquad) / targetPerSquad;

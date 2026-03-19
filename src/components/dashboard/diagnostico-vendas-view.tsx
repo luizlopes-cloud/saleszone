@@ -41,6 +41,7 @@ type SortDir = "asc" | "desc";
 const SEV_ORDER: Record<string, number> = { CRITICO: 0, ALERTA: 1, OK: 2 };
 
 export function DiagnosticoVendasView({ data, loading, moduleConfig, lastUpdated }: Props) {
+  const isSZS = moduleConfig?.id === "szs";
   const [filtroSquad, setFiltroSquad] = useState("todos");
   const [filtroCloser, setFiltroCloser] = useState("todos");
   const [filtroSev, setFiltroSev] = useState("todos");
@@ -168,7 +169,7 @@ export function DiagnosticoVendasView({ data, loading, moduleConfig, lastUpdated
             <thead>
               <tr>
                 <SortTh label="Closer" col="name" align="left" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
-                <SortTh label="Squad" col="squadId" align="center" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
+                <SortTh label={isSZS ? "Canal" : "Squad"} col="squadId" align="center" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
                 <SortTh label="Deals" col="totalDeals" align="right" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
                 <SortTh label="Leadtime Médio" col="avgLeadtimeHours" align="right" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
                 <SortTh label="Leadtime Máx" col="maxLeadtimeHours" align="right" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
@@ -222,7 +223,7 @@ export function DiagnosticoVendasView({ data, loading, moduleConfig, lastUpdated
       {/* Filtros + Tabela de Deals */}
       <Section title="Deals Abertos">
         <div style={{ display: "flex", gap: "12px", marginBottom: "12px", flexWrap: "wrap", padding: "12px 16px 0" }}>
-          <FilterSelect label="Squad" value={filtroSquad} onChange={setFiltroSquad}
+          <FilterSelect label={isSZS ? "Canal" : "Squad"} value={filtroSquad} onChange={setFiltroSquad}
             options={[{ value: "todos", label: "Todos" }, ...moduleConfig.squads.map((s) => ({ value: String(s.id), label: s.name }))]} />
           <FilterSelect label="Closer" value={filtroCloser} onChange={setFiltroCloser}
             options={[{ value: "todos", label: "Todos" }, ...closerOptions.map((n) => ({ value: n, label: n }))]} />
@@ -243,7 +244,7 @@ export function DiagnosticoVendasView({ data, loading, moduleConfig, lastUpdated
               <tr>
                 <SortTh label="Deal" col="title" align="left" minW={200} sortKey={dealSort} sortDir={dealDir} onSort={toggleDealSort} />
                 <SortTh label="Closer" col="owner_name" align="left" sortKey={dealSort} sortDir={dealDir} onSort={toggleDealSort} />
-                <SortTh label="Empreendimento" col="empreendimento" align="left" sortKey={dealSort} sortDir={dealDir} onSort={toggleDealSort} />
+                <SortTh label={isSZS ? "Cidade" : "Empreendimento"} col="empreendimento" align="left" sortKey={dealSort} sortDir={dealDir} onSort={toggleDealSort} />
                 <SortTh label="Etapa" col="stage_order" align="left" sortKey={dealSort} sortDir={dealDir} onSort={toggleDealSort} />
                 <SortTh label="Última Atividade" col="last_activity_date" align="center" sortKey={dealSort} sortDir={dealDir} onSort={toggleDealSort} />
                 <SortTh label="Próx. Atividade" col="next_activity_date" align="center" sortKey={dealSort} sortDir={dealDir} onSort={toggleDealSort} />

@@ -43,6 +43,7 @@ interface OrcamentoViewProps {
   loading: boolean;
   onBudgetSave: (value: number) => void;
   lastUpdated?: Date | null;
+  moduleId?: string;
 }
 
 function formatBRL(value: number): string {
@@ -71,7 +72,8 @@ const cardStyle = {
   minWidth: "200px",
 };
 
-export function OrcamentoView({ data, loading, onBudgetSave, lastUpdated }: OrcamentoViewProps) {
+export function OrcamentoView({ data, loading, onBudgetSave, lastUpdated, moduleId }: OrcamentoViewProps) {
+  const isSZS = moduleId === "szs";
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState("");
 
@@ -295,7 +297,7 @@ export function OrcamentoView({ data, loading, onBudgetSave, lastUpdated }: Orca
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <TH>Squad / Empreendimento</TH>
+              <TH>{isSZS ? "Canal / Cidade" : "Squad / Empreendimento"}</TH>
               <TH right>Gasto Atual</TH>
               <TH right>Gasto Diário</TH>
               <TH right>Budget Recom.</TH>
@@ -386,7 +388,7 @@ export function OrcamentoView({ data, loading, onBudgetSave, lastUpdated }: Orca
             <thead>
               <tr>
                 <TH>Data</TH>
-                <TH>Empreendimento</TH>
+                <TH>{isSZS ? "Cidade" : "Empreendimento"}</TH>
                 <TH>Tipo</TH>
                 <TH right>Budget Recom.</TH>
                 <TH right>Gasto Real</TH>
