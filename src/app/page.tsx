@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { T } from "@/lib/constants";
 import { getModuleConfig, DEFAULT_MODULE } from "@/lib/modules";
-import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, UserRole } from "@/lib/types";
+import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, UserRole } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { Header } from "@/components/dashboard/header";
 import { AcompanhamentoView } from "@/components/dashboard/acompanhamento-view";
@@ -22,6 +22,7 @@ import { BaselineView } from "@/components/dashboard/baseline-view";
 import { DiagnosticoVendasView } from "@/components/dashboard/diagnostico-vendas-view";
 import { ForecastView } from "@/components/dashboard/forecast-view";
 import { LeadtimeView } from "@/components/dashboard/leadtime-view";
+import { AvaliacoesView } from "@/components/dashboard/avaliacoes-view";
 import { BacklogView } from "@/components/backlog/backlog-view";
 import { AdminView } from "@/components/dashboard/admin-view";
 
@@ -69,6 +70,8 @@ export default function Dashboard() {
   const [forecastData, setForecastData] = useState<ForecastData | null>(null);
   const [leadtimeData, setLeadtimeData] = useState<LeadtimeData | null>(null);
   const [leadtimeDays, setLeadtimeDays] = useState(90);
+  const [avaliacoesData, setAvaliacoesData] = useState<AvaliacoesData | null>(null);
+  const [avaliacoesDays, setAvaliacoesDays] = useState(30);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
   const [syncElapsed, setSyncElapsed] = useState<number | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -305,6 +308,19 @@ export default function Dashboard() {
     }
   }, [moduleConfig.apiBase]);
 
+  const fetchAvaliacoes = useCallback(async (days: number = 30) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${moduleConfig.apiBase}/avaliacoes?days=${days}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setAvaliacoesData(await res.json());
+    } catch (err) {
+      console.error("Fetch avaliacoes error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [moduleConfig.apiBase]);
+
   const handleBudgetSave = useCallback(async (value: number) => {
     const now = new Date();
     const mes = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -365,6 +381,8 @@ export default function Dashboard() {
       fetchForecast();
     } else if (mainView === "leadtime" && !leadtimeData) {
       fetchLeadtime(leadtimeDays);
+    } else if (mainView === "avaliacoes" && !avaliacoesData) {
+      fetchAvaliacoes(avaliacoesDays);
     }
   }, [activeTab, mainView, hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -391,6 +409,7 @@ export default function Dashboard() {
     setDiagVendasData(null);
     setForecastData(null);
     setLeadtimeData(null);
+    setAvaliacoesData(null);
   };
 
   const fetchCurrentView = async () => {
@@ -409,6 +428,7 @@ export default function Dashboard() {
     else if (mainView === "diagnostico-vendas") await fetchDiagVendas();
     else if (mainView === "forecast") await fetchForecast();
     else if (mainView === "leadtime") await fetchLeadtime(leadtimeDays);
+    else if (mainView === "avaliacoes") await fetchAvaliacoes(avaliacoesDays);
   };
 
   const handleRefresh = async () => {
@@ -501,23 +521,25 @@ export default function Dashboard() {
             setActiveTab={(tab: TabKey) => setActiveTab(tab)}
             loading={loading}
             lastUpdated={lastUpdated}
+            moduleId={activeModule}
           />
         )}
         {mainView === "alinhamento" && <AlinhamentoView data={alinhData} misalignedDeals={misalignedDeals} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "ociosidade" && <OciosidadeView data={ocioData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "balanceamento" && <BalanceamentoView data={balancData} ocioData={ocioData} loading={loading} lastUpdated={lastUpdated} />}
-        {mainView === "campanhas" && <CampanhasView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} lastUpdated={lastUpdated} />}
+        {mainView === "campanhas" && <CampanhasView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} lastUpdated={lastUpdated} moduleId={activeModule} />}
         {mainView === "presales" && <PresalesView data={presalesData} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
-        {mainView === "resultados" && <ResultadosView data={funilData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "resultados" && <ResultadosView data={funilData} loading={loading} lastUpdated={lastUpdated} moduleId={activeModule} />}
         {mainView === "diagnostico-mkt" && <DiagnosticoMktView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "planejamento" && <PlanejamentoView data={planejData} loading={loading} daysBack={planejDays} onDaysChange={(d) => { setPlanejDays(d); setPlanejData(null); fetchPlanej(d); }} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
-        {mainView === "orcamento" && <OrcamentoView data={orcData} loading={loading} onBudgetSave={handleBudgetSave} lastUpdated={lastUpdated} />}
+        {mainView === "orcamento" && <OrcamentoView data={orcData} loading={loading} onBudgetSave={handleBudgetSave} lastUpdated={lastUpdated} moduleId={activeModule} />}
         {mainView === "perf-prevendas" && <PerformancePreVendasView data={perfData} loading={loading} daysBack={perfDays} onDaysChange={(d) => { setPerfDays(d); setPerfData(null); fetchPerformance(d); }} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "perf-vendas" && <PerformanceVendasView data={perfData} loading={loading} daysBack={perfDays} onDaysChange={(d) => { setPerfDays(d); setPerfData(null); fetchPerformance(d); }} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "baseline" && <BaselineView data={baselineData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "diagnostico-vendas" && <DiagnosticoVendasView data={diagVendasData} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "forecast" && <ForecastView data={forecastData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "leadtime" && <LeadtimeView data={leadtimeData} loading={loading} daysBack={leadtimeDays} onDaysChange={(d) => { setLeadtimeDays(d); setLeadtimeData(null); fetchLeadtime(d); }} lastUpdated={lastUpdated} />}
+        {mainView === "avaliacoes" && <AvaliacoesView data={avaliacoesData} loading={loading} daysBack={avaliacoesDays} onDaysChange={(d) => { setAvaliacoesDays(d); setAvaliacoesData(null); fetchAvaliacoes(d); }} lastUpdated={lastUpdated} />}
         {mainView === "backlog" && <BacklogView />}
         {mainView === "admin" && <AdminView userRole={userRole} />}
         {mainView === "venda" && (

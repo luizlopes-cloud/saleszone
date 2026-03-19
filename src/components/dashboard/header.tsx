@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers } from "lucide-react";
+import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers, Mic } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 import { T } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
@@ -9,7 +9,7 @@ import { MODULES, MODULE_IDS } from "@/lib/modules";
 import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 
 const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento"] as const;
-const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas", "ociosidade", "leadtime"] as const;
+const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas", "ociosidade", "leadtime", "avaliacoes"] as const;
 const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento"] as const;
 const RESULTADOS_VIEWS = ["resultados", "acompanhamento", "forecast"] as const;
 
@@ -331,6 +331,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
                 { key: "diagnostico-vendas", label: "Diagnóstico Vendas", icon: <Activity size={13} /> },
                 { key: "ociosidade", label: "Ociosidade", icon: <Clock size={13} /> },
                 { key: "leadtime", label: "Leadtime", icon: <Timer size={13} /> },
+                { key: "avaliacoes", label: "Avaliação Reuniões", icon: <Mic size={13} /> },
               ] as const).map((item) => (
                 <button
                   key={item.key}
