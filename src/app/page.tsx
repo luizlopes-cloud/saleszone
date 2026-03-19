@@ -28,6 +28,9 @@ import { BacklogView } from "@/components/backlog/backlog-view";
 import { AdminView } from "@/components/dashboard/admin-view";
 import { ExploradorView } from "@/components/dashboard/explorador-view";
 import { OtimizacaoView } from "@/components/dashboard/otimizacao-view";
+import SquadMetasView from "@/components/dashboard/squad-metas-view";
+import SquadAtividadesView from "@/components/dashboard/squad-atividades-view";
+import SquadMonitorView from "@/components/dashboard/squad-monitor-view";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -579,6 +582,9 @@ export default function Dashboard() {
         )}
         {mainView === "backlog" && <BacklogView />}
         {mainView === "admin" && <AdminView userRole={userRole} />}
+        {mainView === "squad-metas" && <SquadMetasView pipelineSlug={moduleConfig.id} />}
+        {mainView === "squad-atividades" && <SquadAtividadesView pipelineSlug={moduleConfig.id} dateFrom="" dateTo="" />}
+        {mainView === "squad-monitor" && <SquadMonitorView pipelineSlug={moduleConfig.id} dateFrom="" dateTo="" />}
         {mainView === "venda" && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
             <p style={{ fontSize: "16px" }}>Aba Venda — em construção</p>
