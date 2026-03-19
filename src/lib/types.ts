@@ -817,6 +817,59 @@ export interface AvaliacoesData {
   periodo: { from: string; to: string };
 }
 
+// Monitor de Losts — Lost deals compliance monitoring (SZS pipeline)
+export interface LostDealRow {
+  deal_id: number;
+  title: string;
+  stage_name: string;
+  stage_category: "pre_vendas" | "vendas";
+  owner_name: string;
+  owner_email: string;
+  lost_time: string;
+  lost_hour: number;
+  days_in_funnel: number;
+  lost_reason: string;
+  canal: string;
+}
+
+export interface LostAlert {
+  id?: string;
+  date: string;
+  seller_email: string;
+  seller_name: string;
+  alert_type: string;
+  severity: "critical" | "warning" | "info";
+  message: string;
+  metric_value: number | null;
+  threshold_value: number | null;
+}
+
+export interface LostsSummary {
+  date: string;
+  total: number;
+  pre_vendas: number;
+  vendas: number;
+  pre_vendas_pct: number;
+  vendas_pct: number;
+  by_reason: Record<string, number>;
+  by_owner: Record<string, number>;
+  by_canal: Record<string, number>;
+  median_days_in_funnel: number | null;
+  same_day_lost_pct: number;
+  batch_after_18h_pct: number;
+}
+
+export interface LostsData {
+  date: string;
+  summary: LostsSummary;
+  deals: LostDealRow[];
+  alerts: LostAlert[];
+  trend: {
+    dates: string[];
+    totals: number[];
+  };
+}
+
 // Pré-Venda — Tempo de resposta dos pré-vendedores
 export interface PresalesDealRow {
   deal_id: number;
