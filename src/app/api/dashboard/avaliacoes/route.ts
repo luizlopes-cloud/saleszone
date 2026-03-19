@@ -95,6 +95,8 @@ export async function GET(request: Request) {
       invalidReason = `Transcrição muito curta (${transcricaoChars} caracteres)`;
     } else if (transcricaoChars === 0 && hasFireflies) {
       invalidReason = "Transcrição vazia ou alucinação detectada";
+    } else if (avaliacaoObj && avaliacaoObj.nota_final === 0) {
+      invalidReason = "Transcrição corrompida (áudio ilegível)";
     }
 
     return {
@@ -132,28 +134,30 @@ export async function GET(request: Request) {
     const validas = closerReunioes.filter((r) => !r.invalidReason);
     const invalidas = closerReunioes.filter((r) => !!r.invalidReason);
     const avaliadas = validas.filter((r) => r.avaliacao);
+    // Exclude nota 0 evaluations (corrupted transcripts) from averages
+    const avaliadasReais = avaliadas.filter((r) => r.avaliacao!.nota_final > 0);
 
     let notaMedia: number | null = null;
     const pilarSums = { conhecimento_produto: 0, tecnicas_venda: 0, rapport_empatia: 0, foco_cta: 0, objetividade: 0 };
-    if (avaliadas.length > 0) {
+    if (avaliadasReais.length > 0) {
       let totalNota = 0;
-      for (const r of avaliadas) {
+      for (const r of avaliadasReais) {
         const a = r.avaliacao!;
         totalNota += a.nota_final;
         for (const k of Object.keys(pilarSums) as (keyof typeof pilarSums)[]) {
           pilarSums[k] += a.pilares[k]?.nota ?? 0;
         }
       }
-      notaMedia = Math.round((totalNota / avaliadas.length) * 10) / 10;
+      notaMedia = Math.round((totalNota / avaliadasReais.length) * 10) / 10;
     }
 
-    const pilarAvg = avaliadas.length > 0
+    const pilarAvg = avaliadasReais.length > 0
       ? {
-          conhecimento_produto: Math.round((pilarSums.conhecimento_produto / avaliadas.length) * 10) / 10,
-          tecnicas_venda: Math.round((pilarSums.tecnicas_venda / avaliadas.length) * 10) / 10,
-          rapport_empatia: Math.round((pilarSums.rapport_empatia / avaliadas.length) * 10) / 10,
-          foco_cta: Math.round((pilarSums.foco_cta / avaliadas.length) * 10) / 10,
-          objetividade: Math.round((pilarSums.objetividade / avaliadas.length) * 10) / 10,
+          conhecimento_produto: Math.round((pilarSums.conhecimento_produto / avaliadasReais.length) * 10) / 10,
+          tecnicas_venda: Math.round((pilarSums.tecnicas_venda / avaliadasReais.length) * 10) / 10,
+          rapport_empatia: Math.round((pilarSums.rapport_empatia / avaliadasReais.length) * 10) / 10,
+          foco_cta: Math.round((pilarSums.foco_cta / avaliadasReais.length) * 10) / 10,
+          objetividade: Math.round((pilarSums.objetividade / avaliadasReais.length) * 10) / 10,
         }
       : { conhecimento_produto: null, tecnicas_venda: null, rapport_empatia: null, foco_cta: null, objetividade: null };
 
@@ -163,7 +167,7 @@ export async function GET(request: Request) {
       totalReunioes,
       transcricoesValidas: validas.length,
       transcricoesInvalidas: invalidas.length,
-      reunioesAvaliadas: avaliadas.length,
+      reunioesAvaliadas: avaliadasReais.length,
       notaMedia,
       pilares: pilarAvg,
       reunioes: closerReunioes.sort((a, b) => b.dia.localeCompare(a.dia)),
