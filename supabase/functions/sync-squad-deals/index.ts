@@ -230,7 +230,47 @@ async function syncDealsOpen(apiToken: string, supabase: any) {
 
   console.log(`  Open deals fetched: ${total}, rows to upsert: ${rows.length}`);
   await upsertBatch(supabase, rows);
-  return { totalFetched: total, upserted: rows.length };
+
+  // Mark stale deals: deals with status='open' in DB that are no longer open in Pipedrive
+  const openDealIds = new Set(rows.map((r) => r.deal_id));
+  let staleOffset = 0;
+  let staleCount = 0;
+  const now = new Date().toISOString();
+
+  while (true) {
+    const { data: dbOpen, error } = await supabase
+      .from("squad_deals")
+      .select("deal_id")
+      .eq("status", "open")
+      .range(staleOffset, staleOffset + 999);
+
+    if (error) { console.error("Stale check error:", error.message); break; }
+    if (!dbOpen || dbOpen.length === 0) break;
+
+    const staleIds = dbOpen
+      .filter((d: any) => !openDealIds.has(d.deal_id))
+      .map((d: any) => d.deal_id);
+
+    if (staleIds.length > 0) {
+      // Mark as 'lost' since they're no longer open in Pipedrive
+      // (deals-won sync will correct any that were actually won)
+      for (let i = 0; i < staleIds.length; i += 100) {
+        const batch = staleIds.slice(i, i + 100);
+        const { error: updErr } = await supabase
+          .from("squad_deals")
+          .update({ status: "lost", synced_at: now })
+          .in("deal_id", batch);
+        if (updErr) console.error("Stale update error:", updErr.message);
+      }
+      staleCount += staleIds.length;
+    }
+
+    if (dbOpen.length < 1000) break;
+    staleOffset += 1000;
+  }
+
+  if (staleCount > 0) console.log(`  Marked ${staleCount} stale deals as lost`);
+  return { totalFetched: total, upserted: rows.length, staleCleaned: staleCount };
 }
 
 // ---- Mode: deals-won ----
