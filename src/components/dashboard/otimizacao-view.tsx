@@ -203,13 +203,11 @@ function CampaignDropdown({ campaigns, selected, onChange }: {
   )
 }
 
-const VERTICALS = ["Investimentos", "Serviços", "Marketplace"]
-
 export function OtimizacaoView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [allAds, setAllAds] = useState<AdPerformance[]>([])
-  const [tab, setTab] = useState("Investimentos")
+  const tab = "Investimentos"
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showSettings, setShowSettings] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
@@ -334,38 +332,9 @@ export function OtimizacaoView() {
 
   return (
     <div style={{ position: "relative" }}>
-      {/* Toolbar: Tabs + Filtros + Busca */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-        {VERTICALS.map(v => (
-          <button
-            key={v}
-            onClick={() => { setTab(v); setSelected(new Set()); setFilterCampaigns(new Set()) }}
-            style={{
-              padding: "6px 14px", borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: "pointer",
-              border: `1px solid ${tab === v ? T.primary : T.border}`,
-              background: tab === v ? T.primary : T.card,
-              color: tab === v ? "#fff" : T.mutedFg,
-              fontFamily: "inherit",
-            }}
-          >
-            {v}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        {!loading && <span style={{ fontSize: 12, color: T.mutedFg }}>{tabAds.length} anúncios</span>}
-        <input
-          type="text" value={searchId} onChange={e => setSearchId(e.target.value)}
-          placeholder="Buscar por ID..."
-          style={{ width: 140, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 10px", fontSize: 11, color: T.fg, fontFamily: "monospace", outline: "none" }}
-        />
-        <button onClick={() => setShowLog(true)} style={{ fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Log de pausas</button>
-        <button onClick={() => setShowAbout(true)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}><Info size={13} /> Sobre</button>
-        <button onClick={() => setShowSettings(s => !s)} style={{ display: "flex", alignItems: "center", fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}><Settings size={13} /></button>
-        <button onClick={fetchData} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}><RefreshCw size={13} /></button>
-      </div>
-
-      {/* Filtros de status e campanha */}
+      {/* Toolbar: Filtros à esquerda, ações à direita */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+        {/* Status pills */}
         {([["", "Todos"], ["PAUSAR", "Pausar"], ["MONITORAR", "Monitorar"], ["MANTER", "Manter"], ["AGUARDAR", "Aguardar"]] as [string, string][]).map(([val, label]) => {
           const active = filterStatus === val
           const color = val === "PAUSAR" ? RED : val === "MONITORAR" ? AMBER : val === "MANTER" ? GREEN : T.mutedFg
@@ -381,8 +350,31 @@ export function OtimizacaoView() {
             </button>
           )
         })}
-        <div style={{ flex: 1 }} />
+
+        {/* Separador visual */}
+        <div style={{ width: 1, height: 20, background: T.border, margin: "0 2px" }} />
+
+        {/* Campanhas */}
         <CampaignDropdown campaigns={availableCampaigns} selected={filterCampaigns} onChange={setFilterCampaigns} />
+
+        {/* Busca por ID */}
+        <input
+          type="text" value={searchId} onChange={e => setSearchId(e.target.value)}
+          placeholder="Buscar por ID..."
+          style={{ width: 140, background: T.bg, border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 10px", fontSize: 11, color: T.fg, fontFamily: "monospace", outline: "none" }}
+        />
+
+        {/* Contador */}
+        {!loading && <span style={{ fontSize: 12, color: T.mutedFg, paddingLeft: 4 }}>{tabAds.length} anúncios</span>}
+
+        {/* Spacer */}
+        <div style={{ flex: 1 }} />
+
+        {/* Ações utilitárias à direita */}
+        <button onClick={() => setShowLog(true)} style={{ fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Log de pausas</button>
+        <button onClick={() => setShowAbout(true)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}><Info size={13} /> Sobre</button>
+        <button onClick={() => setShowSettings(s => !s)} style={{ display: "flex", alignItems: "center", fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}><Settings size={13} /></button>
+        <button onClick={fetchData} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}><RefreshCw size={13} /></button>
       </div>
 
       {/* Action bar */}
@@ -508,7 +500,7 @@ export function OtimizacaoView() {
                       <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace", fontWeight: 500 }}>{ad.score.toFixed(0)}</td>
                       <td style={{ ...S.td, textAlign: "center" }}><TendenciaBadge tendencia={ad.tendencia} /></td>
                       <td style={{ ...S.td, textAlign: "center" }}><StatusBadge status={ad.ad_status} /></td>
-                      <td style={{ ...S.td, color: T.mutedFg, fontSize: 10, maxWidth: 250 }}>{generateRecommendation(ad)}</td>
+                      <td style={{ ...S.td, color: T.mutedFg, fontSize: 10, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis" }} title={generateRecommendation(ad)}>{generateRecommendation(ad)}</td>
                       <td style={{ ...S.td, textAlign: "center" }}>
                         {impact && (
                           <span style={{ fontSize: 10, fontFamily: "monospace", display: "flex", alignItems: "center", justifyContent: "center", gap: 3, color: impact.positive ? GREEN : RED }}>
@@ -577,56 +569,239 @@ export function OtimizacaoView() {
       {showAbout && (
         <>
           <div onClick={() => setShowAbout(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.3)", zIndex: 40 }} />
-          <div style={{ position: "fixed", top: 0, right: 0, height: "100%", width: "100%", maxWidth: 520, background: T.bg, borderLeft: `1px solid ${T.border}`, zIndex: 50, display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", height: 56, borderBottom: `1px solid ${T.border}`, background: T.card }}>
+          <div style={{ position: "fixed", top: 0, right: 0, height: "100%", width: "100%", maxWidth: 560, background: T.bg, borderLeft: `1px solid ${T.border}`, zIndex: 50, display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", height: 56, borderBottom: `1px solid ${T.border}`, background: T.card, flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Info size={15} style={{ color: T.primary }} />
                 <span style={{ fontSize: 13, fontWeight: 500, color: T.fg }}>Sobre a Otimização Diária</span>
               </div>
               <button onClick={() => setShowAbout(false)} style={{ background: "none", border: "none", cursor: "pointer", color: T.mutedFg }}><X size={16} /></button>
             </div>
-            <div style={{ flex: 1, overflowY: "auto", padding: "24px 24px" }}>
-              <p style={{ fontSize: 13, color: T.mutedFg, lineHeight: 1.6, margin: "0 0 20px" }}>Ferramenta de otimização diária para pausar anúncios fora dos benchmarks. Identifica o que pausar e executa via Meta Ads API, com notificação automática no Slack.</p>
+            <div style={{ flex: 1, overflowY: "auto", padding: "24px 24px", display: "flex", flexDirection: "column", gap: 24 }}>
 
-              <div style={{ border: `1px solid ${T.primary}33`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, color: T.primary, margin: "0 0 12px" }}>Benchmarks (Investimentos)</h3>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                  <thead><tr>{["Etapa","Benchmark"].map(h => <th key={h} style={{ textAlign: h === "Benchmark" ? "right" : "left", padding: "4px 8px", color: T.mutedFg, fontWeight: 600, borderBottom: `1px solid ${T.border}` }}>{h}</th>)}</tr></thead>
-                  <tbody>
-                    {[["R$/MQL","R$ 170"],["R$/SQL","R$ 554"],["R$/OPP","R$ 2.953"],["R$/WON","R$ 10.190"]].map(([e,v]) => (
-                      <tr key={e}><td style={{ padding: "4px 8px", color: T.fg, borderBottom: `1px solid ${T.cinza100}` }}>{e}</td><td style={{ padding: "4px 8px", textAlign: "right", fontFamily: "monospace", color: T.fg, borderBottom: `1px solid ${T.cinza100}` }}>{v}</td></tr>
+              {/* O que é */}
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: T.fg, margin: "0 0 8px" }}>O que é?</h2>
+                <p style={{ fontSize: 13, color: T.mutedFg, lineHeight: 1.6, margin: 0 }}>Ferramenta de otimização diária para pausar anúncios que estão fora dos benchmarks. Identifica rapidamente o que pausar e executa a pausa direto via Meta Ads API, com notificação automática no Slack.</p>
+              </div>
+
+              {/* Investimentos */}
+              <div style={{ border: `1px solid ${T.primary}33`, borderRadius: 12, padding: 20 }}>
+                <h3 style={{ fontSize: 15, fontWeight: 600, color: T.primary, margin: "0 0 4px" }}>Investimentos</h3>
+                <p style={{ fontSize: 11, color: T.mutedFg, margin: "0 0 20px", lineHeight: 1.5 }}>Todos os benchmarks, taxas, score e lógica de média móvel foram calibrados com a base de Investimentos.</p>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 16, fontSize: 11, color: T.mutedFg }}>
+
+                  {/* Base de dados */}
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Base de dados</p>
+                    <p style={{ lineHeight: 1.6, margin: 0 }}>826 anúncios do Meta Ads cruzados com 26.511 leads do Pipedrive, cobrindo R$2,29 milhões entre janeiro/2025 e março/2026. 826 anúncios casados por ID, cobrindo 98,5% dos leads e do spend total.</p>
+                  </div>
+
+                  {/* Por que esses benchmarks */}
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Por que esses benchmarks</p>
+                    <p style={{ lineHeight: 1.5, margin: "0 0 8px" }}>O modelo anterior usava tetos baseados em intuição. O estudo revelou dois problemas:</p>
+                    <ul style={{ margin: "0 0 8px", paddingLeft: 16, lineHeight: 1.7 }}>
+                      <li><span style={{ color: RED }}>R$/MQL apertado demais</span> — teto de R$136 ficava abaixo do P75 real dos anúncios que geraram vendas. Pausava 20% dos ativos, incluindo 15 que geraram 18 vendas reais.</li>
+                      <li><span style={{ color: RED }}>R$/SQL e R$/OPP frouxos demais</span> — tetos 34-53% acima do P90 real, permitindo criativos ineficientes continuarem consumindo verba.</li>
+                    </ul>
+                    <p style={{ lineHeight: 1.5, margin: 0 }}>Os benchmarks foram definidos com base no P90 dos 81 anúncios que geraram WON e tinham pelo menos 10 MQL — o limite superior do que anúncios bons realmente custam, baseado em 151 vendas reais.</p>
+                  </div>
+
+                  {/* Benchmarks calibrados */}
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 8px" }}>Benchmarks calibrados</p>
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                        <thead>
+                          <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                            {["Etapa","Antes","Calibrado","Variação"].map((h, hi) => (
+                              <th key={h} style={{ textAlign: hi === 0 ? "left" : "right", padding: "6px 8px", color: T.mutedFg, fontWeight: 600 }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr style={{ borderBottom: `1px solid ${T.cinza100}` }}>
+                            <td style={{ padding: "5px 8px", color: T.fg }}>R$/MQL</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 136</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", color: GREEN }}>R$ 170</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", color: GREEN }}>+25% mais folga</td>
+                          </tr>
+                          <tr style={{ borderBottom: `1px solid ${T.cinza100}` }}>
+                            <td style={{ padding: "5px 8px", color: T.fg }}>R$/SQL</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 834</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", color: RED }}>R$ 554</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", color: RED }}>-34% mais apertado</td>
+                          </tr>
+                          <tr style={{ borderBottom: `1px solid ${T.cinza100}` }}>
+                            <td style={{ padding: "5px 8px", color: T.fg }}>R$/OPP</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 4.520</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", color: RED }}>R$ 2.953</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", color: RED }}>-35% mais apertado</td>
+                          </tr>
+                          <tr>
+                            <td style={{ padding: "5px 8px", color: T.fg }}>R$/WON</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 11.894</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 10.190 (meta) / R$ 17.784 (teto)</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right" }}>—</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Checkpoints */}
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Checkpoints</p>
+                    <p style={{ lineHeight: 1.5, margin: "0 0 8px" }}>A mediana de MQL→SQL na Seazone é de 1,4 dias. Os checkpoints antecipam as decisões para quando os dados já são confiáveis:</p>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                      <thead>
+                        <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                          {["#","Dia","O que avalia"].map((h, hi) => (
+                            <th key={h} style={{ textAlign: hi === 1 ? "right" : "left", padding: "5px 8px", color: T.mutedFg, fontWeight: 600 }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[["1º","Day 3","R$/MQL + taxa MQL→SQL ≥ 17%"],["2º","Day 7","R$/SQL + taxa SQL→OPP ≥ 6%"],["3º","Day 15","R$/OPP"],["4º","Day 35","R$/WON vs meta de R$10.190"]].map(([n,d,o]) => (
+                          <tr key={n} style={{ borderBottom: `1px solid ${T.cinza100}` }}>
+                            <td style={{ padding: "5px 8px", color: T.fg }}>{n}</td>
+                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>{d}</td>
+                            <td style={{ padding: "5px 8px" }}>{o}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Janelas */}
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Janelas de avaliação (média móvel)</p>
+                    <p style={{ lineHeight: 1.5, margin: "0 0 8px" }}>Os custos não são calculados sobre o histórico completo — cada métrica usa uma janela proporcional ao seu ciclo de conversão:</p>
+                    {[
+                      ["MQL — 7 dias","rolling 7d",T.primary,"7 dias é o período de otimização do algoritmo do Meta. Quando a gente mexe em algo e reseta a aprendizagem, o algoritmo tem 7 dias para corrigir — então avaliar MQL nessa janela reflete a performance real após o ajuste."],
+                      ["SQL — 14 dias","rolling 14d",T.primary,"Dobro da janela de MQL. Captura o ciclo MQL→SQL completo com folga estatística suficiente — 14 dias dá volume amostral sem perder sensibilidade a mudanças recentes."],
+                      ["OPP e WON — acumulado","histórico completo",T.mutedFg,"Conversões raras demais para janela curta. Um ad com 1 OPP gerado há 10 dias perderia esse sinal em uma janela de 7d. OPP e WON sempre usam todo o histórico disponível (35 dias)."],
+                    ].map(([t,badge,badgeColor,d]) => (
+                      <div key={t} style={{ background: T.cinza50, borderRadius: 8, padding: 10, border: `1px solid ${T.border}`, marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span style={{ fontSize: 12, fontWeight: 500, color: T.fg }}>{t}</span>
+                          <span style={{ fontSize: 10, fontFamily: "monospace", color: badgeColor }}>{badge}</span>
+                        </div>
+                        <p style={{ fontSize: 11, color: T.mutedFg, margin: 0, lineHeight: 1.5 }}>{d}</p>
+                      </div>
                     ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div style={{ border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, color: T.fg, margin: "0 0 8px" }}>Checkpoints</h3>
-                <p style={{ fontSize: 12, color: T.mutedFg, margin: "0 0 8px", lineHeight: 1.5 }}>Day 3 (MQL) → Day 7 (SQL) → Day 15 (OPP) → Day 35 (WON)</p>
-                <p style={{ fontSize: 11, color: T.mutedFg, margin: 0, lineHeight: 1.5 }}>Marketplace e SZS: Day 7 → Day 25 → Day 35 → Day 50</p>
-              </div>
-
-              <div style={{ border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, color: T.fg, margin: "0 0 8px" }}>Janelas de avaliação</h3>
-                {[["MQL — 7 dias","Período de otimização do algoritmo do Meta. Janela mais sensível à performance recente."],["SQL — 14 dias","Cobre 1 ciclo MQL→SQL completo com folga estatística suficiente."],["OPP e WON — acumulado","Conversões raras demais para janela curta. Sempre usa todo o histórico (35 dias)."]].map(([t,d]) => (
-                  <div key={t} style={{ background: T.cinza50, borderRadius: 8, padding: 10, border: `1px solid ${T.border}`, marginBottom: 6 }}>
-                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 3px" }}>{t}</p>
-                    <p style={{ fontSize: 11, color: T.mutedFg, margin: 0, lineHeight: 1.5 }}>{d}</p>
+                    <p style={{ lineHeight: 1.5, margin: "8px 0 0", fontSize: 11 }}>A coluna <span style={{ color: T.fg }}>R$/MQL 7d</span> é o valor usado para score e status. A coluna <span style={{ color: T.fg }}>R$/MQL acum</span> é referência — permite ver se o custo recente está acima ou abaixo da média histórica do anúncio.</p>
                   </div>
-                ))}
-              </div>
 
-              <div style={{ border: `1px solid ${T.border}`, borderRadius: 12, padding: 16, marginBottom: 16 }}>
-                <h3 style={{ fontSize: 14, fontWeight: 600, color: T.fg, margin: "0 0 8px" }}>Lógica de status</h3>
-                {[["PAUSAR",RED,"Custo acima do benchmark E taxa abaixo do mínimo (dois critérios ruins ao mesmo tempo)."],["MONITORAR",AMBER,"Apenas um critério fora — ou anúncio em degradação recente. Acompanhar."],["MANTER",GREEN,"Custo dentro do benchmark e taxa acima do mínimo."],["AGUARDAR",T.mutedFg,"Menos dias do que o primeiro checkpoint. Sem dados suficientes."]].map(([s,c,d]) => (
-                  <div key={s} style={{ marginBottom: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: c }}>{s}:</span>
-                    <span style={{ fontSize: 11, color: T.mutedFg, marginLeft: 6 }}>{d}</span>
+                  {/* Taxas mínimas */}
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Taxas mínimas de conversão</p>
+                    <p style={{ lineHeight: 1.5, margin: "0 0 8px" }}>Definidas com base no P50 dos anúncios que geraram vendas na base de Investimentos. Aplicadas a todas as verticais.</p>
+                    {[["MQL → SQL","≥ 17%"],["SQL → OPP","≥ 6%"]].map(([label, val]) => (
+                      <div key={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: T.bg, borderRadius: 6, padding: "6px 10px", border: `1px solid ${T.border}`, marginBottom: 4 }}>
+                        <span>{label}</span>
+                        <span style={{ fontFamily: "monospace", color: T.fg }}>{val}</span>
+                      </div>
+                    ))}
+                    <p style={{ lineHeight: 1.5, margin: "6px 0 0", fontSize: 11 }}>Abaixo de 17% MQL→SQL indica problema de qualificação. Abaixo de 6% SQL→OPP indica problema na reunião ou proposta.</p>
                   </div>
-                ))}
+
+                  {/* Lógica de decisão por checkpoint */}
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Lógica de decisão por checkpoint</p>
+                    <p style={{ lineHeight: 1.5, margin: "0 0 8px" }}>Cada checkpoint tem uma regra diferente — o modelo fica mais exigente conforme o anúncio avança no tempo sem provar resultado:</p>
+                    {[
+                      { title: "Antes do Day 3 — alerta antecipado", body: "Normalmente retorna AGUARDAR. Exceção: se custo/MQL já estiver acima de 3× o benchmark com pelo menos R$100 investidos, o anúncio recebe MONITORAR. Para Investimentos: benchmark R$170, então o alerta dispara acima de R$510 de custo/MQL.", rules: [["Custo/MQL normal","AGUARDAR",T.mutedFg],["Custo/MQL > 3× bench + spend ≥ R$100","MONITORAR",AMBER]] },
+                      { title: "Day 3 — checkpoint MQL", body: "Avalia custo/MQL E taxa MQL→SQL:", rules: [["Ambos ok","MANTER",GREEN],["Só um ruim","MONITORAR",AMBER],["Ambos ruins","PAUSAR",RED],["Sem MQL após Day 3","PAUSAR",RED]] },
+                      { title: "Day 7 — checkpoint SQL", body: "Avalia custo/SQL E taxa SQL→OPP. Se custo/SQL alto com taxa boa, verifica o custo/MQL implícito: custo/SQL = custo/MQL ÷ taxa MQL→SQL. Taxa boa + custo/SQL alto = custo/MQL também alto.", rules: [["Ambos ok","MANTER",GREEN],["Ambos ruins","PAUSAR",RED],["Custo alto + taxa boa + custo/MQL > bench","PAUSAR",RED],["Custo ok + taxa ruim","MONITORAR",AMBER],["Sem SQL após Day 7","PAUSAR",RED]] },
+                      { title: "Day 15 — checkpoint OPP", body: "Não há mais benefício da dúvida — já passou dois checkpoints. Se qualquer métrica estiver fora, é sinal claro de problema no funil.", rules: [["Ambos ok","MANTER",GREEN],["Qualquer um ruim","PAUSAR",RED],["Sem OPP após Day 15","PAUSAR",RED]] },
+                      { title: "Day 35 — checkpoint WON", body: "Avalia custo/WON sobre histórico completo (35 dias).", rules: [["Custo/WON < R$10.190","MANTER",GREEN],["Entre R$10.190 e R$17.784","MONITORAR",AMBER],["Acima de R$17.784","PAUSAR",RED]] },
+                    ].map(item => (
+                      <div key={item.title} style={{ background: T.bg, borderRadius: 8, padding: 10, border: `1px solid ${T.border}`, marginBottom: 6 }}>
+                        <p style={{ fontSize: 11, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>{item.title}</p>
+                        <p style={{ fontSize: 11, color: T.mutedFg, margin: "0 0 6px", lineHeight: 1.5 }}>{item.body}</p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2, paddingLeft: 8 }}>
+                          {item.rules.map(([cond, result, color]) => (
+                            <p key={cond} style={{ fontSize: 10, color: T.mutedFg, margin: 0 }}>
+                              <span style={{ color: T.mutedFg }}>{cond}</span> → <span style={{ color, fontWeight: 500 }}>{result}</span>
+                            </p>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                    <p style={{ fontSize: 10, color: T.mutedFg, margin: "6px 0 0", lineHeight: 1.5 }}>Na simulação com dados de Investimentos: o modelo bidirecional pausou apenas 6 anúncios (1,6%) sem perder nenhuma venda. O modelo anterior pausaria 74 anúncios e perderia 18 vendas.</p>
+                  </div>
+
+                  {/* Tendência */}
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Tendência 7d</p>
+                    <p style={{ lineHeight: 1.5, margin: "0 0 8px" }}>Compara o R$/MQL dos últimos 7 dias com o R$/MQL dos 7 dias anteriores (dias 8-14):</p>
+                    {[["MELHORANDO",GREEN,"custo atual mais de 15% menor que semana anterior"],["ESTÁVEL",T.mutedFg,"variação dentro de ±15%/20%"],["DEGRADANDO",RED,"custo atual mais de 20% acima da semana anterior"]].map(([s,c,d]) => (
+                      <div key={s} style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontFamily: "monospace", color: c, flexShrink: 0 }}>{s}</span>
+                        <span style={{ fontSize: 11 }}>— {d}</span>
+                      </div>
+                    ))}
+                    <p style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.5, margin: "6px 0 0" }}>A tendência cruza com o status: PAUSAR + MELHORANDO vira MONITORAR. MANTER + DEGRADANDO vira MONITORAR.</p>
+                  </div>
+
+                  {/* Score */}
+                  <div>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Como o score é calculado</p>
+                    <p style={{ lineHeight: 1.5, margin: "0 0 8px" }}>Score hierárquico em camadas — a camada mais alta em que o anúncio se enquadra define a base de pontos:</p>
+                    {[
+                      ["WON","1000+ pts",GREEN,"Base 1000 + até 400 pts pelo custo/WON (interpolado entre R$10.190 e R$17.784) + taxa WON/OPP × 200 + bônus de velocidade (max 200 pts)."],
+                      ["OPP","0–450 pts",T.primary,"Até 300 pts pelo custo/OPP (interpolado entre R$2.953 e R$4.520) + taxa OPP/SQL × 150 + bônus de velocidade (max 100 pts)."],
+                      ["SQL","0–300 pts",AMBER,"Até 200 pts pelo custo/SQL (interpolado entre R$554 e R$834) + taxa SQL/MQL × 100 + bônus de velocidade (max 50 pts)."],
+                      ["MQL","0–125 pts",T.mutedFg,"Até 100 pts pelo custo/MQL (interpolado entre R$170 e R$200) + bônus de velocidade (max 25 pts)."],
+                    ].map(([tier, pts, color, desc]) => (
+                      <div key={tier} style={{ background: T.cinza50, borderRadius: 8, padding: 10, border: `1px solid ${T.border}`, marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
+                          <span style={{ fontSize: 12, fontWeight: 500, color: T.fg }}>{tier}</span>
+                          <span style={{ fontSize: 11, fontFamily: "monospace", color }}>{pts}</span>
+                        </div>
+                        <p style={{ fontSize: 11, color: T.mutedFg, margin: 0, lineHeight: 1.5 }}>{desc}</p>
+                      </div>
+                    ))}
+                    <p style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.5, margin: "6px 0 0" }}><span style={{ color: T.fg }}>Bônus de velocidade:</span> converter antes do checkpoint esperado vale pontos extras.</p>
+                    <p style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.5, margin: "4px 0 0" }}><span style={{ color: T.fg }}>Fator de confiança:</span> spend abaixo de R$200 aplica fator 0,05. Acima de R$1.000 aplica 1,0. MQL abaixo de 5 aplica fator adicional de 0,4 — evita anúncios novos com 1 MQL barato dispararem no ranking.</p>
+                  </div>
+
+                </div>
               </div>
 
-              <p style={{ fontSize: 10, color: T.cinza300, textAlign: "center", marginTop: 16 }}>Otimização Diária v2.0 — Seazone</p>
+              {/* Lógica geral */}
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: T.fg, margin: "0 0 12px" }}>Lógica de avaliação</h2>
+                <div style={{ fontSize: 11, color: T.mutedFg, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {[["PAUSAR",RED,"Custo acima do benchmark E taxa abaixo do mínimo. Os dois critérios ruins ao mesmo tempo."],["MONITORAR",AMBER,"Apenas um dos critérios está fora (custo OU taxa) — ou anúncio em degradação recente. Acompanhar, não pausar ainda."],["MANTER",GREEN,"Custo dentro do benchmark e taxa acima do mínimo."],["AGUARDAR",T.mutedFg,"Anúncio com menos dias do que o primeiro checkpoint. Sem dados suficientes para avaliar."]].map(([s,c,d]) => (
+                    <p key={s} style={{ margin: 0 }}><span style={{ fontWeight: 600, color: c }}>{s}:</span> <span>{d}</span></p>
+                  ))}
+                </div>
+              </div>
+
+              {/* Impacto da pausa */}
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: T.fg, margin: "0 0 8px" }}>Impacto da pausa</h2>
+                <p style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.6, margin: 0 }}>Calcula a redistribuição de verba no adset: compara o custo/MQL do anúncio a ser pausado com a média dos outros ativos no mesmo adset. Se o anúncio tem custo/MQL acima da média, pausar libera verba para os mais eficientes.</p>
+              </div>
+
+              {/* Fluxo */}
+              <div>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: T.fg, margin: "0 0 8px" }}>Fluxo recomendado</h2>
+                <ol style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.8, margin: 0, paddingLeft: 16 }}>
+                  <li>Abra a aba diariamente de manhã</li>
+                  <li>Use o filtro "Pausar" (já ativo por padrão)</li>
+                  <li>Clique em "Selecionar recomendados" para marcar todos</li>
+                  <li>Revise a lista e o impacto no modal de confirmação</li>
+                  <li>Confirme a pausa — notificação vai automaticamente pro Slack</li>
+                  <li>Consulte o Log de Pausas para histórico</li>
+                </ol>
+              </div>
+
+              <p style={{ fontSize: 10, color: T.cinza300, textAlign: "center" }}>Otimização Diária v2.0 — Seazone</p>
             </div>
           </div>
         </>

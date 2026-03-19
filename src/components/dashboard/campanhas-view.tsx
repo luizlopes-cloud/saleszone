@@ -154,22 +154,22 @@ export function CampanhasView({ data, loading, mediaFilter, setMediaFilter, last
             {hasData ? (
               <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: "fixed" }}>
                 <colgroup>
-                  <col style={{ width: "18%" }} />  {/* Nome */}
-                  <col style={{ width: "8%" }} />   {/* Gasto */}
-                  <col style={{ width: "6%" }} />   {/* Impr */}
-                  <col style={{ width: "5%" }} />   {/* Clicks */}
-                  <col style={{ width: "5%" }} />   {/* Leads */}
-                  <col style={{ width: "5%" }} />   {/* MQL */}
-                  <col style={{ width: "5%" }} />   {/* SQL */}
-                  <col style={{ width: "5%" }} />   {/* OPP */}
-                  <col style={{ width: "5%" }} />   {/* WON */}
-                  <col style={{ width: "5%" }} />   {/* WON* */}
-                  <col style={{ width: "5%" }} />   {/* CPC */}
-                  <col style={{ width: "5%" }} />   {/* CPL */}
-                  <col style={{ width: "5%" }} />   {/* CMQL */}
-                  <col style={{ width: "5%" }} />   {/* CSQL */}
-                  <col style={{ width: "5%" }} />   {/* COPP */}
-                  <col style={{ width: "5%" }} />   {/* CPW */}
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "8%" }} />
+                  <col style={{ width: "6%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
+                  <col style={{ width: "5%" }} />
                 </colgroup>
                 <thead>
                   {/* Linha 1: grupos */}
