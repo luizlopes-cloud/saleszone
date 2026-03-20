@@ -45,7 +45,7 @@ async function paginateDeals(date: string): Promise<LostDealRow[]> {
         deal_id: d.deal_id as number,
         title: (d.title as string) ?? "",
         stage_name: (d.stage_name as string) ?? "",
-        stage_category: (d.stage_category as string) ?? "pre_vendas",
+        stage_category: ((d.stage_category as string) ?? "pre_vendas") as "pre_vendas" | "vendas",
         owner_name: (d.owner_name as string) ?? "",
         owner_email: (d.owner_email as string) ?? "",
         lost_time: (d.lost_time as string) ?? "",
@@ -136,10 +136,10 @@ export async function GET(request: NextRequest) {
       seller_email: (a.seller_email as string) ?? "",
       seller_name: (a.seller_name as string) ?? "",
       alert_type: (a.alert_type as string) ?? "",
-      severity: (a.severity as string) ?? "info",
+      severity: ((a.severity as string) ?? "info") as "critical" | "warning" | "info",
       message: (a.message as string) ?? "",
-      metric_value: a.metric_value as number | undefined,
-      threshold_value: a.threshold_value as number | undefined,
+      metric_value: (a.metric_value as number) ?? null,
+      threshold_value: (a.threshold_value as number) ?? null,
     }));
 
     // 4. Fetch 7-day trend
