@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers, Mic } from "lucide-react";
+import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers, Mic, Calendar } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 import { T } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
@@ -11,7 +11,7 @@ import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento", "explorador", "otimizacao"] as const;
 const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas", "ociosidade", "leadtime", "avaliacoes", "losts"] as const;
 const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento", "squad-atividades"] as const;
-const RESULTADOS_VIEWS = ["resultados", "acompanhamento", "forecast"] as const;
+const RESULTADOS_VIEWS = ["resultados", "acompanhamento", "forecast", "mensal"] as const;
 
 const SeazoneIcon = () => (
   <svg width="28" height="29" viewBox="0 0 48 49" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -141,6 +141,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
                 { key: "resultados", label: "Funil", icon: <TrendingUp size={13} /> },
                 { key: "acompanhamento", label: "Acompanhamento", icon: <BarChart3 size={13} /> },
                 { key: "forecast", label: "Forecast", icon: <Target size={13} /> },
+                { key: "mensal", label: "Mensal", icon: <Calendar size={13} /> },
               ] as const).map((item) => (
                 <button
                   key={item.key}

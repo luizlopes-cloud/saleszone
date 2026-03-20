@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, ChevronLeft, Columns3, Info } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronLeft, Columns3, Info, BarChart3, Table2 } from "lucide-react";
 import { T, TABS, SQUAD_COLORS, TAB_COLORS, NUM_DAYS, MONTHS_PT } from "@/lib/constants";
-import type { TabKey, AcompanhamentoData } from "@/lib/types";
+import type { TabKey, AcompanhamentoData, SquadData } from "@/lib/types";
 import { Pill, Tag, TH, cellStyle, cellRightStyle, hdrBaseStyle, DataSourceFooter } from "./ui";
 
 function heatColor(value: number, min: number, max: number): string | undefined {
@@ -39,11 +39,122 @@ interface Props {
   moduleId?: string;
 }
 
+// ─── Gráfico de Barras Empilhadas ─────────────────────────────────────────
+
+interface BarChartData {
+  label: string;
+  segments: { name: string; value: number; color: string }[];
+  total: number;
+}
+
+function StackedBarChart({ bars, maxValue }: { bars: BarChartData[]; maxValue: number }) {
+  const BAR_HEIGHT = 220;
+  const [hoverBar, setHoverBar] = useState<number | null>(null);
+
+  if (bars.length === 0 || maxValue === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px", color: T.mutedFg, fontSize: "13px" }}>
+        Sem dados para exibir
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-end",
+          gap: bars.length > 20 ? "2px" : "4px",
+          padding: "20px 8px 0",
+          minHeight: BAR_HEIGHT + 50,
+          minWidth: bars.length * (bars.length > 20 ? 28 : 40),
+        }}
+      >
+        {bars.map((bar, bi) => {
+          const barPx = maxValue > 0 ? (bar.total / maxValue) * BAR_HEIGHT : 0;
+          return (
+            <div
+              key={bi}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                flex: "1 1 0",
+                minWidth: bars.length > 20 ? 24 : 36,
+              }}
+              onMouseEnter={() => setHoverBar(bi)}
+              onMouseLeave={() => setHoverBar(null)}
+            >
+              {/* Total em cima */}
+              <div
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  color: bar.total > 0 ? T.fg : T.cinza300,
+                  marginBottom: "4px",
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                {bar.total > 0 ? bar.total : ""}
+              </div>
+              {/* Barra empilhada */}
+              <div
+                style={{
+                  width: "100%",
+                  height: `${barPx}px`,
+                  display: "flex",
+                  flexDirection: "column-reverse",
+                  borderRadius: "3px 3px 0 0",
+                  overflow: "hidden",
+                  transition: "opacity 0.15s",
+                  opacity: hoverBar !== null && hoverBar !== bi ? 0.5 : 1,
+                  position: "relative",
+                }}
+              >
+                {bar.segments.map((seg, si) => {
+                  const segPx = maxValue > 0 ? (seg.value / maxValue) * BAR_HEIGHT : 0;
+                  return (
+                    <div
+                      key={si}
+                      style={{
+                        height: `${segPx}px`,
+                        backgroundColor: seg.color,
+                        minHeight: seg.value > 0 ? 2 : 0,
+                      }}
+                      title={`${seg.name}: ${seg.value}`}
+                    />
+                  );
+                })}
+              </div>
+              {/* Label do dia */}
+              <div
+                style={{
+                  fontSize: "9px",
+                  color: T.cinza600,
+                  marginTop: "4px",
+                  textAlign: "center",
+                  lineHeight: "1.2",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {bar.label}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, lastUpdated, moduleId }: Props) {
   const isSZS = moduleId === "szs";
   const [expanded, setExpanded] = useState<Record<number, boolean>>({ 1: true, 2: true, 3: true });
   const [showTeamCols, setShowTeamCols] = useState(false);
   const [hCol, setHCol] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"table" | "chart">("table");
+  const [chartGroup, setChartGroup] = useState<"day" | "week">("day");
 
   const toggle = (id: number) => setExpanded((p) => ({ ...p, [id]: !p[id] }));
 
@@ -61,6 +172,54 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
     });
     return s;
   }, [dates]);
+
+  // ─── Dados do gráfico de barras empilhadas ─────────────────────────────────
+  const chartBars = useMemo((): BarChartData[] => {
+    if (!data || dates.length === 0 || squads.length === 0) return [];
+
+    // Montar barras por dia: cada barra tem segmentos por squad
+    const dailyBars: BarChartData[] = dates.map((d, i) => {
+      const segments = squads.map((sq) => {
+        const val = sq.rows.reduce((s, r) => s + (r.daily[i] || 0), 0);
+        return { name: sq.name, value: val, color: SQUAD_COLORS[sq.id] || T.azul600 };
+      });
+      const total = segments.reduce((s, seg) => s + seg.value, 0);
+      const dayLabel = `${d.label.split(" ")[0]}/${MONTHS_PT.indexOf(d.label.split(" ")[1]) + 1}`;
+      return { label: dayLabel, segments, total };
+    });
+
+    if (chartGroup === "day") return dailyBars;
+
+    // Agrupar por semana
+    const weekBars: BarChartData[] = [];
+    let currentWeek: BarChartData | null = null;
+    let weekNum = 1;
+
+    dailyBars.forEach((bar, i) => {
+      if (i === 0 || weekStarts.has(i)) {
+        if (currentWeek) weekBars.push(currentWeek);
+        currentWeek = {
+          label: `Sem. ${weekNum}`,
+          segments: squads.map((sq) => ({ name: sq.name, value: 0, color: SQUAD_COLORS[sq.id] || T.azul600 })),
+          total: 0,
+        };
+        weekNum++;
+      }
+      if (currentWeek) {
+        currentWeek.total += bar.total;
+        bar.segments.forEach((seg, si) => {
+          if (currentWeek!.segments[si]) currentWeek!.segments[si].value += seg.value;
+        });
+      }
+    });
+    if (currentWeek) weekBars.push(currentWeek);
+    return weekBars;
+  }, [data, dates, squads, chartGroup, weekStarts]);
+
+  const chartMax = useMemo(() => {
+    if (chartBars.length === 0) return 0;
+    return Math.max(...chartBars.map((b) => b.total), 1);
+  }, [chartBars]);
 
   if (loading && !data) {
     return (
@@ -82,36 +241,134 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
           gap: "12px",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            gap: "3px",
-            backgroundColor: T.bg,
-            borderRadius: "12px",
-            padding: "3px",
-            border: `1px solid ${T.border}`,
-          }}
-        >
-          {TABS.map((tab) => (
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: "3px",
+              backgroundColor: T.bg,
+              borderRadius: "12px",
+              padding: "3px",
+              border: `1px solid ${T.border}`,
+            }}
+          >
+            {TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  padding: "7px 22px",
+                  borderRadius: "9999px",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  letterSpacing: "0.02em",
+                  transition: "all 0.15s",
+                  backgroundColor: activeTab === tab.key ? TAB_COLORS[tab.key] : "transparent",
+                  color: activeTab === tab.key ? "#FFF" : T.mutedFg,
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+          {/* Toggle Tabela/Gráfico */}
+          <div
+            style={{
+              display: "flex",
+              gap: "2px",
+              backgroundColor: T.bg,
+              borderRadius: "8px",
+              padding: "2px",
+              border: `1px solid ${T.border}`,
+            }}
+          >
             <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => setViewMode("table")}
               style={{
-                padding: "7px 22px",
-                borderRadius: "9999px",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                padding: "5px 10px",
+                borderRadius: "6px",
                 border: "none",
                 cursor: "pointer",
-                fontSize: "13px",
+                fontSize: "11px",
                 fontWeight: 500,
-                letterSpacing: "0.02em",
+                backgroundColor: viewMode === "table" ? T.fg : "transparent",
+                color: viewMode === "table" ? "#FFF" : T.mutedFg,
                 transition: "all 0.15s",
-                backgroundColor: activeTab === tab.key ? TAB_COLORS[tab.key] : "transparent",
-                color: activeTab === tab.key ? "#FFF" : T.mutedFg,
               }}
             >
-              {tab.label}
+              <Table2 size={12} /> Tabela
             </button>
-          ))}
+            <button
+              onClick={() => setViewMode("chart")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                padding: "5px 10px",
+                borderRadius: "6px",
+                border: "none",
+                cursor: "pointer",
+                fontSize: "11px",
+                fontWeight: 500,
+                backgroundColor: viewMode === "chart" ? T.fg : "transparent",
+                color: viewMode === "chart" ? "#FFF" : T.mutedFg,
+                transition: "all 0.15s",
+              }}
+            >
+              <BarChart3 size={12} /> Gráfico
+            </button>
+          </div>
+          {/* Toggle Dia/Semana (somente no gráfico) */}
+          {viewMode === "chart" && (
+            <div
+              style={{
+                display: "flex",
+                gap: "2px",
+                backgroundColor: T.bg,
+                borderRadius: "8px",
+                padding: "2px",
+                border: `1px solid ${T.border}`,
+              }}
+            >
+              <button
+                onClick={() => setChartGroup("day")}
+                style={{
+                  padding: "5px 10px",
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: 500,
+                  backgroundColor: chartGroup === "day" ? T.fg : "transparent",
+                  color: chartGroup === "day" ? "#FFF" : T.mutedFg,
+                  transition: "all 0.15s",
+                }}
+              >
+                Por Dia
+              </button>
+              <button
+                onClick={() => setChartGroup("week")}
+                style={{
+                  padding: "5px 10px",
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: 500,
+                  backgroundColor: chartGroup === "week" ? T.fg : "transparent",
+                  color: chartGroup === "week" ? "#FFF" : T.mutedFg,
+                  transition: "all 0.15s",
+                }}
+              >
+                Por Semana
+              </button>
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", gap: "10px", alignItems: "center" }}>
           <Pill label="Total mês" value={grand.totalMes} bg={grand.totalMes >= grand.metaToDate ? T.verde600 : T.destructive} />
@@ -176,6 +433,23 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
         </div>
       </div>
 
+      {/* ─── Gráfico de Barras Empilhadas ─────────────────────────────── */}
+      {viewMode === "chart" && (
+        <div
+          style={{
+            backgroundColor: T.card,
+            borderRadius: "12px",
+            border: `1px solid ${T.border}`,
+            boxShadow: T.elevSm,
+            padding: "16px",
+          }}
+        >
+          <StackedBarChart bars={chartBars} maxValue={chartMax} />
+        </div>
+      )}
+
+      {/* ─── Tabela Heatmap ─────────────────────────────────────────── */}
+      {viewMode === "table" && (
       <div
         style={{
           backgroundColor: T.card,
@@ -424,6 +698,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
           </table>
         </div>
       </div>
+      )}
 
       <div
         style={{
