@@ -830,6 +830,9 @@ export interface LostDealRow {
   days_in_funnel: number;
   lost_reason: string;
   canal: string;
+  add_time: string | null;
+  next_activity_date: string | null;
+  pipeline_name: string | null;
 }
 
 export interface LostAlert {
