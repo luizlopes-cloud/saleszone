@@ -29,6 +29,7 @@ import { AdminView } from "@/components/dashboard/admin-view";
 import { ExploradorView } from "@/components/dashboard/explorador-view";
 import { OtimizacaoView } from "@/components/dashboard/otimizacao-view";
 import SquadAtividadesView from "@/components/dashboard/squad-atividades-view";
+import { MensalView } from "@/components/dashboard/mensal-view";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -82,6 +83,8 @@ export default function Dashboard() {
     d.setDate(d.getDate() - 1);
     return d.toISOString().split("T")[0];
   });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [mensalData, setMensalData] = useState<any>(null);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
   const [syncElapsed, setSyncElapsed] = useState<number | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -344,6 +347,19 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchMensal = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${moduleConfig.apiBase}/mensal?months=6`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setMensalData(await res.json());
+    } catch (err) {
+      console.error("Fetch mensal error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [moduleConfig.apiBase]);
+
   const handleBudgetSave = useCallback(async (value: number) => {
     const now = new Date();
     const mes = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -408,6 +424,8 @@ export default function Dashboard() {
       fetchAvaliacoes(avaliacoesDays);
     } else if (mainView === "losts" && !lostsData) {
       fetchLosts(lostsDate);
+    } else if (mainView === "mensal" && !mensalData) {
+      fetchMensal();
     }
   }, [activeTab, mainView, hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -436,6 +454,7 @@ export default function Dashboard() {
     setLeadtimeData(null);
     setAvaliacoesData(null);
     setLostsData(null);
+    setMensalData(null);
   };
 
   const fetchCurrentView = async () => {
@@ -456,6 +475,7 @@ export default function Dashboard() {
     else if (mainView === "leadtime") await fetchLeadtime(leadtimeDays);
     else if (mainView === "avaliacoes") await fetchAvaliacoes(avaliacoesDays);
     else if (mainView === "losts") await fetchLosts(lostsDate);
+    else if (mainView === "mensal") await fetchMensal();
   };
 
   const handleRefresh = async () => {
@@ -580,6 +600,7 @@ export default function Dashboard() {
         )}
         {mainView === "backlog" && <BacklogView />}
         {mainView === "admin" && <AdminView userRole={userRole} />}
+        {mainView === "mensal" && <MensalView data={mensalData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "squad-atividades" && <SquadAtividadesView pipelineSlug={moduleConfig.id} dateFrom="" dateTo="" />}
         {mainView === "venda" && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
