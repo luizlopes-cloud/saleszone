@@ -132,26 +132,52 @@ export async function GET() {
     }
 
     // Show only contributors linked to registered users (by username or email)
-    const contributors = data
-      .filter((c) => {
-        const login = c.author.login.toLowerCase();
-        if (ghMap.has(login)) return true;
-        // Fallback: match by GitHub email → profile email
-        const ghEmail = ghEmailCache.get(login);
-        if (ghEmail && emailMap.has(ghEmail)) return true;
-        return false;
+    const matchedContributors = data.filter((c) => {
+      const login = c.author.login.toLowerCase();
+      if (ghMap.has(login)) return true;
+      const ghEmail = ghEmailCache.get(login);
+      if (ghEmail && emailMap.has(ghEmail)) return true;
+      return false;
+    });
+
+    // Fetch real last commit date for each contributor via commits API
+    const lastCommitDates = new Map<string, string>();
+    await Promise.all(
+      matchedContributors.map(async (c) => {
+        try {
+          const commitRes = await fetch(
+            `https://api.github.com/repos/seazone-socios/saleszone/commits?author=${c.author.login}&per_page=1`,
+            {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: "application/vnd.github.v3+json",
+              },
+            }
+          );
+          if (commitRes.ok) {
+            const commits = await commitRes.json();
+            if (commits.length > 0 && commits[0].commit?.author?.date) {
+              lastCommitDates.set(c.author.login.toLowerCase(), commits[0].commit.author.date);
+            }
+          }
+        } catch {
+          // Ignore individual fetch errors
+        }
       })
-      .map((c) => {
+    );
+
+    const contributors = matchedContributors.map((c) => {
       const login = c.author.login.toLowerCase();
       const profile = ghMap.get(login)
         || (ghEmailCache.get(login) ? emailMap.get(ghEmailCache.get(login)!) : undefined);
       const totalAdded = c.weeks.reduce((sum, w) => sum + w.a, 0);
       const totalDeleted = c.weeks.reduce((sum, w) => sum + w.d, 0);
 
-      const lastWeekWithCommits = [...c.weeks].reverse().find((w) => w.c > 0);
-      const lastCommitDate = lastWeekWithCommits
-        ? new Date(lastWeekWithCommits.w * 1000).toISOString()
-        : null;
+      // Use real last commit date from commits API, fallback to stats week
+      const lastCommitDate = lastCommitDates.get(login) || (() => {
+        const lastWeek = [...c.weeks].reverse().find((w) => w.c > 0);
+        return lastWeek ? new Date(lastWeek.w * 1000).toISOString() : null;
+      })();
 
       return {
         name: profile?.full_name || c.author.login,
