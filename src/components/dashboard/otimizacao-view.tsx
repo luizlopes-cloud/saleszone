@@ -223,7 +223,7 @@ export function OtimizacaoView() {
     setLoading(true)
     setError("")
     try {
-      const res = await fetch("/api/meta-ads/nekt?window=35")
+      const res = await fetch("/api/meta-ads/nekt?window=90")
       if (!res.ok) throw new Error((await res.json()).error || "Erro")
       const data = await res.json()
       const rows: NektRow[] = (data.rows || []).map((r: Record<string, unknown>) => ({
@@ -238,7 +238,7 @@ export function OtimizacaoView() {
         ctr: Number(r.ctr) || 0, adset_id: String(r.adset_id || ""),
       })).filter((r: NektRow) => r.ad_id)
 
-      const perf = computePerformanceRolling(rows)
+      const perf = computePerformanceRolling(rows).filter(a => a.ad_id.length >= 15)
 
       try {
         const ids = [...new Set(perf.map(a => a.ad_id))]
@@ -250,8 +250,30 @@ export function OtimizacaoView() {
           const { statuses } = await metaRes.json()
           if (statuses) {
             for (const ad of perf) {
-              if (statuses[ad.ad_id]) ad.effective_status = statuses[ad.ad_id]
-              else ad.effective_status = "UNKNOWN"
+              ad.effective_status = statuses[ad.ad_id] ?? "UNKNOWN"
+            }
+          }
+        }
+
+        // Retry para UNKNOWN + fallback spend_7d
+        const unknownIds = perf.filter(a => a.effective_status === "UNKNOWN").map(a => a.ad_id)
+        if (unknownIds.length > 0) {
+          const retryRes = await fetch("/api/meta-ads/meta-status", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adIds: unknownIds }),
+          })
+          if (retryRes.ok) {
+            const { statuses: retryStatuses } = await retryRes.json()
+            if (retryStatuses) {
+              for (const ad of perf) {
+                if (ad.effective_status === "UNKNOWN") {
+                  if (retryStatuses[ad.ad_id]) {
+                    ad.effective_status = retryStatuses[ad.ad_id]
+                  } else {
+                    ad.effective_status = (ad.spend_7d && ad.spend_7d > 0) ? "ACTIVE" : "UNKNOWN"
+                  }
+                }
+              }
             }
           }
         }
@@ -270,7 +292,11 @@ export function OtimizacaoView() {
   }, [allAds, tab])
 
   const tabAds = useMemo(() => {
-    if (searchId.trim()) return allAds.filter(a => a.ad_id.includes(searchId.trim()) && a.effective_status === "ACTIVE")
+    if (searchId.trim()) {
+      const id = searchId.trim()
+      const prefix = id.length >= 15 ? id.substring(0, 15) : id
+      return allAds.filter(a => a.ad_id.startsWith(prefix))
+    }
     const verticalKey = tab === "Serviços" ? "SZS" : tab
     let base = allAds.filter(a => a.vertical === verticalKey && a.effective_status === "ACTIVE")
     if (filterCampaigns.size > 0) base = base.filter(a => filterCampaigns.has(a.campaign_name))
