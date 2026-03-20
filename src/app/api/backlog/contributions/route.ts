@@ -199,8 +199,8 @@ export async function GET() {
     console.log("[contributions] After filter:", contributors.length, "contributors");
     console.log("[contributions] Matched:", contributors.map((c) => c.github_login));
 
-    // Sort by total commits descending
-    contributors.sort((a, b) => b.totalCommits - a.totalCommits);
+    // Sort by total lines added descending
+    contributors.sort((a, b) => b.totalAdded - a.totalAdded);
 
     return NextResponse.json({ contributors });
   } catch (err) {
