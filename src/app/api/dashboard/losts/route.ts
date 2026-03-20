@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 import type { LostsData, LostDealRow, LostAlert, LostsSummary } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+/** Dedicated Supabase client for monitor tables (jp-rambo project) */
+const monitorSupabase = createClient(
+  process.env.MONITOR_SUPABASE_URL || "https://iobxudcyihqfdwiggohz.supabase.co",
+  process.env.MONITOR_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 /** Paginate Supabase queries that may exceed 1000 rows */
 async function paginateDeals(date: string): Promise<LostDealRow[]> {
@@ -12,9 +18,9 @@ async function paginateDeals(date: string): Promise<LostDealRow[]> {
   let hasMore = true;
 
   while (hasMore) {
-    const { data, error } = await supabase
+    const { data, error } = await monitorSupabase
       .from("monitor_lost_deals")
-      .select("deal_id, title, stage_name, stage_category, owner_name, owner_email, lost_time, lost_hour, days_in_funnel, lost_reason, canal")
+      .select("deal_id, title, stage_name, stage_category, owner_name, owner_email, lost_time, lost_hour, days_in_funnel, lost_reason, canal, add_time, next_activity_date, pipeline_name")
       .eq("date", date)
       .order("lost_time", { ascending: false })
       .range(offset, offset + PAGE - 1);
@@ -35,6 +41,9 @@ async function paginateDeals(date: string): Promise<LostDealRow[]> {
         days_in_funnel: d.days_in_funnel ?? 0,
         lost_reason: d.lost_reason ?? "",
         canal: d.canal ?? "",
+        add_time: d.add_time ?? null,
+        next_activity_date: d.next_activity_date ?? null,
+        pipeline_name: d.pipeline_name ?? null,
       });
     }
 
@@ -58,7 +67,7 @@ export async function GET(request: NextRequest) {
     })();
 
     // 1. Fetch summary
-    const { data: summaryRows, error: summaryErr } = await supabase
+    const { data: summaryRows, error: summaryErr } = await monitorSupabase
       .from("monitor_lost_daily_summary")
       .select("*")
       .eq("date", targetDate)
@@ -107,7 +116,7 @@ export async function GET(request: NextRequest) {
     const deals = await paginateDeals(targetDate);
 
     // 3. Fetch alerts
-    const { data: alertRows, error: alertsErr } = await supabase
+    const { data: alertRows, error: alertsErr } = await monitorSupabase
       .from("monitor_lost_alerts")
       .select("*")
       .eq("date", targetDate)
@@ -132,7 +141,7 @@ export async function GET(request: NextRequest) {
     trendStart.setDate(trendStart.getDate() - 6);
     const trendStartStr = trendStart.toISOString().split("T")[0];
 
-    const { data: trendRows, error: trendErr } = await supabase
+    const { data: trendRows, error: trendErr } = await monitorSupabase
       .from("monitor_lost_daily_summary")
       .select("date, total")
       .gte("date", trendStartStr)
