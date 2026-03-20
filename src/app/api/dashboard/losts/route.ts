@@ -1,48 +1,61 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import type { LostsData, LostDealRow, LostAlert, LostsSummary } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** Dedicated Supabase client for monitor tables (jp-rambo project) — hardcoded to avoid Vercel env override */
-const MONITOR_URL = "https://iobxudcyihqfdwiggohz.supabase.co";
+/** Direct REST API for monitor tables (jp-rambo project) — bypasses Supabase JS client schema cache issues */
+const MONITOR_REST = "https://iobxudcyihqfdwiggohz.supabase.co/rest/v1";
 const MONITOR_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvYnh1ZGN5aWhxZmR3aWdnb2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzNTE4NDMsImV4cCI6MjA4ODkyNzg0M30.BelWphFGytC583TK2Iunmf_Ah__yR-d7N_823OGd9j8";
-const monitorSupabase = createClient(MONITOR_URL, MONITOR_KEY);
 
-/** Paginate Supabase queries that may exceed 1000 rows */
+const HEADERS = {
+  apikey: MONITOR_KEY,
+  Authorization: `Bearer ${MONITOR_KEY}`,
+  "Content-Type": "application/json",
+  Prefer: "return=representation",
+};
+
+/** Generic fetch helper for PostgREST queries */
+async function restQuery(table: string, params: string): Promise<unknown[]> {
+  const url = `${MONITOR_REST}/${table}?${params}`;
+  const res = await fetch(url, { headers: HEADERS, cache: "no-store" });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`${table}: ${res.status} ${body}`);
+  }
+  return res.json();
+}
+
+/** Paginate REST queries that may exceed 1000 rows */
 async function paginateDeals(date: string): Promise<LostDealRow[]> {
   const PAGE = 1000;
   const all: LostDealRow[] = [];
   let offset = 0;
   let hasMore = true;
 
-  while (hasMore) {
-    const { data, error } = await monitorSupabase
-      .from("monitor_lost_deals")
-      .select("deal_id, title, stage_name, stage_category, owner_name, owner_email, lost_time, lost_hour, days_in_funnel, lost_reason, canal, add_time, next_activity_date, pipeline_name")
-      .eq("date", date)
-      .order("lost_time", { ascending: false })
-      .range(offset, offset + PAGE - 1);
+  const select = "deal_id,title,stage_name,stage_category,owner_name,owner_email,lost_time,lost_hour,days_in_funnel,lost_reason,canal,add_time,next_activity_date,pipeline_name";
 
-    if (error) throw new Error(`Deals: ${error.message}`);
+  while (hasMore) {
+    const params = `select=${select}&date=eq.${date}&order=lost_time.desc&offset=${offset}&limit=${PAGE}`;
+    const data = (await restQuery("monitor_lost_deals", params)) as Record<string, unknown>[];
+
     if (!data || data.length === 0) break;
 
     for (const d of data) {
       all.push({
-        deal_id: d.deal_id,
-        title: d.title ?? "",
-        stage_name: d.stage_name ?? "",
-        stage_category: d.stage_category ?? "pre_vendas",
-        owner_name: d.owner_name ?? "",
-        owner_email: d.owner_email ?? "",
-        lost_time: d.lost_time ?? "",
-        lost_hour: d.lost_hour ?? 0,
-        days_in_funnel: d.days_in_funnel ?? 0,
-        lost_reason: d.lost_reason ?? "",
-        canal: d.canal ?? "",
-        add_time: d.add_time ?? null,
-        next_activity_date: d.next_activity_date ?? null,
-        pipeline_name: d.pipeline_name ?? null,
+        deal_id: d.deal_id as number,
+        title: (d.title as string) ?? "",
+        stage_name: (d.stage_name as string) ?? "",
+        stage_category: (d.stage_category as string) ?? "pre_vendas",
+        owner_name: (d.owner_name as string) ?? "",
+        owner_email: (d.owner_email as string) ?? "",
+        lost_time: (d.lost_time as string) ?? "",
+        lost_hour: (d.lost_hour as number) ?? 0,
+        days_in_funnel: (d.days_in_funnel as number) ?? 0,
+        lost_reason: (d.lost_reason as string) ?? "",
+        canal: (d.canal as string) ?? "",
+        add_time: (d.add_time as string) ?? null,
+        next_activity_date: (d.next_activity_date as string) ?? null,
+        pipeline_name: (d.pipeline_name as string) ?? null,
       });
     }
 
@@ -66,35 +79,32 @@ export async function GET(request: NextRequest) {
     })();
 
     // 1. Fetch summary
-    const { data: summaryRows, error: summaryErr } = await monitorSupabase
-      .from("monitor_lost_daily_summary")
-      .select("*")
-      .eq("date", targetDate)
-      .limit(1);
-
-    if (summaryErr) throw new Error(`Summary: ${summaryErr.message}`);
+    const summaryRows = (await restQuery(
+      "monitor_lost_daily_summary",
+      `select=*&date=eq.${targetDate}&limit=1`
+    )) as Record<string, unknown>[];
 
     const rawSummary = summaryRows?.[0];
     const summary: LostsSummary = rawSummary
       ? {
-          date: rawSummary.date,
-          total: rawSummary.total ?? 0,
-          pre_vendas: rawSummary.pre_vendas ?? 0,
-          vendas: rawSummary.vendas ?? 0,
-          pre_vendas_pct: rawSummary.pre_vendas_pct ?? 0,
-          vendas_pct: rawSummary.vendas_pct ?? 0,
+          date: rawSummary.date as string,
+          total: (rawSummary.total as number) ?? 0,
+          pre_vendas: (rawSummary.pre_vendas as number) ?? 0,
+          vendas: (rawSummary.vendas as number) ?? 0,
+          pre_vendas_pct: (rawSummary.pre_vendas_pct as number) ?? 0,
+          vendas_pct: (rawSummary.vendas_pct as number) ?? 0,
           by_reason: typeof rawSummary.by_reason === "string"
             ? JSON.parse(rawSummary.by_reason)
-            : rawSummary.by_reason ?? {},
+            : (rawSummary.by_reason as Record<string, number>) ?? {},
           by_owner: typeof rawSummary.by_owner === "string"
             ? JSON.parse(rawSummary.by_owner)
-            : rawSummary.by_owner ?? {},
+            : (rawSummary.by_owner as Record<string, number>) ?? {},
           by_canal: typeof rawSummary.by_canal === "string"
             ? JSON.parse(rawSummary.by_canal)
-            : rawSummary.by_canal ?? {},
-          median_days_in_funnel: rawSummary.median_days_in_funnel,
-          same_day_lost_pct: rawSummary.same_day_lost_pct ?? 0,
-          batch_after_18h_pct: rawSummary.batch_after_18h_pct ?? 0,
+            : (rawSummary.by_canal as Record<string, number>) ?? {},
+          median_days_in_funnel: rawSummary.median_days_in_funnel as number | null,
+          same_day_lost_pct: (rawSummary.same_day_lost_pct as number) ?? 0,
+          batch_after_18h_pct: (rawSummary.batch_after_18h_pct as number) ?? 0,
         }
       : {
           date: targetDate,
@@ -115,24 +125,21 @@ export async function GET(request: NextRequest) {
     const deals = await paginateDeals(targetDate);
 
     // 3. Fetch alerts
-    const { data: alertRows, error: alertsErr } = await monitorSupabase
-      .from("monitor_lost_alerts")
-      .select("*")
-      .eq("date", targetDate)
-      .order("severity", { ascending: true });
-
-    if (alertsErr) throw new Error(`Alerts: ${alertsErr.message}`);
+    const alertRows = (await restQuery(
+      "monitor_lost_alerts",
+      `select=*&date=eq.${targetDate}&order=severity.asc`
+    )) as Record<string, unknown>[];
 
     const alerts: LostAlert[] = (alertRows ?? []).map((a) => ({
-      id: a.id,
-      date: a.date,
-      seller_email: a.seller_email ?? "",
-      seller_name: a.seller_name ?? "",
-      alert_type: a.alert_type ?? "",
-      severity: a.severity ?? "info",
-      message: a.message ?? "",
-      metric_value: a.metric_value,
-      threshold_value: a.threshold_value,
+      id: a.id as string,
+      date: a.date as string,
+      seller_email: (a.seller_email as string) ?? "",
+      seller_name: (a.seller_name as string) ?? "",
+      alert_type: (a.alert_type as string) ?? "",
+      severity: (a.severity as string) ?? "info",
+      message: (a.message as string) ?? "",
+      metric_value: a.metric_value as number | undefined,
+      threshold_value: a.threshold_value as number | undefined,
     }));
 
     // 4. Fetch 7-day trend
@@ -140,19 +147,20 @@ export async function GET(request: NextRequest) {
     trendStart.setDate(trendStart.getDate() - 6);
     const trendStartStr = trendStart.toISOString().split("T")[0];
 
-    const { data: trendRows, error: trendErr } = await monitorSupabase
-      .from("monitor_lost_daily_summary")
-      .select("date, total")
-      .gte("date", trendStartStr)
-      .lte("date", targetDate)
-      .order("date", { ascending: true });
+    let trend = { dates: [] as string[], totals: [] as number[] };
+    try {
+      const trendRows = (await restQuery(
+        "monitor_lost_daily_summary",
+        `select=date,total&date=gte.${trendStartStr}&date=lte.${targetDate}&order=date.asc`
+      )) as Record<string, unknown>[];
 
-    if (trendErr) console.error("[losts] Trend query error:", trendErr.message);
-
-    const trend = {
-      dates: (trendRows ?? []).map((r) => r.date),
-      totals: (trendRows ?? []).map((r) => r.total ?? 0),
-    };
+      trend = {
+        dates: (trendRows ?? []).map((r) => r.date as string),
+        totals: (trendRows ?? []).map((r) => (r.total as number) ?? 0),
+      };
+    } catch (trendErr) {
+      console.error("[losts] Trend query error:", trendErr);
+    }
 
     const result: LostsData = { date: targetDate, summary, deals, alerts, trend };
 
