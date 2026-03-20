@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
       date_from: params.get("date_from") || undefined,
       date_to: params.get("date_to") || undefined,
       window: windowDays,
+      ad_id: params.get("ad_id") || undefined,
     }
 
     const sql = buildFilteredSQL(filters)
