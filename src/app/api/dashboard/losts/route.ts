@@ -168,7 +168,7 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     console.error("[losts] Error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Unknown error" },
+      { error: err instanceof Error ? err.message : "Unknown error", _v: "rest-v2" },
       { status: 500 }
     );
   }
