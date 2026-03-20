@@ -25,6 +25,8 @@ import { LeadtimeView } from "@/components/dashboard/leadtime-view";
 import { AvaliacoesView } from "@/components/dashboard/avaliacoes-view";
 import { BacklogView } from "@/components/backlog/backlog-view";
 import { AdminView } from "@/components/dashboard/admin-view";
+import { ExploradorView } from "@/components/dashboard/explorador-view";
+import { OtimizacaoView } from "@/components/dashboard/otimizacao-view";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -540,6 +542,8 @@ export default function Dashboard() {
         {mainView === "forecast" && <ForecastView data={forecastData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "leadtime" && <LeadtimeView data={leadtimeData} loading={loading} daysBack={leadtimeDays} onDaysChange={(d) => { setLeadtimeDays(d); setLeadtimeData(null); fetchLeadtime(d); }} lastUpdated={lastUpdated} />}
         {mainView === "avaliacoes" && <AvaliacoesView data={avaliacoesData} loading={loading} daysBack={avaliacoesDays} onDaysChange={(d) => { setAvaliacoesDays(d); setAvaliacoesData(null); fetchAvaliacoes(d); }} lastUpdated={lastUpdated} />}
+        {mainView === "otimizacao" && <OtimizacaoView />}
+        {mainView === "explorador" && <ExploradorView />}
         {mainView === "backlog" && <BacklogView />}
         {mainView === "admin" && <AdminView userRole={userRole} />}
         {mainView === "venda" && (
