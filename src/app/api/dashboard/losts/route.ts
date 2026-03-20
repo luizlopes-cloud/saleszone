@@ -4,11 +4,10 @@ import type { LostsData, LostDealRow, LostAlert, LostsSummary } from "@/lib/type
 
 export const dynamic = "force-dynamic";
 
-/** Dedicated Supabase client for monitor tables (jp-rambo project) */
-const monitorSupabase = createClient(
-  process.env.MONITOR_SUPABASE_URL || "https://iobxudcyihqfdwiggohz.supabase.co",
-  process.env.MONITOR_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvYnh1ZGN5aWhxZmR3aWdnb2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzNTE4NDMsImV4cCI6MjA4ODkyNzg0M30.BelWphFGytC583TK2Iunmf_Ah__yR-d7N_823OGd9j8"
-);
+/** Dedicated Supabase client for monitor tables (jp-rambo project) — hardcoded to avoid Vercel env override */
+const MONITOR_URL = "https://iobxudcyihqfdwiggohz.supabase.co";
+const MONITOR_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvYnh1ZGN5aWhxZmR3aWdnb2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzNTE4NDMsImV4cCI6MjA4ODkyNzg0M30.BelWphFGytC583TK2Iunmf_Ah__yR-d7N_823OGd9j8";
+const monitorSupabase = createClient(MONITOR_URL, MONITOR_KEY);
 
 /** Paginate Supabase queries that may exceed 1000 rows */
 async function paginateDeals(date: string): Promise<LostDealRow[]> {
