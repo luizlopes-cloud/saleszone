@@ -542,6 +542,8 @@ export default function Dashboard() {
         {mainView === "forecast" && <ForecastView data={forecastData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "leadtime" && <LeadtimeView data={leadtimeData} loading={loading} daysBack={leadtimeDays} onDaysChange={(d) => { setLeadtimeDays(d); setLeadtimeData(null); fetchLeadtime(d); }} lastUpdated={lastUpdated} />}
         {mainView === "avaliacoes" && <AvaliacoesView data={avaliacoesData} loading={loading} daysBack={avaliacoesDays} onDaysChange={(d) => { setAvaliacoesDays(d); setAvaliacoesData(null); fetchAvaliacoes(d); }} lastUpdated={lastUpdated} />}
+        {mainView === "otimizacao" && <OtimizacaoView />}
+        {mainView === "explorador" && <ExploradorView />}
         {mainView === "backlog" && <BacklogView />}
         {mainView === "admin" && <AdminView userRole={userRole} />}
         {mainView === "venda" && (
