@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 /** Dedicated Supabase client for monitor tables (jp-rambo project) */
 const monitorSupabase = createClient(
   process.env.MONITOR_SUPABASE_URL || "https://iobxudcyihqfdwiggohz.supabase.co",
-  process.env.MONITOR_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.MONITOR_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvYnh1ZGN5aWhxZmR3aWdnb2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzNTE4NDMsImV4cCI6MjA4ODkyNzg0M30.BelWphFGytC583TK2Iunmf_Ah__yR-d7N_823OGd9j8"
 );
 
 /** Paginate Supabase queries that may exceed 1000 rows */
