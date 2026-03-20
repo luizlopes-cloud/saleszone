@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { T } from '@/lib/constants'
-import SquadAtencaoView from './squad-atencao-view'
+// SquadAtencaoView removed — this view now renders only AtividadesContent
 
 // ─── Interfaces ─────────────────────────────────────────────────────────────
 
@@ -200,49 +200,14 @@ function ToggleGroup({ items, active, onChange }: { items: { key: string; label:
 type SubTab = 'tempo-resposta' | 'atividades' | 'atencao'
 
 export default function SquadAtividadesView({ pipelineSlug, dateFrom, dateTo }: { pipelineSlug: string; dateFrom: string; dateTo: string }) {
-  const [subTab, setSubTab] = useState<SubTab>('tempo-resposta')
-  const [selectedPreseller, setSelectedPreseller] = useState<string>('todos')
-
-  const subTabs = [
-    { key: 'tempo-resposta', label: 'Ligações' },
-    { key: 'atividades', label: 'Atividades' },
-    { key: 'atencao', label: 'Deals sem Atenção' },
-  ]
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <ToggleGroup
-        items={subTabs}
-        active={subTab}
-        onChange={(key) => setSubTab(key as SubTab)}
-      />
-
-      {subTab === 'tempo-resposta' && (
-        <TempoRespostaContent
-          pipelineSlug={pipelineSlug}
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          selectedPreseller={selectedPreseller}
-          onSelectPreseller={(name) => setSelectedPreseller(name)}
-          onNavigateToAtividades={(name) => {
-            setSelectedPreseller(name)
-            setSubTab('atividades')
-          }}
-        />
-      )}
-      {subTab === 'atividades' && (
-        <AtividadesContent
-          pipelineSlug={pipelineSlug}
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          filterPreseller={selectedPreseller}
-          onFilterChange={setSelectedPreseller}
-        />
-      )}
-      {subTab === 'atencao' && (
-        <SquadAtencaoView pipelineSlug={pipelineSlug} role="prevenda" />
-      )}
-    </div>
+    <AtividadesContent
+      pipelineSlug={pipelineSlug}
+      dateFrom={dateFrom}
+      dateTo={dateTo}
+      filterPreseller="todos"
+      onFilterChange={() => {}}
+    />
   )
 }
 

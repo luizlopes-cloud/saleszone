@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers, Mic, Radio } from "lucide-react";
+import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers, Mic } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 import { T } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
@@ -10,9 +10,8 @@ import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 
 const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento", "explorador", "otimizacao"] as const;
 const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas", "ociosidade", "leadtime", "avaliacoes", "losts"] as const;
-const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento"] as const;
+const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento", "squad-atividades"] as const;
 const RESULTADOS_VIEWS = ["resultados", "acompanhamento", "forecast"] as const;
-const OPERACAO_VIEWS = ["squad-metas", "squad-atividades", "squad-monitor"] as const;
 
 const SeazoneIcon = () => (
   <svg width="28" height="29" viewBox="0 0 48 49" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -54,10 +53,6 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
   const resultadosDropdownRef = useRef<HTMLDivElement>(null);
   const isResultadosView = (RESULTADOS_VIEWS as readonly string[]).includes(mainView);
 
-  const [operacaoDropdownOpen, setOperacaoDropdownOpen] = useState(false);
-  const operacaoDropdownRef = useRef<HTMLDivElement>(null);
-  const isOperacaoView = (OPERACAO_VIEWS as readonly string[]).includes(mainView);
-
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
   const userDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -75,18 +70,15 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
       if (resultadosDropdownRef.current && !resultadosDropdownRef.current.contains(e.target as Node)) {
         setResultadosDropdownOpen(false);
       }
-      if (operacaoDropdownRef.current && !operacaoDropdownRef.current.contains(e.target as Node)) {
-        setOperacaoDropdownOpen(false);
-      }
       if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) {
         setUserDropdownOpen(false);
       }
     }
-    if (metaDropdownOpen || vendasDropdownOpen || preVendasDropdownOpen || resultadosDropdownOpen || operacaoDropdownOpen || userDropdownOpen) {
+    if (metaDropdownOpen || vendasDropdownOpen || preVendasDropdownOpen || resultadosDropdownOpen || userDropdownOpen) {
       document.addEventListener("mousedown", handleClickOutside);
       return () => document.removeEventListener("mousedown", handleClickOutside);
     }
-  }, [metaDropdownOpen, vendasDropdownOpen, preVendasDropdownOpen, resultadosDropdownOpen, operacaoDropdownOpen, userDropdownOpen]);
+  }, [metaDropdownOpen, vendasDropdownOpen, preVendasDropdownOpen, resultadosDropdownOpen, userDropdownOpen]);
 
   return (
     <header
@@ -280,6 +272,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
                 { key: "perf-prevendas", label: "Perf. Pré-Vendas", icon: <BarChart3 size={13} /> },
                 { key: "presales", label: "Diagnóstico Pré-Venda", icon: <Timer size={13} /> },
                 { key: "balanceamento", label: "Régua de Qualificação", icon: <Scale size={13} /> },
+                { key: "squad-atividades", label: "Atividades", icon: <Activity size={13} /> },
               ] as const).map((item) => (
                 <button
                   key={item.key}
@@ -347,65 +340,6 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
                 <button
                   key={item.key}
                   onClick={() => { setMainView(item.key); setVendasDropdownOpen(false); }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    width: "100%",
-                    padding: "8px 12px",
-                    border: "none",
-                    borderRadius: "6px",
-                    backgroundColor: mainView === item.key ? T.azul50 : "transparent",
-                    color: mainView === item.key ? T.fg : T.cinza600,
-                    fontWeight: mainView === item.key ? 600 : 400,
-                    fontSize: "13px",
-                    cursor: "pointer",
-                    textAlign: "left",
-                  }}
-                  onMouseEnter={(e) => { if (mainView !== item.key) (e.currentTarget.style.backgroundColor = T.cinza50); }}
-                  onMouseLeave={(e) => { if (mainView !== item.key) (e.currentTarget.style.backgroundColor = "transparent"); }}
-                >
-                  {item.icon} {item.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div ref={operacaoDropdownRef} style={{ position: "relative" }}>
-          <button
-            onClick={() => setOperacaoDropdownOpen((v) => !v)}
-            style={{
-              ...viewBtnStyle,
-              backgroundColor: isOperacaoView ? T.fg : "transparent",
-              color: isOperacaoView ? "#FFF" : T.cinza600,
-              gap: "4px",
-            }}
-          >
-            <Radio size={12} /> Operação <ChevronDown size={10} style={{ transition: "transform 0.2s", transform: operacaoDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
-          </button>
-          {operacaoDropdownOpen && (
-            <div
-              style={{
-                position: "absolute",
-                top: "calc(100% + 4px)",
-                left: 0,
-                backgroundColor: "#FFF",
-                border: `1px solid ${T.border}`,
-                borderRadius: "8px",
-                boxShadow: "0 4px 12px rgba(0,0,0,0.1)",
-                zIndex: 50,
-                minWidth: "180px",
-                padding: "4px",
-              }}
-            >
-              {([
-                { key: "squad-metas", label: "Metas", icon: <Target size={13} /> },
-                { key: "squad-atividades", label: "Atividades", icon: <Activity size={13} /> },
-                { key: "squad-monitor", label: "Monitor", icon: <Radio size={13} /> },
-              ] as const).map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => { setMainView(item.key); setOperacaoDropdownOpen(false); }}
                   style={{
                     display: "flex",
                     alignItems: "center",
