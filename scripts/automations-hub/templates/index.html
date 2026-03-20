@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hub de Automações — Comercial</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f1117;
+      color: #e4e4e7;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border-bottom: 1px solid #2a2a3e;
+      padding: 24px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .header h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .header .subtitle {
+      font-size: 13px;
+      color: #888;
+      margin-top: 2px;
+    }
+    .header .stats {
+      display: flex;
+      gap: 20px;
+    }
+    .stat-box {
+      text-align: center;
+      background: rgba(255,255,255,0.05);
+      border-radius: 8px;
+      padding: 8px 16px;
+    }
+    .stat-box .num { font-size: 20px; font-weight: 700; color: #818cf8; }
+    .stat-box .label { font-size: 11px; color: #888; text-transform: uppercase; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px 32px; }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #a5b4fc;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title .badge {
+      background: #1e1e3a;
+      border: 1px solid #333;
+      border-radius: 12px;
+      padding: 2px 10px;
+      font-size: 12px;
+      color: #888;
+      font-weight: 400;
+    }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; margin-bottom: 36px; }
+
+    .card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a3e;
+      border-radius: 12px;
+      padding: 20px;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .card:hover { border-color: #4f46e5; transform: translateY(-1px); }
+    .card.disabled { opacity: 0.5; }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .icon { font-size: 20px; }
+    .card-desc { font-size: 13px; color: #888; margin-bottom: 14px; line-height: 1.4; }
+
+    .card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .tag {
+      font-size: 11px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.06);
+      color: #aaa;
+      border: 1px solid #333;
+    }
+    .tag.active { background: rgba(34,197,94,0.15); color: #4ade80; border-color: rgba(34,197,94,0.3); }
+    .tag.inactive { background: rgba(239,68,68,0.15); color: #f87171; border-color: rgba(239,68,68,0.3); }
+    .tag.manual { background: rgba(234,179,8,0.15); color: #facc15; border-color: rgba(234,179,8,0.3); }
+    .tag.ext { background: rgba(139,92,246,0.15); color: #a78bfa; border-color: rgba(139,92,246,0.3); }
+
+    .card-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .btn {
+      font-size: 12px;
+      padding: 6px 14px;
+      border-radius: 6px;
+      border: 1px solid #333;
+      background: #1e1e3a;
+      color: #ccc;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn:hover { background: #2a2a4a; border-color: #555; color: #fff; }
+    .btn.danger { border-color: rgba(239,68,68,0.4); color: #f87171; }
+    .btn.danger:hover { background: rgba(239,68,68,0.15); }
+    .btn.success { border-color: rgba(34,197,94,0.4); color: #4ade80; }
+    .btn.success:hover { background: rgba(34,197,94,0.15); }
+    .btn.primary { border-color: rgba(99,102,241,0.4); color: #818cf8; }
+    .btn.primary:hover { background: rgba(99,102,241,0.15); }
+
+    /* Toggle switch */
+    .toggle {
+      position: relative;
+      width: 44px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #333;
+      border-radius: 24px;
+      transition: 0.3s;
+    }
+    .toggle .slider:before {
+      content: "";
+      position: absolute;
+      height: 18px;
+      width: 18px;
+      left: 3px;
+      bottom: 3px;
+      background: #888;
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+    .toggle input:checked + .slider { background: #4f46e5; }
+    .toggle input:checked + .slider:before { transform: translateX(20px); background: #fff; }
+
+    /* Modal */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 100;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal {
+      background: #1a1a2e;
+      border: 1px solid #2a2a3e;
+      border-radius: 12px;
+      width: 90%;
+      max-width: 700px;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid #2a2a3e;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h3 { font-size: 16px; color: #fff; }
+    .modal-close {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 20px;
+      cursor: pointer;
+    }
+    .modal-body {
+      padding: 16px 20px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-body pre {
+      font-size: 12px;
+      line-height: 1.5;
+      color: #aaa;
+      white-space: pre-wrap;
+      word-break: break-all;
+      font-family: 'SF Mono', Monaco, Consolas, monospace;
+    }
+
+    .details-row {
+      display: flex;
+      gap: 6px;
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 4px;
+    }
+    .details-row .key { color: #888; min-width: 80px; }
+    .details-row .val { color: #aaa; }
+
+    .lovable-card .card-actions { justify-content: flex-start; }
+
+    .section-divider {
+      border: none;
+      border-top: 1px solid #1e1e3a;
+      margin: 8px 0 24px;
+    }
+
+    .running-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 4px;
+    }
+    .running-dot.on { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+    .running-dot.off { background: #f87171; box-shadow: 0 0 6px #f87171; }
+
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: #1e1e3a;
+      border: 1px solid #4f46e5;
+      border-radius: 8px;
+      padding: 12px 20px;
+      color: #fff;
+      font-size: 13px;
+      z-index: 200;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: all 0.3s;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+
+    /* Config editor - form based */
+    .modal-footer {
+      padding: 12px 20px;
+      border-top: 1px solid #2a2a3e;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+    .modal-footer .status { font-size: 12px; color: #888; }
+    .modal-footer .actions { display: flex; gap: 8px; }
+    .btn-save {
+      font-size: 13px;
+      padding: 8px 20px;
+      border-radius: 6px;
+      border: none;
+      background: #4f46e5;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.15s;
+    }
+    .btn-save:hover { background: #4338ca; }
+    .btn-save:disabled { background: #333; color: #666; cursor: not-allowed; }
+    .header-actions { display: flex; align-items: center; gap: 16px; }
+
+    .cfg-tabs { display: flex; gap: 0; margin-bottom: 20px; border-bottom: 2px solid #2a2a3e; }
+    .cfg-tab {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #888;
+      cursor: pointer;
+      border: none;
+      background: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.2s;
+    }
+    .cfg-tab:hover { color: #ccc; }
+    .cfg-tab.active { color: #818cf8; border-bottom-color: #818cf8; }
+    .cfg-panel { display: none; }
+    .cfg-panel.active { display: block; }
+
+    .cfg-item {
+      background: #12121f;
+      border: 1px solid #2a2a3e;
+      border-radius: 10px;
+      padding: 18px;
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .cfg-item-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 14px;
+    }
+    .cfg-item-title { font-size: 15px; font-weight: 600; color: #fff; }
+    .cfg-item-remove {
+      background: none;
+      border: 1px solid rgba(239,68,68,0.3);
+      color: #f87171;
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .cfg-item-remove:hover { background: rgba(239,68,68,0.15); }
+
+    .cfg-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .cfg-row.full { grid-template-columns: 1fr; }
+    .cfg-field { display: flex; flex-direction: column; gap: 4px; }
+    .cfg-label { font-size: 12px; color: #888; font-weight: 500; }
+    .cfg-input {
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: #e4e4e7;
+      font-size: 13px;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    .cfg-input:focus { outline: none; border-color: #4f46e5; }
+    .cfg-input::placeholder { color: #555; }
+    select.cfg-input { cursor: pointer; }
+
+    .cfg-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .cfg-toggle-label { font-size: 13px; color: #aaa; }
+
+    .cfg-details { margin-top: 8px; }
+    .cfg-details-title {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .cfg-detail-row { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
+    .cfg-detail-key {
+      width: 140px;
+      flex-shrink: 0;
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: #aaa;
+      font-size: 12px;
+    }
+    .cfg-detail-val {
+      flex: 1;
+      background: #1a1a2e;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: #e4e4e7;
+      font-size: 12px;
+    }
+    .cfg-detail-key:focus, .cfg-detail-val:focus { outline: none; border-color: #4f46e5; }
+    .cfg-detail-remove {
+      background: none;
+      border: none;
+      color: #666;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 4px;
+    }
+    .cfg-detail-remove:hover { color: #f87171; }
+
+    .cfg-add-detail {
+      font-size: 12px;
+      color: #666;
+      background: none;
+      border: 1px dashed #333;
+      border-radius: 6px;
+      padding: 4px 12px;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .cfg-add-detail:hover { color: #aaa; border-color: #555; }
+
+    .cfg-add-item {
+      width: 100%;
+      padding: 14px;
+      border: 2px dashed #2a2a3e;
+      border-radius: 10px;
+      background: none;
+      color: #666;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      margin-bottom: 14px;
+    }
+    .cfg-add-item:hover { border-color: #4f46e5; color: #818cf8; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>Hub de Automações</h1>
+      <div class="subtitle">Gerencie todas as automações e projetos do Comercial</div>
+    </div>
+    <div class="header-actions">
+      <div class="stats">
+        <div class="stat-box">
+          <div class="num">{{ automations|length }}</div>
+          <div class="label">Automações</div>
+        </div>
+        <div class="stat-box">
+          <div class="num">{{ lovable_projects|length }}</div>
+          <div class="label">Lovable</div>
+        </div>
+      </div>
+      <button class="btn" onclick="openConfigEditor()" style="padding: 10px 18px; font-size: 13px;">Editar Config</button>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <!-- Automações Claude Code -->
+    <div class="section-title">
+      Automações Claude Code
+      <span class="badge">{{ automations|length }}</span>
+    </div>
+    <div class="cards">
+      {% for auto in automations %}
+      <div class="card {{ '' if auto.enabled else 'disabled' }}" id="card-{{ auto.id }}">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="icon">{{ auto.icon }}</span>
+            {{ auto.name }}
+          </div>
+          <label class="toggle">
+            <input type="checkbox" {{ 'checked' if auto.enabled else '' }}
+                   onchange="toggleAutomation('{{ auto.id }}', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="card-desc">{{ auto.description }}</div>
+        <div class="card-meta">
+          <span class="tag {{ 'active' if auto.enabled else 'inactive' }}">
+            <span class="running-dot {{ 'on' if auto.enabled else 'off' }}"></span>
+            {{ 'Ativo' if auto.enabled else 'Desativado' }}
+          </span>
+          {% if auto.type == 'launchd' %}
+            <span class="tag">{{ auto.schedule }}</span>
+            <span class="tag">Último: {{ auto.last_run }}</span>
+          {% else %}
+            <span class="tag manual">{{ auto.schedule }}</span>
+          {% endif %}
+          <span class="tag">{{ auto.type }}</span>
+        </div>
+
+        {% if auto.details %}
+        <div style="margin-bottom: 12px;">
+          {% for key, val in auto.details.items() %}
+          <div class="details-row">
+            <span class="key">{{ key }}:</span>
+            <span class="val">{{ val }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="card-actions">
+          {% if auto.type == 'launchd' %}
+            <button class="btn primary" onclick="runAutomation('{{ auto.id }}')">Executar agora</button>
+            <button class="btn" onclick="viewLogs('{{ auto.id }}', '{{ auto.name }}')">Ver logs</button>
+          {% else %}
+            <button class="btn primary" onclick="showToast('Execute: {{ auto.command }} no Claude Code')">Como executar</button>
+          {% endif %}
+          {% if auto.config_file %}
+            <button class="btn" onclick="showToast('Edite: {{ auto.config_file }}')">Config</button>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <hr class="section-divider">
+
+    <!-- Lovable Projects -->
+    <div class="section-title">
+      Projetos Lovable — Comercial
+      <span class="badge">{{ lovable_projects|length }}</span>
+    </div>
+    <div class="cards">
+      {% for proj in lovable_projects %}
+      <div class="card lovable-card {{ '' if proj.enabled else 'disabled' }}" id="card-{{ proj.id }}">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="icon">🧡</span>
+            {{ proj.name }}
+          </div>
+          <label class="toggle">
+            <input type="checkbox" {{ 'checked' if proj.enabled else '' }}
+                   onchange="toggleLovable('{{ proj.id }}', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+        <div class="card-meta">
+          <span class="tag {{ 'active' if proj.enabled else 'inactive' }}">
+            {{ 'Ativo' if proj.enabled else 'Desativado' }}
+          </span>
+          {% if proj.external %}
+            <span class="tag ext">Externo</span>
+          {% endif %}
+        </div>
+        <div class="card-actions">
+          <a class="btn primary" href="{{ proj.url }}" target="_blank">Abrir no Lovable</a>
+          <a class="btn" href="{{ proj.preview_url }}" target="_blank">Preview</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+  </div>
+
+  <!-- Modal Logs -->
+  <div class="modal-overlay" id="logModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="logModalTitle">Logs</h3>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <pre id="logContent">Carregando...</pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Config Editor (visual) -->
+  <div class="modal-overlay" id="configModal">
+    <div class="modal" style="max-width: 900px; max-height: 90vh;">
+      <div class="modal-header">
+        <h3>Gerenciar Itens</h3>
+        <button class="modal-close" onclick="closeConfigModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="configBody">
+        <div class="cfg-tabs">
+          <button class="cfg-tab active" onclick="switchCfgTab('automations')">Automações</button>
+          <button class="cfg-tab" onclick="switchCfgTab('lovable')">Projetos Lovable</button>
+        </div>
+        <div class="cfg-panel active" id="panel-automations"></div>
+        <div class="cfg-panel" id="panel-lovable"></div>
+      </div>
+      <div class="modal-footer">
+        <div class="status" id="configFooterStatus"></div>
+        <div class="actions">
+          <button class="btn" onclick="closeConfigModal()">Cancelar</button>
+          <button class="btn-save" id="configSaveBtn" onclick="saveConfig()">Salvar alterações</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script>
+    async function toggleAutomation(id, enabled) {
+      const card = document.getElementById('card-' + id);
+      try {
+        const res = await fetch(`/api/automations/${id}/toggle`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          card.classList.toggle('disabled', !data.enabled);
+          showToast(data.enabled ? 'Automação ativada' : 'Automação desativada');
+          setTimeout(() => location.reload(), 800);
+        }
+      } catch (e) {
+        showToast('Erro ao alterar status');
+      }
+    }
+
+    async function toggleLovable(id, enabled) {
+      const card = document.getElementById('card-' + id);
+      try {
+        const res = await fetch(`/api/lovable/${id}/toggle`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          card.classList.toggle('disabled', !data.enabled);
+          showToast(data.enabled ? 'Projeto marcado como ativo' : 'Projeto marcado como desativado');
+        }
+      } catch (e) {
+        showToast('Erro ao alterar status');
+      }
+    }
+
+    async function runAutomation(id) {
+      showToast('Executando... aguarde');
+      try {
+        const res = await fetch(`/api/automations/${id}/run`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Executado com sucesso!');
+        } else if (data.message) {
+          showToast(data.message);
+        } else {
+          showToast('Erro: ' + (data.error || 'falha na execução'));
+        }
+      } catch (e) {
+        showToast('Erro de conexão');
+      }
+    }
+
+    async function viewLogs(id, name) {
+      document.getElementById('logModalTitle').textContent = `Logs — ${name}`;
+      document.getElementById('logContent').textContent = 'Carregando...';
+      document.getElementById('logModal').classList.add('active');
+      try {
+        const res = await fetch(`/api/automations/${id}/logs`);
+        const data = await res.json();
+        document.getElementById('logContent').textContent =
+          `Data: ${data.date || '—'}\n\n${data.content || 'Sem logs'}`;
+      } catch (e) {
+        document.getElementById('logContent').textContent = 'Erro ao carregar logs';
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('logModal').classList.remove('active');
+    }
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 3000);
+    }
+
+    // --- Config Editor (visual) ---
+    let cfgData = null;
+
+    async function openConfigEditor() {
+      document.getElementById('configFooterStatus').textContent = 'Carregando...';
+      document.getElementById('configModal').classList.add('active');
+      try {
+        const res = await fetch('/api/config');
+        cfgData = await res.json();
+        renderAutomations();
+        renderLovable();
+        document.getElementById('configFooterStatus').textContent = '';
+      } catch (e) {
+        document.getElementById('configFooterStatus').textContent = 'Erro ao carregar';
+      }
+    }
+
+    function closeConfigModal() {
+      document.getElementById('configModal').classList.remove('active');
+    }
+
+    function switchCfgTab(tab) {
+      document.querySelectorAll('.cfg-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.cfg-panel').forEach(p => p.classList.remove('active'));
+      document.querySelector(`.cfg-tab[onclick*="${tab}"]`).classList.add('active');
+      document.getElementById('panel-' + tab).classList.add('active');
+    }
+
+    // ---- Render Automations ----
+    function renderAutomations() {
+      const panel = document.getElementById('panel-automations');
+      let html = '';
+      cfgData.automations.forEach((a, i) => {
+        html += `
+        <div class="cfg-item">
+          <div class="cfg-item-header">
+            <div class="cfg-item-title">${a.icon || ''} ${a.name || 'Nova automação'}</div>
+            <button class="cfg-item-remove" onclick="removeAutomation(${i})">Remover</button>
+          </div>
+          <div class="cfg-row">
+            <div class="cfg-field">
+              <span class="cfg-label">Nome</span>
+              <input class="cfg-input" value="${esc(a.name)}" onchange="cfgData.automations[${i}].name=this.value">
+            </div>
+            <div class="cfg-field">
+              <span class="cfg-label">Ícone (emoji)</span>
+              <input class="cfg-input" value="${esc(a.icon)}" onchange="cfgData.automations[${i}].icon=this.value" placeholder="ex: ⚠️">
+            </div>
+          </div>
+          <div class="cfg-row full">
+            <div class="cfg-field">
+              <span class="cfg-label">Descrição</span>
+              <input class="cfg-input" value="${esc(a.description)}" onchange="cfgData.automations[${i}].description=this.value">
+            </div>
+          </div>
+          <div class="cfg-row">
+            <div class="cfg-field">
+              <span class="cfg-label">Tipo</span>
+              <select class="cfg-input" onchange="cfgData.automations[${i}].type=this.value; renderAutomations()">
+                <option value="launchd" ${a.type==='launchd'?'selected':''}>Automático (launchd)</option>
+                <option value="slash-command" ${a.type==='slash-command'?'selected':''}>Comando manual</option>
+              </select>
+            </div>
+            <div class="cfg-field">
+              <span class="cfg-label">Frequência</span>
+              <input class="cfg-input" value="${esc(a.schedule)}" onchange="cfgData.automations[${i}].schedule=this.value" placeholder="ex: Seg-Sex 09:00">
+            </div>
+          </div>
+          ${a.type === 'launchd' ? `
+          <div class="cfg-row">
+            <div class="cfg-field">
+              <span class="cfg-label">Script (caminho)</span>
+              <input class="cfg-input" value="${esc(a.script)}" onchange="cfgData.automations[${i}].script=this.value" placeholder="~/Claude-Code/...">
+            </div>
+            <div class="cfg-field">
+              <span class="cfg-label">Arquivo de config</span>
+              <input class="cfg-input" value="${esc(a.config_file)}" onchange="cfgData.automations[${i}].config_file=this.value">
+            </div>
+          </div>
+          <div class="cfg-row">
+            <div class="cfg-field">
+              <span class="cfg-label">Plist (launchd)</span>
+              <input class="cfg-input" value="${esc(a.plist)}" onchange="cfgData.automations[${i}].plist=this.value">
+            </div>
+            <div class="cfg-field">
+              <span class="cfg-label">Pasta de logs</span>
+              <input class="cfg-input" value="${esc(a.logs_dir)}" onchange="cfgData.automations[${i}].logs_dir=this.value">
+            </div>
+          </div>
+          <div class="cfg-row full">
+            <div class="cfg-field">
+              <span class="cfg-label">Label do launchd</span>
+              <input class="cfg-input" value="${esc(a.launchd_label)}" onchange="cfgData.automations[${i}].launchd_label=this.value">
+            </div>
+          </div>
+          ` : `
+          <div class="cfg-row">
+            <div class="cfg-field">
+              <span class="cfg-label">Comando</span>
+              <input class="cfg-input" value="${esc(a.command)}" onchange="cfgData.automations[${i}].command=this.value" placeholder="ex: /heartbeat-comercial">
+            </div>
+            <div class="cfg-field">
+              <span class="cfg-label">Arquivo do comando</span>
+              <input class="cfg-input" value="${esc(a.file)}" onchange="cfgData.automations[${i}].file=this.value">
+            </div>
+          </div>
+          `}
+          <div class="cfg-details">
+            <div class="cfg-details-title">Detalhes extras</div>
+            ${renderDetails(a.details || {}, i)}
+            <button class="cfg-add-detail" onclick="addDetail(${i})">+ Adicionar detalhe</button>
+          </div>
+        </div>`;
+      });
+      html += `<button class="cfg-add-item" onclick="addAutomation()">+ Adicionar automação</button>`;
+      panel.innerHTML = html;
+    }
+
+    function renderDetails(details, autoIdx) {
+      return Object.entries(details).map(([k, v], di) => `
+        <div class="cfg-detail-row">
+          <input class="cfg-detail-key" value="${esc(k)}" placeholder="Nome" onchange="updateDetailKey(${autoIdx}, ${di}, this.value)">
+          <input class="cfg-detail-val" value="${esc(v)}" placeholder="Valor" onchange="updateDetailVal(${autoIdx}, '${esc(k)}', this.value)">
+          <button class="cfg-detail-remove" onclick="removeDetail(${autoIdx}, '${esc(k)}')" title="Remover">&times;</button>
+        </div>
+      `).join('');
+    }
+
+    function updateDetailKey(autoIdx, detailIdx, newKey) {
+      const details = cfgData.automations[autoIdx].details || {};
+      const entries = Object.entries(details);
+      if (detailIdx < entries.length) {
+        const [oldKey, val] = entries[detailIdx];
+        delete details[oldKey];
+        details[newKey] = val;
+        cfgData.automations[autoIdx].details = details;
+      }
+    }
+
+    function updateDetailVal(autoIdx, key, newVal) {
+      if (!cfgData.automations[autoIdx].details) cfgData.automations[autoIdx].details = {};
+      cfgData.automations[autoIdx].details[key] = newVal;
+    }
+
+    function addDetail(autoIdx) {
+      if (!cfgData.automations[autoIdx].details) cfgData.automations[autoIdx].details = {};
+      cfgData.automations[autoIdx].details['novo_campo'] = '';
+      renderAutomations();
+    }
+
+    function removeDetail(autoIdx, key) {
+      delete cfgData.automations[autoIdx].details[key];
+      renderAutomations();
+    }
+
+    function addAutomation() {
+      cfgData.automations.push({
+        id: 'nova-automacao-' + Date.now(),
+        name: '',
+        description: '',
+        type: 'launchd',
+        schedule: '',
+        enabled: true,
+        category: 'automacao',
+        icon: '',
+        details: {}
+      });
+      renderAutomations();
+      showToast('Nova automação adicionada — preencha os campos');
+    }
+
+    function removeAutomation(idx) {
+      const name = cfgData.automations[idx].name || 'esta automação';
+      if (confirm(`Tem certeza que deseja remover "${name}"?`)) {
+        cfgData.automations.splice(idx, 1);
+        renderAutomations();
+        showToast('Automação removida');
+      }
+    }
+
+    // ---- Render Lovable ----
+    function renderLovable() {
+      const panel = document.getElementById('panel-lovable');
+      let html = '';
+      cfgData.lovable_projects.forEach((p, i) => {
+        html += `
+        <div class="cfg-item">
+          <div class="cfg-item-header">
+            <div class="cfg-item-title">🧡 ${p.name || 'Novo projeto'}</div>
+            <button class="cfg-item-remove" onclick="removeLovable(${i})">Remover</button>
+          </div>
+          <div class="cfg-row full">
+            <div class="cfg-field">
+              <span class="cfg-label">Nome do projeto</span>
+              <input class="cfg-input" value="${esc(p.name)}" onchange="cfgData.lovable_projects[${i}].name=this.value">
+            </div>
+          </div>
+          <div class="cfg-row full">
+            <div class="cfg-field">
+              <span class="cfg-label">URL do Lovable (editor)</span>
+              <input class="cfg-input" value="${esc(p.url)}" onchange="cfgData.lovable_projects[${i}].url=this.value" placeholder="https://lovable.dev/projects/...">
+            </div>
+          </div>
+          <div class="cfg-row full">
+            <div class="cfg-field">
+              <span class="cfg-label">URL do Preview</span>
+              <input class="cfg-input" value="${esc(p.preview_url)}" onchange="cfgData.lovable_projects[${i}].preview_url=this.value" placeholder="https://preview--nome.lovable.app/">
+            </div>
+          </div>
+          <div class="cfg-toggle-row">
+            <label class="toggle">
+              <input type="checkbox" ${p.external ? 'checked' : ''} onchange="cfgData.lovable_projects[${i}].external=this.checked">
+              <span class="slider"></span>
+            </label>
+            <span class="cfg-toggle-label">Projeto externo (compartilhado)</span>
+          </div>
+        </div>`;
+      });
+      html += `<button class="cfg-add-item" onclick="addLovable()">+ Adicionar projeto Lovable</button>`;
+      panel.innerHTML = html;
+    }
+
+    function addLovable() {
+      cfgData.lovable_projects.push({
+        id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+        name: '',
+        url: '',
+        preview_url: '',
+        external: false,
+        enabled: true,
+        category: 'lovable'
+      });
+      renderLovable();
+      showToast('Novo projeto adicionado — preencha os campos');
+    }
+
+    function removeLovable(idx) {
+      const name = cfgData.lovable_projects[idx].name || 'este projeto';
+      if (confirm(`Tem certeza que deseja remover "${name}"?`)) {
+        cfgData.lovable_projects.splice(idx, 1);
+        renderLovable();
+        showToast('Projeto removido');
+      }
+    }
+
+    // ---- Save ----
+    async function saveConfig() {
+      const footerStatus = document.getElementById('configFooterStatus');
+      footerStatus.textContent = 'Salvando...';
+      try {
+        const res = await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cfgData)
+        });
+        const data = await res.json();
+        if (data.success) {
+          footerStatus.textContent = 'Salvo!';
+          showToast('Salvo com sucesso! Recarregando...');
+          setTimeout(() => location.reload(), 1000);
+        } else {
+          footerStatus.textContent = 'Erro: ' + (data.error || 'falha');
+          showToast('Erro: ' + (data.error || 'falha ao salvar'));
+        }
+      } catch (e) {
+        footerStatus.textContent = 'Erro de conexão';
+        showToast('Erro de conexão ao salvar');
+      }
+    }
+
+    function esc(v) { return (v || '').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
+    // Close modals on overlay click
+    document.getElementById('logModal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+    document.getElementById('configModal').addEventListener('click', function(e) {
+      if (e.target === this) closeConfigModal();
+    });
+
+    // Close modals on Escape
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') { closeModal(); closeConfigModal(); }
+    });
+  </script>
+
+</body>
+</html>
