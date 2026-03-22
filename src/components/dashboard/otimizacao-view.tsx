@@ -405,7 +405,7 @@ export function OtimizacaoView() {
         <div style={{ flex: 1 }} />
 
         {/* Ações utilitárias à direita */}
-        <button onClick={() => setShowLog(true)} style={{ fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Log de pausas</button>
+        <button onClick={() => setShowLog(true)} style={{ fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}>Log de pausas · v4</button>
         <button onClick={() => setShowAbout(true)} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}><Info size={13} /> Sobre</button>
         <button onClick={() => setShowSettings(s => !s)} style={{ display: "flex", alignItems: "center", fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}><Settings size={13} /></button>
         <button onClick={fetchData} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: T.mutedFg, background: "none", border: "none", cursor: "pointer", fontFamily: "inherit" }}><RefreshCw size={13} /></button>
