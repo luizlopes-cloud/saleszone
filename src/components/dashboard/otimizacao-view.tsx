@@ -274,10 +274,11 @@ export function OtimizacaoView() {
               }
             }
           } catch { /* retry opcional */ }
-          // Fallback: se ainda UNKNOWN após retry, usar spend_7d como proxy
+          // Fallback: UNKNOWN = Meta não retornou o ad (sem permissão ou delay).
+          // Se Meta confirmasse PAUSED, teria retornado "PAUSED". Portanto, assumir ACTIVE.
           for (const ad of perf) {
             if (ad.effective_status === "UNKNOWN") {
-              ad.effective_status = (ad.spend_7d && ad.spend_7d > 0) ? "ACTIVE" : "UNKNOWN"
+              ad.effective_status = "ACTIVE"
             }
           }
         }
