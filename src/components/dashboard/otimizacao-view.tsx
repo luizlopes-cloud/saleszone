@@ -258,22 +258,26 @@ export function OtimizacaoView() {
         // Retry para UNKNOWN + fallback spend_7d
         const unknownIds = perf.filter(a => a.effective_status === "UNKNOWN").map(a => a.ad_id)
         if (unknownIds.length > 0) {
-          const retryRes = await fetch("/api/meta-ads/meta-status", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ adIds: unknownIds }),
-          })
-          if (retryRes.ok) {
-            const { statuses: retryStatuses } = await retryRes.json()
-            if (retryStatuses) {
-              for (const ad of perf) {
-                if (ad.effective_status === "UNKNOWN") {
-                  if (retryStatuses[ad.ad_id]) {
+          try {
+            const retryRes = await fetch("/api/meta-ads/meta-status", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ adIds: unknownIds }),
+            })
+            if (retryRes.ok) {
+              const { statuses: retryStatuses } = await retryRes.json()
+              if (retryStatuses) {
+                for (const ad of perf) {
+                  if (ad.effective_status === "UNKNOWN" && retryStatuses[ad.ad_id]) {
                     ad.effective_status = retryStatuses[ad.ad_id]
-                  } else {
-                    ad.effective_status = (ad.spend_7d && ad.spend_7d > 0) ? "ACTIVE" : "UNKNOWN"
                   }
                 }
               }
+            }
+          } catch { /* retry opcional */ }
+          // Fallback: se ainda UNKNOWN após retry, usar spend_7d como proxy
+          for (const ad of perf) {
+            if (ad.effective_status === "UNKNOWN") {
+              ad.effective_status = (ad.spend_7d && ad.spend_7d > 0) ? "ACTIVE" : "UNKNOWN"
             }
           }
         }
