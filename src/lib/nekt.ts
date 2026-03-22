@@ -27,24 +27,33 @@ export async function queryNekt(sql: string): Promise<NektQueryResult> {
 
   const queryData = await queryRes.json()
 
-  let presignedUrl: string | undefined
-  if (queryData.presigned_url) {
-    presignedUrl = queryData.presigned_url
-  } else if (queryData.presigned_urls && Array.isArray(queryData.presigned_urls) && queryData.presigned_urls.length > 0) {
-    presignedUrl = queryData.presigned_urls[0]
+  // A API pode retornar presigned_url (singular) ou presigned_urls (plural array)
+  let urls: string[] = []
+  if (queryData.presigned_urls && Array.isArray(queryData.presigned_urls) && queryData.presigned_urls.length > 0) {
+    urls = queryData.presigned_urls
+  } else if (queryData.presigned_url) {
+    urls = [queryData.presigned_url]
   } else if (queryData.url) {
-    presignedUrl = queryData.url
+    urls = [queryData.url]
   }
 
-  if (!presignedUrl) {
+  if (urls.length === 0) {
     throw new Error(`Nekt API: resposta sem presigned_url — ${JSON.stringify(queryData)}`)
   }
 
-  const csvRes = await fetch(presignedUrl)
-  if (!csvRes.ok) throw new Error(`Falha ao baixar CSV: ${csvRes.status}`)
-  const csvText = await csvRes.text()
+  // Baixa todos os chunks em paralelo
+  const csvChunks = await Promise.all(urls.map(async (url) => {
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(`Falha ao baixar CSV: ${res.status}`)
+    return res.text()
+  }))
 
-  return parseCSV(csvText)
+  // Concatena (chunks após o primeiro têm header — pular)
+  const combined = csvChunks[0] + (csvChunks.length > 1
+    ? "\n" + csvChunks.slice(1).map(c => c.trim().split("\n").slice(1).join("\n")).join("\n")
+    : "")
+
+  return parseCSV(combined)
 }
 
 function parseCSVLine(line: string): string[] {
@@ -109,6 +118,7 @@ export function buildFilteredSQL(filters: {
   date_from?: string
   date_to?: string
   window?: number
+  ad_id?: string
 }): string {
   const windowDays = filters.window || 90
   const conditions: string[] = []
@@ -135,6 +145,11 @@ export function buildFilteredSQL(filters: {
 
   // Status da Nekt é unreliable — status real vem do Meta API
   // Não filtramos por status no SQL
+
+  if (filters.ad_id) {
+    const escaped = filters.ad_id.replace(/'/g, "''")
+    conditions.push(`ad_id = '${escaped}'`)
+  }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""
   return `SELECT * FROM nekt_silver.ads_unificado ${where} ORDER BY date DESC`
