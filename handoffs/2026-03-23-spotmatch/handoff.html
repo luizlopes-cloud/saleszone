@@ -1,0 +1,1195 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Handoff — SpotMatch</title>
+  <style>
+    /* ===== Reset & Base ===== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --bg-card: #1a1d27;
+      --bg-card-hover: #222633;
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --border: #2d3348;
+      --radius: 8px;
+
+      /* Demand type colors */
+      --type-bugfix: #ef4444;
+      --type-ajuste: #3b82f6;
+      --type-evolucao: #f59e0b;
+      --type-feature: #22c55e;
+      --type-produto: #8b5cf6;
+
+      /* Size colors */
+      --size-p: #34d399;
+      --size-m: #fbbf24;
+      --size-g: #f97316;
+      --size-gg: #ef4444;
+
+      /* Marker colors */
+      --marker-clarification: #ef4444;
+      --marker-assumption: #eab308;
+      --marker-tech-review: #f97316;
+      --marker-existing: #3b82f6;
+      --marker-new: #22c55e;
+    }
+
+    html { font-size: 16px; scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ===== Header ===== */
+    header {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 2rem 2rem 1.5rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      color: #fff;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+
+    .meta span:not(.badge)::before {
+      content: '\00B7';
+      margin-right: 0.5rem;
+      color: var(--border);
+    }
+
+    .meta span:first-child::before { content: none; }
+
+    .review-score {
+      margin-top: 1rem;
+      font-size: 1.125rem;
+      font-weight: 600;
+      color: var(--accent-light);
+    }
+
+    /* ===== Badges ===== */
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      border: 1px solid transparent;
+    }
+
+    .badge-bugfix         { background: var(--type-bugfix);      color: #fff; }
+    .badge-ajuste         { background: var(--type-ajuste);      color: #fff; }
+    .badge-evolucao       { background: var(--type-evolucao);    color: #1a1d27; }
+    .badge-feature        { background: var(--type-feature);     color: #fff; }
+    .badge-produto        { background: var(--type-produto);     color: #fff; }
+
+    .badge-P  { background: transparent; border-color: var(--size-p);  color: var(--size-p); }
+    .badge-M  { background: transparent; border-color: var(--size-m);  color: var(--size-m); }
+    .badge-G  { background: transparent; border-color: var(--size-g);  color: var(--size-g); }
+    .badge-GG { background: transparent; border-color: var(--size-gg); color: var(--size-gg); }
+
+    /* ===== Sticky Nav ===== */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      gap: 0;
+      max-width: 960px;
+      margin: 0 auto;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      padding: 0.75rem 1.25rem;
+      font-size: 0.875rem;
+      font-weight: 500;
+      white-space: nowrap;
+      border-bottom: 2px solid transparent;
+      transition: color 0.2s, border-color 0.2s;
+    }
+
+    nav a:hover {
+      color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ===== Main ===== */
+    main {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    /* ===== Sections ===== */
+    section {
+      margin-bottom: 3rem;
+    }
+
+    section > h2 {
+      font-size: 1.375rem;
+      font-weight: 700;
+      margin-bottom: 1.25rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--accent);
+      color: #fff;
+    }
+
+    section > p,
+    section > div {
+      color: var(--text);
+      line-height: 1.7;
+    }
+
+    /* Part B visual distinction */
+    .part-b {
+      border-left: 3px solid var(--accent);
+      padding-left: 1.5rem;
+    }
+
+    .part-b > h2 {
+      border-bottom-color: var(--accent-light);
+    }
+
+    /* ===== Details / Summary ===== */
+    details {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 0.75rem;
+      overflow: hidden;
+    }
+
+    summary {
+      padding: 1rem 1.25rem;
+      font-weight: 600;
+      font-size: 0.95rem;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: background 0.15s;
+      user-select: none;
+    }
+
+    summary::-webkit-details-marker { display: none; }
+
+    summary::before {
+      content: '\25B8';
+      font-size: 0.75rem;
+      transition: transform 0.2s ease;
+      flex-shrink: 0;
+      width: 1rem;
+      text-align: center;
+    }
+
+    details[open] > summary::before {
+      transform: rotate(90deg);
+    }
+
+    summary:hover {
+      background: var(--bg-card-hover);
+    }
+
+    details > div {
+      padding: 0 1.25rem 1.25rem;
+      color: var(--text);
+      line-height: 1.7;
+      animation: slideDown 0.2s ease;
+    }
+
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Content inside details */
+    details div ul,
+    details div ol {
+      padding-left: 1.25rem;
+      margin: 0.5rem 0;
+    }
+
+    details div li {
+      margin-bottom: 0.25rem;
+    }
+
+    details div p {
+      margin-bottom: 0.75rem;
+    }
+
+    details div p:last-child {
+      margin-bottom: 0;
+    }
+
+    details div code {
+      background: #2d3348;
+      padding: 0.15rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.875em;
+      color: var(--accent-light);
+    }
+
+    details div pre {
+      background: #0f1117;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+      overflow-x: auto;
+      margin: 0.75rem 0;
+      font-size: 0.85rem;
+      line-height: 1.5;
+    }
+
+    details div pre code {
+      background: none;
+      padding: 0;
+      border-radius: 0;
+    }
+
+    details div table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75rem 0;
+      font-size: 0.9rem;
+    }
+
+    details div th,
+    details div td {
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    details div th {
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* ===== Markers ===== */
+    .marker {
+      display: inline-block;
+      padding: 0.15rem 0.5rem;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      vertical-align: middle;
+    }
+
+    .marker-needs-clarification,
+    .marker-clarification {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--marker-clarification);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .marker-assumption {
+      background: rgba(234, 179, 8, 0.15);
+      color: var(--marker-assumption);
+      border: 1px solid rgba(234, 179, 8, 0.3);
+    }
+
+    .marker-needs-technical-review,
+    .marker-tech-review {
+      background: rgba(249, 115, 22, 0.15);
+      color: var(--marker-tech-review);
+      border: 1px solid rgba(249, 115, 22, 0.3);
+    }
+
+    .marker-existing {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--marker-existing);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .marker-new {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--marker-new);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+    }
+
+    /* ===== Responsive ===== */
+    @media (max-width: 640px) {
+      header { padding: 1.25rem 1rem 1rem; }
+      header h1 { font-size: 1.35rem; }
+      main { padding: 1.25rem 1rem; }
+      nav a { padding: 0.6rem 0.85rem; font-size: 0.8rem; }
+      .meta { font-size: 0.8rem; }
+      .part-b { padding-left: 1rem; }
+      summary { padding: 0.85rem 1rem; font-size: 0.9rem; }
+      details > div { padding: 0 1rem 1rem; }
+    }
+
+    /* ===== Print ===== */
+    @media print {
+      body {
+        background: #fff;
+        color: #1a1a1a;
+        font-size: 11pt;
+      }
+
+      nav { display: none; }
+
+      header {
+        background: none;
+        border-bottom: 2px solid #333;
+        padding: 0 0 0.5rem;
+      }
+
+      header h1 { color: #000; font-size: 18pt; }
+      .meta span { color: #555; }
+      .review-score { color: #333; }
+
+      .badge {
+        border: 1px solid #999;
+        color: #333 !important;
+        background: #eee !important;
+      }
+
+      main { padding: 0; max-width: 100%; }
+
+      section > h2 {
+        color: #000;
+        border-bottom-color: #333;
+        page-break-after: avoid;
+      }
+
+      details {
+        border: 1px solid #ccc;
+        background: none;
+        break-inside: avoid;
+      }
+
+      details,
+      details[open] {
+        open: true;
+      }
+
+      /* Force all details open in print */
+      details:not([open]) > summary ~ * {
+        display: block !important;
+      }
+
+      details > summary::before { content: ''; }
+
+      summary {
+        font-weight: 700;
+        border-bottom: 1px solid #ddd;
+      }
+
+      details > div {
+        animation: none;
+      }
+
+      .part-b {
+        border-left: 3px solid #333;
+      }
+
+      pre {
+        border: 1px solid #ccc !important;
+        background: #f5f5f5 !important;
+      }
+
+      code {
+        background: #f0f0f0 !important;
+        color: #333 !important;
+      }
+
+      .marker {
+        border: 1px solid currentColor;
+      }
+
+      a { color: #333; text-decoration: underline; }
+    }
+  </style>
+  <!-- Force all details open when printing via JS -->
+  <script>
+    window.addEventListener('beforeprint', () => {
+      document.querySelectorAll('details:not([open])').forEach(d => {
+        d.setAttribute('open', '');
+        d.dataset.closedBeforePrint = 'true';
+      });
+    });
+    window.addEventListener('afterprint', () => {
+      document.querySelectorAll('details[data-closed-before-print]').forEach(d => {
+        d.removeAttribute('open');
+        delete d.dataset.closedBeforePrint;
+      });
+    });
+  </script>
+</head>
+<body>
+  <header>
+    <h1>SpotMatch</h1>
+    <div class="meta">
+      <span class="badge badge-produto">Produto Novo</span>
+      <span class="badge badge-G">G</span>
+      <span>2026-03-23</span>
+      <span>Cliente: Matheus Ambrosi</span>
+      <span>Squad: AIOps (produto interno)</span>
+      <span>Fan-out: Dados (Sapron, Nekt, MIA)</span>
+    </div>
+    <div class="review-score">Score: 8/10</div>
+  </header>
+
+  <nav>
+    <a href="#resumo">Resumo</a>
+    <a href="#parte-a">Visao de Negocio</a>
+    <a href="#parte-b">Spec Tecnica</a>
+    <a href="#pesquisa">Pesquisa</a>
+    <a href="#feedback">Feedback</a>
+  </nav>
+
+  <main>
+    <!-- Resumo executivo -->
+    <section id="resumo">
+      <h2>Resumo Executivo</h2>
+      <p>SpotMatch e um assistente de recomendacao de unidades imobiliarias para closers da Seazone Investimentos. Cruza o perfil completo do lead (Pipedrive, MIA, Meta Ads, Nekt, LinkedIn, Instagram) com o estoque disponivel no Sapron e sugere 1 unidade principal + 2 backups, refinando em 3 rodadas: preparacao (antes da reuniao), perguntas complementares (ao vivo) e feedback do cliente (durante apresentacao). Objetivo: elevar a conversao OPP&rarr;WON de ~20-25% para &ge;35%.</p>
+    </section>
+
+    <!-- PARTE A — Visao de Negocio -->
+    <section id="parte-a" class="part-a">
+      <h2>Parte A — Visao de Negocio</h2>
+
+      <details open>
+        <summary>Problema</summary>
+        <div>
+          <p>Os closers da Seazone Investimentos escolhem quais unidades apresentar a cada lead com base na memoria e intuicao. Nao ha cruzamento sistematico entre o que a Seazone ja sabe sobre o lead (origem, conversas, comportamento) e o estoque de unidades disponiveis. Isso resulta em reunioes menos assertivas &mdash; o closer pode mostrar unidades que nao fazem sentido pro perfil do cliente.</p>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Proposta</summary>
+        <div>
+          <p><strong>SpotMatch</strong> &mdash; assistente de recomendacao de unidades que cruza o perfil completo do lead com o estoque disponivel e sugere <strong>1 unidade principal + 2 backups</strong>, refinando a sugestao em 3 rodadas:</p>
+          <ol>
+            <li><strong>Preparacao (antes da reuniao)</strong> &mdash; o closer busca o lead e recebe recomendacoes automaticas com base em tudo que a Seazone sabe</li>
+            <li><strong>Reuniao (ao vivo)</strong> &mdash; o closer faz perguntas complementares e o sistema refina em tempo real</li>
+            <li><strong>Feedback (durante apresentacao)</strong> &mdash; o cliente reage as unidades e o sistema ajusta novamente</li>
+          </ol>
+        </div>
+      </details>
+
+      <details>
+        <summary>User Stories</summary>
+        <div>
+          <p><strong>US1 &mdash; Busca e perfil do lead</strong></p>
+          <blockquote style="border-left: 3px solid var(--accent); padding-left: 1rem; margin: 0.5rem 0; color: var(--text-muted);">Como closer, quero buscar um lead por email, telefone ou deal ID e ver um resumo de tudo que a Seazone sabe sobre ele, para me preparar antes da reuniao.</blockquote>
+          <p><strong>Criterios de aceite:</strong></p>
+          <ul>
+            <li>Busca por email, telefone ou deal ID</li>
+            <li>Exibe dados agregados de: Pipedrive, MIA, Meta Ads, Nekt (Baserow + RD Station), LinkedIn, Instagram, email</li>
+            <li>Mostra: campanha de origem, formularios preenchidos, conversas com MIA/pre-vendas, perfil redes sociais</li>
+            <li>Funciona como preparacao (antes) e com tela aberta (durante reuniao)</li>
+          </ul>
+
+          <p><strong>US2 &mdash; Recomendacao automatica (Rodada 1)</strong></p>
+          <blockquote style="border-left: 3px solid var(--accent); padding-left: 1rem; margin: 0.5rem 0; color: var(--text-muted);">Como closer, quero receber 1 unidade principal + 2 backups com justificativa, baseado no perfil do lead e nas unidades disponiveis.</blockquote>
+          <p><strong>Criterios de aceite:</strong></p>
+          <ul>
+            <li>Cruza perfil do lead com estoque disponivel do Sapron</li>
+            <li>Considera: preco, andar, vista, rentabilidade, metragem, posicao solar, area externa</li>
+            <li>Exibe justificativa para cada recomendacao (ex: "investidor com budget de 600k que busca rentabilidade &rarr; unidade X tem melhor rentabilidade na faixa")</li>
+            <li>Somente unidades com status disponivel</li>
+          </ul>
+
+          <p><strong>US3 &mdash; Refinamento por perguntas (Rodada 2)</strong></p>
+          <blockquote style="border-left: 3px solid var(--accent); padding-left: 1rem; margin: 0.5rem 0; color: var(--text-muted);">Como closer, quero responder perguntas complementares durante a reuniao e ver a recomendacao se ajustar.</blockquote>
+          <p><strong>Criterios de aceite:</strong></p>
+          <ul>
+            <li>Perguntas pre-definidas apresentadas na interface:
+              <ul>
+                <li>Ja comprou imoveis? Qual modelo juridico?</li>
+                <li>Imoveis investidos sao para aluguel short stay?</li>
+                <li>Qual o orcamento considerando parcelamento de 54 meses?</li>
+                <li>Pretende usar? Com a familia?</li>
+                <li>Por que busca investir? Renda passiva ou revenda?</li>
+                <li>Qual o fator determinante para a compra?</li>
+                <li>De onde e? Tem preferencia por localizacao?</li>
+              </ul>
+            </li>
+            <li>Cada resposta refina a recomendacao 1+2</li>
+            <li>Interface conversacional (nao formulario rigido)</li>
+          </ul>
+
+          <p><strong>US4 &mdash; Refinamento por feedback (Rodada 3)</strong></p>
+          <blockquote style="border-left: 3px solid var(--accent); padding-left: 1rem; margin: 0.5rem 0; color: var(--text-muted);">Como closer, quero registrar as reacoes do cliente as unidades apresentadas e ver novas sugestoes ajustadas.</blockquote>
+          <p><strong>Criterios de aceite:</strong></p>
+          <ul>
+            <li>Closer registra feedback em linguagem natural (ex: "achou caro", "quer vista mar", "gostou da planta")</li>
+            <li>Sistema reprocessa e sugere novas 1+2 ou reordena as existentes</li>
+            <li>Interface conversacional</li>
+          </ul>
+
+          <p><strong>US5 &mdash; Visualizacao completa da unidade</strong></p>
+          <blockquote style="border-left: 3px solid var(--accent); padding-left: 1rem; margin: 0.5rem 0; color: var(--text-muted);">Como closer, quero ver todos os dados de venda da unidade recomendada em uma tela, para apresentar ao cliente sem sair do sistema.</blockquote>
+          <p><strong>Criterios de aceite:</strong></p>
+          <ul>
+            <li>Exibe: preco, andar, vista, rentabilidade, metragem, posicao solar, area externa</li>
+            <li>Exibe: planta, fluxo de pagamento, vista da unidade</li>
+            <li>Referencia visual: prototipo seazone360.lovable.app</li>
+            <li>Unidades indisponiveis nao aparecem</li>
+          </ul>
+
+          <p><strong>US6 &mdash; Override do closer com feedback</strong></p>
+          <blockquote style="border-left: 3px solid var(--accent); padding-left: 1rem; margin: 0.5rem 0; color: var(--text-muted);">Como closer, quero poder ignorar a recomendacao e escolher outra unidade, sabendo que isso sera registrado para aprendizado.</blockquote>
+          <p><strong>Criterios de aceite:</strong></p>
+          <ul>
+            <li>Closer pode navegar livremente pelo estoque e escolher manualmente</li>
+            <li>Sistema registra: unidade recomendada vs. unidade escolhida vs. resultado final (reservou ou nao)</li>
+            <li>Dados alimentam aprendizado (Fase 1) e gestao (feedback ao closer se override foi desnecessario)</li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>Regras de Negocio</summary>
+        <div>
+          <table>
+            <thead>
+              <tr><th>#</th><th>Regra</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>RN1</td><td>Somente unidades com status "disponivel" no Sapron sao recomendadas</td></tr>
+              <tr><td>RN2</td><td>Qualquer closer pode vender qualquer unidade de qualquer empreendimento</td></tr>
+              <tr><td>RN3</td><td>Recomendacao sempre exibe 1 principal + 2 backups</td></tr>
+              <tr><td>RN4</td><td>A campanha/empreendimento de origem do lead e contexto primario para a primeira recomendacao</td></tr>
+              <tr><td>RN5</td><td>Override do closer e permitido mas registrado para aprendizado e feedback</td></tr>
+              <tr><td>RN6</td><td>Estoque deve refletir disponibilidade em tempo real (unidade vendida sai imediatamente)</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details>
+        <summary>Visual / Referencias</summary>
+        <div>
+          <ul>
+            <li><strong>Prototipo visual:</strong> <a href="https://seazone360.lovable.app/" target="_blank">https://seazone360.lovable.app/</a></li>
+            <li><strong>Link de edicao Lovable:</strong> <a href="https://lovable.dev/projects/e52fbbe6-0e52-423f-81aa-c66e1f3223db" target="_blank">https://lovable.dev/projects/e52fbbe6-0e52-423f-81aa-c66e1f3223db</a></li>
+          </ul>
+          <p>O prototipo seazone360 serve como referencia para a tela de visualizacao da unidade (planta, fluxo de pagamento, vista). <span class="marker marker-tech-review">PENDENCIA P3</span> &mdash; exportar codigo pro repo seazone-socios (instalar Lovable GitHub App na org).</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Integracoes</summary>
+        <div>
+          <table>
+            <thead>
+              <tr><th>Fonte</th><th>Tipo de dado</th><th>Sistema</th><th>Acesso</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Pipedrive</td><td>Deal, historico, atividades, campanha, owner</td><td>API REST</td><td>API token existente</td></tr>
+              <tr><td>MIA</td><td>Conversas com leads</td><td>Metabase (metabase.morada.ai)</td><td><span class="marker marker-clarification">PENDENCIA</span> banco por tras, identificador do lead</td></tr>
+              <tr><td>Meta Ads</td><td>Campanha de origem, anuncios clicados, formularios</td><td>API Meta + squad_meta_ads</td><td>Existente</td></tr>
+              <tr><td>Nekt</td><td>Baserow (leads, formularios) + RD Station (conversoes)</td><td>Nekt SQL</td><td>Existente</td></tr>
+              <tr><td>LinkedIn</td><td>Perfil profissional do lead</td><td>MCP LinkedIn</td><td>Disponivel</td></tr>
+              <tr><td>Instagram</td><td>Perfil do lead</td><td>MCP Instagram</td><td>Disponivel</td></tr>
+              <tr><td>Email</td><td>Historico de comunicacoes</td><td><span class="marker marker-needs-clarification">NEEDS CLARIFICATION</span> qual sistema de email?</td><td>&mdash;</td></tr>
+              <tr><td>Sapron</td><td>Estoque de unidades disponiveis</td><td>MySQL no Google Cloud SQL</td><td><span class="marker marker-clarification">PENDENCIA</span> API ou SQL direto? Tabelas/colunas?</td></tr>
+              <tr><td>seazone360</td><td>Visualizacao da unidade (planta, fluxo, vista)</td><td>Lovable app</td><td><span class="marker marker-clarification">PENDENCIA</span> exportar codigo pro GitHub</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Outcome Mensuravel</summary>
+        <div>
+          <table>
+            <thead>
+              <tr><th>Metrica</th><th>Baseline atual</th><th>Meta</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Conversao OPP&rarr;WON</td><td>~20-25% (ratios 90d via <code>squad_ratios_daily</code>)</td><td>&ge;35%</td></tr>
+            </tbody>
+          </table>
+          <p><strong>Como medir:</strong> Acompanhar a taxa OPP&rarr;WON no dashboard saleszone (aba Acompanhamento / Performance Vendas). Comparar os 90 dias pre-SpotMatch vs. pos-SpotMatch, controlando por closer.</p>
+          <p><strong>Indicadores secundarios:</strong></p>
+          <ul>
+            <li>Tempo medio da reuniao ate reserva (leadtime OPP&rarr;Reserva via aba Leadtime)</li>
+            <li>Taxa de override do closer (SpotMatch recomendou X, closer escolheu Y &mdash; quanto menor, mais assertivo o sistema)</li>
+            <li>Quantidade de reunioes por reserva (menos reunioes = recomendacao mais assertiva)</li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>Appetite (time-box do negocio)</summary>
+        <div>
+          <p><strong>Prioridade:</strong> Maxima &mdash; investir todo o tempo necessario. Sem limite de time-box.</p>
+          <p><strong>Decisao do cliente:</strong> "Para amanha. Todo tempo possivel."</p>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Analise de Viabilidade</summary>
+        <div>
+          <p><strong>Complexidade tecnica:</strong></p>
+          <ul>
+            <li>Agregacao de 8+ fontes de dados heterogeneas (APIs REST, SQL, MCPs, Metabase)</li>
+            <li>Motor de recomendacao com IA (matching perfil &times; unidades + refinamento conversacional)</li>
+            <li>Interface dual: preparacao (dados estaticos) + reuniao ao vivo (refinamento em tempo real)</li>
+            <li>3 pendencias tecnicas que podem impactar escopo/prazo</li>
+          </ul>
+          <p><strong>Riscos:</strong></p>
+          <ul>
+            <li><strong>Sapron sem API</strong> &rarr; se nao tiver API, precisa criar uma camada de acesso. Pode atrasar</li>
+            <li><strong>MIA sem identificador claro</strong> &rarr; se conversas nao sao ligadas por deal ID/email, o cruzamento fica manual ou impossivel</li>
+            <li><strong>Qualidade dos dados</strong> &rarr; se dados do lead estao incompletos (ex: sem LinkedIn), a recomendacao perde assertividade. Precisa de fallback gracioso</li>
+            <li><strong>Atualizacao do estoque</strong> &rarr; se o Sapron nao reflete venda em tempo real, closer pode recomendar unidade ja vendida</li>
+          </ul>
+          <p><strong>Custos potenciais:</strong></p>
+          <ul>
+            <li>APIs LinkedIn/Instagram podem ter limites de uso</li>
+            <li>Infra para o motor de recomendacao (chamadas de IA por consulta)</li>
+            <li>Possivel necessidade de criar API intermediaria pro Sapron</li>
+          </ul>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Faseamento</summary>
+        <div>
+          <p><strong>Fase 0 &mdash; MVP</strong></p>
+          <p><em>Dados do lead (todas as fontes):</em></p>
+          <ul>
+            <li>Pipedrive (deal, historico, campanha de origem)</li>
+            <li>Nekt (Baserow, RD Station)</li>
+            <li>MIA (conversas via Metabase)</li>
+            <li>LinkedIn e Instagram (via MCPs)</li>
+            <li>Email (historico de comunicacoes)</li>
+            <li>Meta Ads (jornada: anuncios clicados, formularios preenchidos)</li>
+          </ul>
+          <p><em>Motor de recomendacao:</em></p>
+          <ul>
+            <li>Busca do lead por email, telefone ou deal ID</li>
+            <li>Resumo agregado do lead (perfil, interesses, comportamento)</li>
+            <li>Rodada 1: recomendacao automatica 1+2 com justificativa</li>
+            <li>Rodada 2: perguntas complementares que refinam</li>
+            <li>Rodada 3: feedback do cliente que refina novamente</li>
+            <li>Visualizacao completa da unidade (ref. seazone360)</li>
+            <li>Override do closer com registro</li>
+          </ul>
+          <p><em>Banco de unidades:</em> Sapron (somente disponiveis)</p>
+
+          <p><strong>Fase 1 &mdash; Inteligencia e escala</strong></p>
+          <ul>
+            <li>Historico de recomendacoes passadas (o que foi mostrado + feedback)</li>
+            <li>Aprendizado com vendas fechadas (quais combinacoes lead &times; unidade converteram)</li>
+            <li>Feedback ao closer quando override foi desnecessario</li>
+            <li>Sugestao proativa antes da reuniao (integracao Google Calendar)</li>
+            <li>Dashboard de uso e taxa de acerto das recomendacoes</li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>Validacao</summary>
+        <div>
+          <p><strong>Sucesso:</strong> O cliente sai da reuniao com unidade escolhida, fluxo de pagamento aprovado, reserva feita e informacoes para partir pro contrato.</p>
+          <p><strong>Fracasso:</strong> A reuniao nao gera reserva.</p>
+          <p><strong>Caminhos felizes:</strong></p>
+          <ol>
+            <li>Closer busca lead &rarr; ve perfil completo &rarr; recebe recomendacao assertiva &rarr; mostra na reuniao &rarr; cliente escolhe &rarr; reserva</li>
+            <li>Primeira recomendacao nao agrada &rarr; closer faz perguntas &rarr; sistema refina &rarr; cliente gosta &rarr; reserva</li>
+            <li>Cliente da feedback negativo &rarr; sistema ajusta &rarr; nova recomendacao acerta &rarr; reserva</li>
+          </ol>
+          <p><strong>Caminhos tristes:</strong></p>
+          <ol>
+            <li>Lead nao tem dados suficientes em nenhuma fonte &rarr; recomendacao generica (fallback por orcamento + localizacao)</li>
+            <li>Unidade recomendada vendida entre a preparacao e a reuniao &rarr; sistema precisa atualizar em tempo real</li>
+            <li>Closer faz override &rarr; escolhe errado &rarr; nao converte &rarr; sistema registra para aprendizado</li>
+            <li>MIA nao tem conversa com esse lead &rarr; sistema segue sem esse dado</li>
+          </ol>
+        </div>
+      </details>
+
+      <details>
+        <summary>Marcadores</summary>
+        <div>
+          <p><strong>Pendencias:</strong></p>
+          <ul>
+            <li><span class="marker marker-clarification">PENDENCIA P1</span> Sapron: tem API ou so SQL direto? Quais tabelas/colunas de unidades?</li>
+            <li><span class="marker marker-clarification">PENDENCIA P2</span> Metabase MIA: qual banco por tras? Acesso direto possivel? Identificador de ligacao lead&harr;conversa (deal ID? email? telefone?)</li>
+            <li><span class="marker marker-clarification">PENDENCIA P3</span> Lovable seazone360: exportar codigo pro repo seazone-socios (instalar Lovable GitHub App na org)</li>
+            <li><span class="marker marker-clarification">PENDENCIA P4</span> Email: qual sistema e usado para comunicacao com leads? Tem API?</li>
+          </ul>
+          <p><strong>Needs Clarification:</strong></p>
+          <ul>
+            <li><span class="marker marker-needs-clarification">NEEDS CLARIFICATION</span> Qual sistema de email e usado para comunicacao com leads?</li>
+          </ul>
+        </div>
+      </details>
+    </section>
+
+    <!-- PARTE B — Spec Tecnica -->
+    <section id="parte-b" class="part-b">
+      <h2>Parte B — Spec Tecnica (para dev)</h2>
+
+      <details open>
+        <summary>Contexto do Codebase</summary>
+        <div>
+          <p>O dashboard saleszone ja tem integracoes com:</p>
+          <ul>
+            <li><strong>Pipedrive API</strong> (deals, atividades, users, stages) &mdash; token em vault Supabase</li>
+            <li><strong>Meta Ads API</strong> (campanhas, ads, insights) &mdash; token em vault Supabase</li>
+            <li><strong>Google Calendar API</strong> (eventos closers) &mdash; Service Account com Domain-wide Delegation</li>
+            <li><strong>Nekt</strong> (via MCP tools &mdash; <code>execute_sql</code>, <code>get_relevant_tables_ddl</code>, <code>list_tables</code>)</li>
+            <li><strong>Supabase</strong> (PostgreSQL &mdash; tabelas squad_*, auth, RLS)</li>
+            <li><strong>Baserow</strong> (via Edge Function sync-baserow-forms)</li>
+          </ul>
+          <p>Closers ja cadastrados em <code>src/lib/constants.ts</code> (V_COLS com squad, email, prefixo).</p>
+        </div>
+      </details>
+
+      <details open>
+        <summary>O que ja existe</summary>
+        <div>
+          <p>Integracoes ja implementadas no codebase que SpotMatch pode reutilizar:</p>
+          <ul>
+            <li><strong>Pipedrive:</strong> API token no vault Supabase. Patterns de busca de deals, atividades, persons em multiplas routes (<code>diagnostico-vendas</code>, <code>performance</code>, <code>presales</code>). Pipeline 28, 14 stage IDs.</li>
+            <li><strong>Meta Ads:</strong> Tabela <code>squad_meta_ads</code> com snapshots diarios. Edge Function <code>sync-squad-meta-ads</code> faz match campaign_name &rarr; empreendimento.</li>
+            <li><strong>Google Calendar:</strong> Service Account com Domain-wide Delegation. Edge Function <code>sync-squad-calendar</code> ja impersona closers e busca eventos.</li>
+            <li><strong>Nekt:</strong> MCP tools (<code>execute_sql</code>) ja integrados. Tabelas Baserow e RD Station acessiveis.</li>
+            <li><strong>Auth:</strong> Supabase Auth com OAuth Google, dominio <code>@seazone.com.br</code>. Middleware protege rotas.</li>
+          </ul>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Arquivos de referencia (pattern examples)</summary>
+        <div>
+          <p>Arquivos existentes que servem como referencia de patterns:</p>
+          <ul>
+            <li><code>src/app/api/dashboard/diagnostico-vendas/route.ts</code> &mdash; busca deals abertos de <code>squad_deals</code>, filtra por closers, pagina com <code>.range()</code>. Bom pattern para busca e agregacao de deals.</li>
+            <li><code>src/app/api/dashboard/campanhas/route.ts</code> &mdash; agrega Meta Ads por empreendimento/squad. Pattern para cruzar dados de campanhas com deals.</li>
+            <li><code>supabase/functions/sync-baserow-forms/index.ts</code> &mdash; ETL externo (Baserow) &rarr; Supabase. Pattern para criar Edge Functions de sync com fontes externas.</li>
+            <li><code>src/lib/constants.ts</code> &mdash; SQUADS, V_COLS (closers), EMPREENDIMENTO_MAP, tokens de UI (T).</li>
+            <li><code>src/components/dashboard/ui.tsx</code> &mdash; componentes reutilizaveis (pills, toggles, tabelas).</li>
+          </ul>
+        </div>
+      </details>
+
+      <details open>
+        <summary>O que precisa ser criado</summary>
+        <div>
+          <p><strong>Arquitetura sugerida:</strong></p>
+          <pre><code>Lead Input (email/telefone/deal_id)
+    |
+    v
+Agregador de Dados (paralelo)
+    +-- Pipedrive API -> deal, historico, campanha
+    +-- Nekt SQL -> Baserow + RD Station
+    +-- Metabase/banco MIA -> conversas [PENDENCIA P2]
+    +-- Meta Ads -> jornada de anuncios
+    +-- MCPs -> LinkedIn, Instagram
+    +-- Email API [PENDENCIA P4]
+    |
+    v
+Perfil Unificado do Lead
+    |
+    v
+Motor de Recomendacao (IA)
+    +-- Input: perfil do lead + estoque Sapron [PENDENCIA P1]
+    +-- Output: 1 principal + 2 backups + justificativa
+    +-- Rodada 2: + respostas das perguntas -> re-rank
+    +-- Rodada 3: + feedback do cliente -> re-rank
+    |
+    v
+Interface do Closer
+    +-- Busca do lead
+    +-- Resumo do perfil
+    +-- Recomendacoes com justificativa
+    +-- Perguntas complementares (conversacional)
+    +-- Feedback do cliente (conversacional)
+    +-- Visualizacao da unidade [ref. seazone360, PENDENCIA P3]
+    +-- Override com registro</code></pre>
+
+          <p><strong>Novos arquivos a criar:</strong></p>
+          <ul>
+            <li><span class="marker marker-new">NEW</span> <code>supabase/migrations/YYYYMMDD_create_spotmatch_tables.sql</code></li>
+            <li><span class="marker marker-new">NEW</span> <code>src/app/api/spotmatch/lead/route.ts</code></li>
+            <li><span class="marker marker-new">NEW</span> <code>src/app/api/spotmatch/lead/nekt/route.ts</code></li>
+            <li><span class="marker marker-new">NEW</span> <code>src/app/api/spotmatch/lead/meta/route.ts</code></li>
+            <li><span class="marker marker-new">NEW</span> <code>src/app/api/spotmatch/units/route.ts</code></li>
+            <li><span class="marker marker-new">NEW</span> <code>src/app/api/spotmatch/recommend/route.ts</code></li>
+            <li><span class="marker marker-new">NEW</span> <code>src/components/spotmatch/search-view.tsx</code></li>
+            <li><span class="marker marker-new">NEW</span> <code>src/components/spotmatch/recommend-view.tsx</code></li>
+            <li><span class="marker marker-new">NEW</span> <code>src/components/spotmatch/unit-view.tsx</code></li>
+            <li><span class="marker marker-new">NEW</span> <code>src/components/spotmatch/override-view.tsx</code></li>
+          </ul>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Task Breakdown</summary>
+        <div>
+          <p><strong>Task 1: Criar schema SpotMatch no Supabase</strong></p>
+          <ul>
+            <li>Criar migration: <code>supabase/migrations/YYYYMMDD_create_spotmatch_tables.sql</code></li>
+            <li>Tabelas: <code>spotmatch_sessions</code> (PK session_id, deal_id, closer_email, created_at), <code>spotmatch_recommendations</code> (session_id, rodada, unidade_id, rank, justificativa, escolhida boolean), <code>spotmatch_feedback</code> (session_id, rodada, tipo, conteudo)</li>
+            <li>RLS: anon read, service write (mesmo padrao das squad_*)</li>
+            <li>Dependencia: nenhuma</li>
+          </ul>
+
+          <p><strong>Task 2: API de busca do lead &mdash; Pipedrive</strong></p>
+          <ul>
+            <li>Criar: <code>src/app/api/spotmatch/lead/route.ts</code></li>
+            <li>Input: <code>?q=email|telefone|deal_id</code></li>
+            <li>Buscar via Pipedrive <code>/persons/search</code> (email/telefone) ou <code>/deals/{id}</code> (deal_id)</li>
+            <li>Retornar: deal, person, campanha de origem, atividades recentes, owner</li>
+            <li>Pattern: ver <code>src/app/api/dashboard/diagnostico-vendas/route.ts</code></li>
+            <li>Dependencia: nenhuma</li>
+          </ul>
+
+          <p><strong>Task 3: API de busca do lead &mdash; Nekt (Baserow + RD Station)</strong></p>
+          <ul>
+            <li>Criar: <code>src/app/api/spotmatch/lead/nekt/route.ts</code></li>
+            <li>Usar MCP Nekt (<code>execute_sql</code>) para buscar dados do lead por email/telefone</li>
+            <li>Retornar: formularios preenchidos, conversoes RD, dados Baserow</li>
+            <li>Pattern: ver Edge Function <code>sync-baserow-forms</code></li>
+            <li>Dependencia: nenhuma</li>
+          </ul>
+
+          <p><strong>Task 4: API de busca do lead &mdash; Meta Ads (jornada)</strong></p>
+          <ul>
+            <li>Criar: <code>src/app/api/spotmatch/lead/meta/route.ts</code></li>
+            <li>Buscar campanha de origem do deal (campo <code>empreendimento</code> no Pipedrive &rarr; match com <code>squad_meta_ads.campaign_name</code>)</li>
+            <li>Retornar: campanha, conjunto de anuncio, criativo, CPL do empreendimento</li>
+            <li>Pattern: ver <code>src/app/api/dashboard/campanhas/route.ts</code></li>
+            <li>Dependencia: Task 2 (precisa do empreendimento do deal)</li>
+          </ul>
+
+          <p><strong>Task 5: API de estoque de unidades &mdash; Sapron</strong></p>
+          <ul>
+            <li>Criar: <code>src/app/api/spotmatch/units/route.ts</code></li>
+            <li><span class="marker marker-clarification">PENDENCIA P1</span> &mdash; Definir acesso ao Sapron (API ou SQL direto)</li>
+            <li>Retornar: unidades disponiveis com preco, andar, vista, rentabilidade, metragem, posicao solar, area externa</li>
+            <li>Dependencia: resolucao da pendencia P1</li>
+          </ul>
+
+          <p><strong>Task 6: Motor de recomendacao (IA)</strong></p>
+          <ul>
+            <li>Criar: <code>src/app/api/spotmatch/recommend/route.ts</code></li>
+            <li>Input: perfil unificado do lead (Tasks 2-4) + estoque (Task 5) + rodada + contexto anterior</li>
+            <li>Usar Claude API para matching perfil &times; unidades com regras SE/ENTAO</li>
+            <li>Output: 1 principal + 2 backups com justificativa</li>
+            <li>Suportar 3 rodadas (initial &rarr; perguntas &rarr; feedback) via campo <code>rodada</code> + <code>contexto_anterior</code></li>
+            <li>Dependencia: Tasks 2-5</li>
+          </ul>
+
+          <p><strong>Task 7: Frontend &mdash; Tela de busca e perfil do lead</strong></p>
+          <ul>
+            <li>Criar: <code>src/components/spotmatch/search-view.tsx</code></li>
+            <li>Campo de busca (email/telefone/deal ID) com autocomplete</li>
+            <li>Card de perfil unificado (dados agregados de todas as fontes)</li>
+            <li>Estilos: inline com tokens <code>T</code> de <code>constants.ts</code></li>
+            <li>Dependencia: Tasks 2-4</li>
+          </ul>
+
+          <p><strong>Task 8: Frontend &mdash; Tela de recomendacoes</strong></p>
+          <ul>
+            <li>Criar: <code>src/components/spotmatch/recommend-view.tsx</code></li>
+            <li>Cards das 3 unidades (1 principal + 2 backups) com justificativa</li>
+            <li>Botoes de acao: "Apresentar", "Override", "Nova rodada"</li>
+            <li>Perguntas complementares (Rodada 2) como cards clicaveis</li>
+            <li>Input de feedback (Rodada 3) em texto livre</li>
+            <li>Dependencia: Tasks 6-7</li>
+          </ul>
+
+          <p><strong>Task 9: Frontend &mdash; Visualizacao da unidade</strong></p>
+          <ul>
+            <li>Criar: <code>src/components/spotmatch/unit-view.tsx</code></li>
+            <li>Exibir: preco, andar, vista, rentabilidade, metragem, posicao solar, area externa</li>
+            <li>Exibir: planta, fluxo de pagamento (quando disponivel)</li>
+            <li><span class="marker marker-clarification">PENDENCIA P3</span> &mdash; referencia visual do seazone360.lovable.app</li>
+            <li>Dependencia: Task 5</li>
+          </ul>
+
+          <p><strong>Task 10: Frontend &mdash; Registro de override e resultado</strong></p>
+          <ul>
+            <li>Criar: <code>src/components/spotmatch/override-view.tsx</code></li>
+            <li>Permitir navegar pelo estoque e escolher manualmente</li>
+            <li>Registrar: unidade sugerida vs. escolhida vs. resultado (reservou/nao)</li>
+            <li>Salvar em <code>spotmatch_recommendations</code> e <code>spotmatch_feedback</code></li>
+            <li>Dependencia: Tasks 8-9</li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>Integracoes Tecnicas</summary>
+        <div>
+          <table>
+            <thead>
+              <tr><th>Fonte</th><th>Endpoint/Acesso</th><th>Autenticacao</th><th>Notas</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Pipedrive</td><td><code>api.pipedrive.com/v1/deals/{id}</code>, <code>/activities</code>, <code>/persons/search</code></td><td>API token (vault)</td><td>Pipeline 28, busca por email/telefone via <code>/persons/search</code></td></tr>
+              <tr><td>Nekt</td><td>MCP tools: <code>execute_sql</code>, <code>get_relevant_tables_ddl</code></td><td>Sessao MCP</td><td>Dados Baserow + RD Station ja integrados</td></tr>
+              <tr><td>MIA</td><td><code>metabase.morada.ai/question/1428-mensagens-seazone</code></td><td><span class="marker marker-clarification">PENDENCIA</span></td><td>Filtros: <code>mensagem_enviada_em</code>, <code>id_conversa</code></td></tr>
+              <tr><td>Meta Ads</td><td><code>squad_meta_ads</code> (Supabase) ou Meta API direta</td><td>Token (vault)</td><td>Campanha de origem via campaign_name match</td></tr>
+              <tr><td>LinkedIn</td><td>MCP LinkedIn</td><td>Sessao MCP</td><td>Busca por nome/email do lead</td></tr>
+              <tr><td>Instagram</td><td>MCP Instagram</td><td>Sessao MCP</td><td>Busca por nome/email do lead</td></tr>
+              <tr><td>Sapron</td><td>MySQL Cloud SQL <code>investimento-mysql</code> (GCP <code>seazone-investimentos</code>)</td><td><span class="marker marker-clarification">PENDENCIA</span></td><td>Unidades com disponibilidade, preco, andar, vista, etc</td></tr>
+              <tr><td>seazone360</td><td>Lovable app</td><td><span class="marker marker-clarification">PENDENCIA</span></td><td>Planta, fluxo pagamento, vista</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details>
+        <summary>Regras de Negocio (SE/ENTAO)</summary>
+        <div>
+          <table>
+            <thead>
+              <tr><th>#</th><th>Regra</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1</td><td>SE lead veio de campanha de empreendimento X &rarr; PRIORIZAR unidades de X</td></tr>
+              <tr><td>2</td><td>SE lead respondeu orcamento nas perguntas &rarr; FILTRAR unidades na faixa (&plusmn;20%)</td></tr>
+              <tr><td>3</td><td>SE lead busca renda passiva &rarr; PRIORIZAR por rentabilidade projetada</td></tr>
+              <tr><td>4</td><td>SE lead busca revenda &rarr; PRIORIZAR por valorizacao/localizacao</td></tr>
+              <tr><td>5</td><td>SE lead pretende usar com familia &rarr; PRIORIZAR metragem maior e area externa</td></tr>
+              <tr><td>6</td><td>SE lead e de outra cidade &rarr; DESCARTAR preferencia de localizacao do perfil, usar perguntas</td></tr>
+              <tr><td>7</td><td>SE lead deu feedback "caro" &rarr; REDUZIR faixa de preco em 20%</td></tr>
+              <tr><td>8</td><td>SE lead deu feedback "quero vista mar" &rarr; FILTRAR somente unidades com vista mar</td></tr>
+              <tr><td>9</td><td>SE lead nao tem dados suficientes &rarr; FALLBACK: recomendar por orcamento + localizacao de interesse</td></tr>
+              <tr><td>10</td><td>SE closer faz override &rarr; REGISTRAR: unidade sugerida, unidade escolhida, resultado final</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Rabbit Holes e Armadilhas</summary>
+        <div>
+          <table>
+            <thead>
+              <tr><th>#</th><th>Armadilha</th><th>Por que e perigosa</th><th>Como evitar</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>RH1</td><td>Pipedrive <code>/deals</code> <strong>ignora</strong> <code>pipeline_id</code> e <code>stage_id</code> silenciosamente</td><td>Retorna deals de TODOS os pipelines &mdash; dados poluidos</td><td>Sempre filtrar <code>deal.pipeline_id === 28</code> em codigo apos fetch</td></tr>
+              <tr><td>RH2</td><td><code>/pipelines/{id}/deals</code> retorna <code>user_id</code> como <strong>integer</strong>, nao objeto</td><td>Codigo esperando objeto quebra silenciosamente</td><td>Buscar <code>/users</code> primeiro e mapear <code>user_id &rarr; name</code></td></tr>
+              <tr><td>RH3</td><td>Pipeline 28 tem <strong>58k+ lost deals</strong></td><td>Carregar tudo estoura memoria (150MB limite Edge Functions)</td><td>Usar cutoff de 90-365 dias + batching (5000/batch)</td></tr>
+              <tr><td>RH4</td><td>Supabase retorna <strong>max 1000 rows</strong> sem erro</td><td>Dados silenciosamente truncados &mdash; acha que pegou tudo</td><td>Paginar com <code>.range(offset, offset+999)</code> em loop</td></tr>
+              <tr><td>RH5</td><td><code>.neq("lost_reason", "Duplicado/Erro")</code> <strong>exclui NULLs</strong></td><td>Remove TODOS os deals WON (lost_reason e NULL neles)</td><td>Filtrar em JS: <code>if (d.lost_reason === "Duplicado/Erro") continue</code></td></tr>
+              <tr><td>RH6</td><td><code>new Date("2026-03-01")</code> em BRT vira <strong>28/fev 21h</strong></td><td>Filtros de data ficam off-by-one</td><td>Usar <code>new Date("2026-03-01T12:00:00")</code></td></tr>
+              <tr><td>RH7</td><td>Tabelas com RLS + anon key retornam <strong>array vazio sem erro</strong></td><td><code>nekt_meta26_metas</code> com anon key = zero dados</td><td>Usar <code>SUPABASE_SERVICE_ROLE_KEY</code> para tabelas com RLS</td></tr>
+              <tr><td>RH8</td><td>Vault secrets com JSON e <code>\n</code> na private key</td><td>Auth falha silenciosamente se newlines corrompidas</td><td>Armazenar como base64: <code>convert_from(decode(...), 'UTF8')</code></td></tr>
+              <tr><td>RH9</td><td>Nomes com acento: Pipedrive "Patricio" vs constants "Patricio"</td><td>Match de nomes retorna 0 resultados</td><td>NFD normalize: <code>name.normalize("NFD").replace(/[\u0300-\u036f]/g, "")</code></td></tr>
+              <tr><td>RH10</td><td>RPCs inexistentes no Supabase <strong>nao dao erro</strong></td><td>Resultado silenciosamente vazio, dificil de debugar</td><td>Verificar se a RPC existe nas migrations antes de chamar</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Boundaries — O que NAO fazer</summary>
+        <div>
+          <p><strong>Tabelas protegidas (somente leitura para SpotMatch):</strong></p>
+          <ul>
+            <li><code>squad_*</code>, <code>szs_*</code>, <code>mktp_*</code> &mdash; NAO modificar schema (colunas, PKs, constraints)</li>
+            <li><code>config_pre_vendedores</code> &mdash; configuracao de pre-vendedores, somente leitura</li>
+            <li><code>nekt_meta26_metas</code> &mdash; metas mensais externas, RLS protegida</li>
+            <li><code>user_profiles</code>, <code>user_invitations</code>, <code>user_invite_links</code> &mdash; auth/acesso</li>
+          </ul>
+          <p><strong>Constants imutaveis (<code>src/lib/constants.ts</code>):</strong></p>
+          <ul>
+            <li><code>SQUADS</code>, <code>V_COLS</code>, <code>PV_COLS</code>, <code>SQUAD_V_MAP</code> &mdash; estrutura organizacional</li>
+            <li><code>EMPREENDIMENTO_MAP</code> &mdash; 11 empreendimentos SZI</li>
+            <li><code>T</code> (tokens de UI) &mdash; todas as cores, fontes, sombras</li>
+          </ul>
+          <p><strong>Padroes obrigatorios:</strong></p>
+          <ul>
+            <li>Auth: dominio <code>@seazone.com.br</code> obrigatorio (middleware)</li>
+            <li>Estilos: inline com tokens <code>T</code>, <strong>NAO usar Tailwind</strong></li>
+            <li>Codigo em ingles, UI em portugues</li>
+            <li>Commits: conventional commits (<code>feat:</code>, <code>fix:</code>, <code>refactor:</code>)</li>
+            <li>Edge Functions: Deno, vault secrets, deploy com <code>--no-verify-jwt</code></li>
+            <li>Tokens/secrets: NUNCA em codigo &mdash; usar vault Supabase ou <code>.env.local</code></li>
+          </ul>
+          <p><strong>SpotMatch PODE:</strong></p>
+          <ul>
+            <li>Criar tabelas novas com prefixo <code>spotmatch_*</code></li>
+            <li>Criar API routes em <code>/api/spotmatch/*</code></li>
+            <li>Criar Edge Functions novas (<code>sync-spotmatch-*</code>)</li>
+            <li>Ler de qualquer tabela existente</li>
+            <li>Criar RPCs e views que leem de tabelas existentes</li>
+          </ul>
+        </div>
+      </details>
+
+      <details open>
+        <summary>Testes Esperados</summary>
+        <div>
+          <p><strong>Lead exemplo:</strong></p>
+          <ul>
+            <li>Deal ID: 12345 (Pipedrive pipeline 28)</li>
+            <li>Veio de campanha Meta Ads "Jurere III"</li>
+            <li>Conversou com MIA: mencionou "investimento", "budget 500k"</li>
+            <li>LinkedIn: CEO de empresa de tecnologia em SP</li>
+            <li>Formulario RD: marcou "renda passiva"</li>
+          </ul>
+
+          <p><strong>Resultado esperado Rodada 1:</strong></p>
+          <ul>
+            <li>Principal: unidade do Jurere III, faixa ~500k, boa rentabilidade</li>
+            <li>Backup 1: outra unidade Jurere III, faixa diferente</li>
+            <li>Backup 2: unidade de outro empreendimento com perfil similar</li>
+          </ul>
+
+          <p><strong>Rodada 2 (perguntas):</strong></p>
+          <ul>
+            <li>"Ja comprou imoveis?" &rarr; "Sim, 2 apartamentos em SP"</li>
+            <li>"Orcamento com parcelamento 54m?" &rarr; "Ate 600k"</li>
+            <li>"Pretende usar?" &rarr; "Nao, puramente investimento"</li>
+            <li>&rarr; Sistema ajusta: prioriza rentabilidade sobre metragem/conforto, amplia faixa ate 600k</li>
+          </ul>
+
+          <p><strong>Rodada 3 (feedback):</strong></p>
+          <ul>
+            <li>"A unidade principal e boa mas quero andar mais alto"</li>
+            <li>&rarr; Sistema filtra andares superiores, mantem demais criterios</li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>Checklist de Verificacao</summary>
+        <div>
+          <ul>
+            <li><code>npm run build</code> &mdash; sem erros de TypeScript</li>
+            <li><code>npm run lint</code> &mdash; sem warnings</li>
+            <li>Buscar lead por email &rarr; retorna perfil completo (Pipedrive + Nekt + Meta Ads)</li>
+            <li>Buscar lead por deal ID &rarr; mesmo resultado</li>
+            <li>Buscar lead sem dados &rarr; fallback gracioso (mostra o que tem, sem crash)</li>
+            <li>Recomendacao Rodada 1 &rarr; retorna 1+2 com justificativa</li>
+            <li>Rodada 2 (perguntas) &rarr; recomendacao muda coerentemente</li>
+            <li>Rodada 3 (feedback "caro") &rarr; preco reduz</li>
+            <li>Override &rarr; registro salvo em <code>spotmatch_recommendations</code></li>
+            <li>Unidade vendida nao aparece nas recomendacoes</li>
+            <li>Auth: acesso restrito a @seazone.com.br</li>
+            <li>Paginacao: se estoque tem &gt;1000 unidades, todas aparecem</li>
+            <li>Mobile: tela funciona em tablet (closers usam na reuniao)</li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>Referencias</summary>
+        <div>
+          <ul>
+            <li><strong>Metabase MIA:</strong> <a href="https://metabase.morada.ai/question/1428-mensagens-seazone" target="_blank">https://metabase.morada.ai/question/1428-mensagens-seazone</a></li>
+            <li><strong>Sapron (GCP Console):</strong> <a href="https://console.cloud.google.com/sql/instances/investimento-mysql/insights/executed?project=seazone-investimentos" target="_blank">https://console.cloud.google.com/sql/instances/investimento-mysql/insights/executed?project=seazone-investimentos</a></li>
+            <li><strong>Prototipo visual:</strong> <a href="https://seazone360.lovable.app/" target="_blank">https://seazone360.lovable.app/</a> (link edicao Lovable: <a href="https://lovable.dev/projects/e52fbbe6-0e52-423f-81aa-c66e1f3223db" target="_blank">https://lovable.dev/projects/e52fbbe6-0e52-423f-81aa-c66e1f3223db</a>)</li>
+            <li><strong>Closers SZI:</strong> Laura (Squad 1), Camila e Filipe (Squad 2), Luana e Priscila (Squad 3) &mdash; definidos em <code>src/lib/constants.ts</code></li>
+          </ul>
+        </div>
+      </details>
+    </section>
+
+    <!-- Review -->
+    <section id="review">
+      <h2>Review do Handoff</h2>
+      <div>
+        <p>Review pendente &mdash; 4 pendencias tecnicas abertas (P1-P4). Score 8/10.</p>
+        <table>
+          <thead>
+            <tr><th>#</th><th>Pendencia</th><th>Quem resolver</th><th>Impacto</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>P1</td><td>Sapron: tem API ou so SQL direto? Quais tabelas/colunas de unidades?</td><td>Equipe dev</td><td>Arquitetura de integracao</td></tr>
+            <tr><td>P2</td><td>Metabase MIA: qual banco por tras? Acesso direto possivel? Identificador de ligacao lead&harr;conversa?</td><td>Equipe dev</td><td>Viabilidade do cruzamento de dados MIA</td></tr>
+            <tr><td>P3</td><td>Lovable seazone360: exportar codigo pro repo seazone-socios</td><td>Equipe dev / admin GitHub</td><td>Referencia visual e funcional para tela de unidade</td></tr>
+            <tr><td>P4</td><td>Email: qual sistema e usado para comunicacao com leads? Tem API?</td><td>Equipe dev</td><td>Integracao de historico de emails</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Pesquisa realizada -->
+    <section id="pesquisa">
+      <h2>Pesquisa Realizada</h2>
+      <details>
+        <summary>Slack</summary>
+        <div><p>Pesquisa Slack nao realizada nesta sessao.</p></div>
+      </details>
+      <details>
+        <summary>Jira</summary>
+        <div><p>Pesquisa Jira nao realizada nesta sessao.</p></div>
+      </details>
+      <details>
+        <summary>Nekt</summary>
+        <div><p>Nekt MCP disponivel. Tabelas Baserow e RD Station acessiveis via <code>execute_sql</code>.</p></div>
+      </details>
+      <details>
+        <summary>GitHub</summary>
+        <div><p>Repo <code>seazone-socios/saleszone</code>. Integracoes existentes mapeadas em CLAUDE.md.</p></div>
+      </details>
+    </section>
+
+    <!-- KB suggestions -->
+    <section id="kb">
+      <h2>Sugestoes de Atualizacao da KB</h2>
+      <div>
+        <p>Adicionar Sapron ao glossario de ferramentas. Documentar MIA (Morada AI) como sistema de atendimento.</p>
+      </div>
+    </section>
+
+    <!-- Squad dependencies -->
+    <section id="deps">
+      <h2>Dependencias entre Squads</h2>
+      <div>
+        <p>AIOps (principal) &rarr; Dados (Sapron/Nekt/MIA acesso)</p>
+      </div>
+    </section>
+
+    <!-- Dev feedback -->
+    <section id="feedback">
+      <h2>Feedback do Dev (pos-delivery)</h2>
+      <div>
+        <p>(aguardando implementacao)</p>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
