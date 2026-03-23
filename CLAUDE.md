@@ -623,7 +623,9 @@ npm run lint         # ESLint
 - **Edge Function:** `sync-szs-dashboard` — deploy com `supabase functions deploy sync-szs-dashboard --no-verify-jwt`
 - **pg_cron:** verificar se jobs SZS estão configurados (sync parou por 4 dias sem ser detectado)
 - **Performance/Pré-Vendas SZS:** A API `/api/szs/performance` deve iterar sobre `mc.presellers` (não `mc.squads`) para listar todos os PVs. SZS tem 1 squad mas 4 presellers (Larissa, Joyce, Adriano, Raynara). O loop por `mc.squads` só mostrava 1 PV + 1 MIA
-- **Stage thresholds SZS:** `countFunnel` deve usar `max_stage_order >= 9` para OPP (não >= 8). Stage 8 = Reunião Realizada, Stage 9 = FUP. O sync usa `OPP_MIN_ORDER = 9`. Usar 8 inflava OPP→WON para ~100%
+- **Stage thresholds SZS:** `countFunnel` usa `max_stage_order >= 1` (MQL), `>= 4` (SQL), `>= 9` (OPP). Sem filtro de canal (removido — antes excluía Parceiros/Expansão/Spots)
+- **CUIDADO szs_deals incompleto:** tabela `szs_deals` tem ~11k deals mas Pipedrive tem ~60k+ (maioria são lost). Modo `deals-lost` carrega 5000/batch e precisa de MUITAS rodadas (>30 batches para pegar tudo). Pipeline 14 tem ~50k+ lost deals. Impacta diretamente as abas Perf. Vendas, Forecast e Leadtime (MQLs subestimados)
+- **CUIDADO Pipedrive `/deals?status=lost&stage_id=X`:** ignora stage_id e retorna TODOS os stages/pipelines. Precisa filtrar `pipeline_id===14` no código e dedup por `deal_id`
 - **MIA SZS:** `sq.empreendimentos` é `[]` no SZS (cidades são dinâmicas). MIA deals devem ser filtrados por `preseller_name` (ex: Laura), não por empreendimento
 - **SZS não filtra canais:** Diferente do SZI, SZS inclui TODOS os canais. Não excluir canais (582,583,1748,3189) na query de deals
 - **Tabela `szs_ratios_daily`:** Histórico de conversão por canal. squad_id: 0=global, 1=Marketing, 2=Parceiros, 3=Expansão, 4=Spots, 5=Mônica, 6=Outros
