@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { V_COLS, SQUAD_V_MAP, SQUADS } from "@/lib/constants";
 import type { ForecastData, ForecastStageSnapshot, ForecastCloserRow, ForecastSquadRow } from "@/lib/types";
@@ -100,12 +101,19 @@ export async function GET() {
           .lt("won_time", mesFim)
           .range(o, o + ps - 1),
       ),
-      // 5. Metas WON por squad (squad_metas — meta_to_date, extrapolar para mês inteiro)
-      supabase
-        .from("squad_metas")
-        .select("squad_id, meta")
-        .eq("month", mesInicio)
-        .eq("tab", "won"),
+      // 5. Meta WON total do mês (nekt_meta26_metas — meta cheia, não proporcional)
+      (() => {
+        const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+        const srvClient = srvKey
+          ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, srvKey)
+          : supabase;
+        const metaDateStr = `01/${String(month + 1).padStart(2, "0")}/${year}`;
+        return srvClient
+          .from("nekt_meta26_metas")
+          .select("won_szi_meta_pago, won_szi_meta_direto")
+          .eq("data", metaDateStr)
+          .single();
+      })(),
     ]);
 
     // --- Taxa de conversão por etapa (90d) ---
@@ -201,14 +209,18 @@ export async function GET() {
       pipelineByCloser[owner] = (pipelineByCloser[owner] || 0) + (convRate[so] || 0);
     }
 
-    // --- Meta WON do mês inteiro por squad ---
-    // squad_metas.meta = meta proporcional ao dia (meta_to_date)
-    // Meta do mês inteiro = meta_to_date / diasPassados * diasNoMes
+    // --- Meta WON total do mês por squad ---
+    // nekt_meta26_metas = meta TOTAL do mês (não proporcional)
+    // Divide por closers e distribui por squad
     const metaBySquad: Record<number, number> = {};
-    for (const row of metasRows.data || []) {
-      const metaToDate = Number(row.meta) || 0;
-      const metaFullMonth = diasPassados > 0 ? Math.round(metaToDate / diasPassados * diasNoMes) : 0;
-      metaBySquad[row.squad_id] = metaFullMonth;
+    const nektMeta = metasRows.data;
+    if (nektMeta) {
+      const wonMetaTotal = (Number(nektMeta.won_szi_meta_pago) || 0) + (Number(nektMeta.won_szi_meta_direto) || 0);
+      const wonPerCloser = V_COLS.length > 0 ? wonMetaTotal / V_COLS.length : 0;
+      for (const sq of SQUADS) {
+        const closerCount = SQUAD_V_MAP[sq.id]?.length || 1;
+        metaBySquad[sq.id] = Math.round(wonPerCloser * closerCount);
+      }
     }
 
     // --- Closer rows ---
