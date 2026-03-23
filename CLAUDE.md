@@ -621,6 +621,11 @@ npm run lint         # ESLint
 - **CUIDADO paginação:** `szs_daily_counts` pode ter >1000 rows na janela de 28 dias. Routes DEVEM paginar com queries separadas (não reutilizar query builder com `.range()`). Bug corrigido em `route.ts` e `acompanhamento/route.ts`
 - **Edge Function:** `sync-szs-dashboard` — deploy com `supabase functions deploy sync-szs-dashboard --no-verify-jwt`
 - **pg_cron:** verificar se jobs SZS estão configurados (sync parou por 4 dias sem ser detectado)
+- **Performance/Pré-Vendas SZS:** A API `/api/szs/performance` deve iterar sobre `mc.presellers` (não `mc.squads`) para listar todos os PVs. SZS tem 1 squad mas 4 presellers (Larissa, Joyce, Adriano, Raynara). O loop por `mc.squads` só mostrava 1 PV + 1 MIA
+- **Stage thresholds SZS:** `countFunnel` deve usar `max_stage_order >= 9` para OPP (não >= 8). Stage 8 = Reunião Realizada, Stage 9 = FUP. O sync usa `OPP_MIN_ORDER = 9`. Usar 8 inflava OPP→WON para ~100%
+- **MIA SZS:** `sq.empreendimentos` é `[]` no SZS (cidades são dinâmicas). MIA deals devem ser filtrados por `preseller_name` (ex: Laura), não por empreendimento
+- **SZS não filtra canais:** Diferente do SZI, SZS inclui TODOS os canais. Não excluir canais (582,583,1748,3189) na query de deals
+- **Tabela `szs_ratios_daily`:** Histórico de conversão por canal. squad_id: 0=global, 1=Marketing, 2=Parceiros, 3=Expansão, 4=Spots, 5=Mônica, 6=Outros
 
 ## Heartbeats Slack — Skills e Automação
 - **Skills disponíveis:**
