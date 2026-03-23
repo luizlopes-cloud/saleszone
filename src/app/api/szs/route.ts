@@ -22,7 +22,7 @@ const SZS_METAS_WON: Record<string, Record<string, number>> = {
   "2026-11": { Marketing: 73, Parceiros: 128, Expansão: 141, Spots: 0, Outros: 29 },
   "2026-12": { Marketing: 75, Parceiros: 139, Expansão: 139, Spots: 31, Outros: 31 },
 };
-const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Expansão", "Spots", "Outros"];
+const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Mônica", "Expansão", "Spots", "Outros"];
 
 const TABS: TabKey[] = ["mql", "sql", "opp", "won"];
 
@@ -54,25 +54,36 @@ export async function GET(req: NextRequest) {
     const startDate = dates[dates.length - 1].date;
     const endDate = dates[0].date;
 
-    // Fetch daily counts with canal_group
-    const countsPromise = supabase
-      .from("szs_daily_counts")
-      .select("date, empreendimento, canal_group, count")
-      .eq("tab", tab)
-      .gte("date", startDate)
-      .lte("date", endDate);
+    // Fetch daily counts with canal_group — paginated (can exceed 1000 rows)
+    async function fetchPaginatedCounts(tableName: string, tabFilter: string, dateFrom: string, dateTo: string) {
+      const all: Array<{ date: string; empreendimento: string; canal_group: string; count: number }> = [];
+      let offset = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from(tableName)
+          .select("date, empreendimento, canal_group, count")
+          .eq("tab", tabFilter)
+          .gte("date", dateFrom)
+          .lte("date", dateTo)
+          .range(offset, offset + PAGE - 1);
+        if (error) throw new Error(`${tableName} error: ${error.message}`);
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE) break;
+        offset += PAGE;
+      }
+      return all;
+    }
 
     // Se paidOnly, buscar também MQL counts + Meta Ads leads para calcular ratio
     const now = new Date();
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
+    const countsPromise = fetchPaginatedCounts("szs_daily_counts", tab, startDate, endDate);
+
     const mqlPromise = paidOnly && tab !== "mql"
-      ? supabase
-          .from("szs_daily_counts")
-          .select("date, empreendimento, canal_group, count")
-          .eq("tab", "mql")
-          .gte("date", monthStart)
-          .lte("date", endDate)
+      ? fetchPaginatedCounts("szs_daily_counts", "mql", monthStart, endDate)
       : null;
 
     const metaPromise = paidOnly
@@ -82,14 +93,11 @@ export async function GET(req: NextRequest) {
           .gte("snapshot_date", monthStart)
       : null;
 
-    const [countsRes, mqlRes, metaRes] = await Promise.all([
+    const [rows, mqlData, metaRes] = await Promise.all([
       countsPromise,
       mqlPromise,
       metaPromise,
     ]);
-
-    if (countsRes.error) throw new Error(`Supabase error: ${countsRes.error.message}`);
-    const rows = countsRes.data || [];
 
     // Calcular ratios paid por cidade (Meta Ads is city-level, only for Marketing canal)
     let paidRatiosByCity: Map<string, number> | null = null;
@@ -119,8 +127,8 @@ export async function GET(req: NextRequest) {
             mqlTotals.set(cidade, cur + (row.count || 0));
           }
         }
-      } else if (mqlRes?.data) {
-        for (const row of mqlRes.data) {
+      } else if (mqlData) {
+        for (const row of mqlData) {
           if (row.canal_group === "Marketing" || !row.canal_group) {
             const cidade = row.empreendimento;
             const cur = mqlTotals.get(cidade) || 0;

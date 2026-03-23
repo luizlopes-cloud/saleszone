@@ -19,7 +19,7 @@ const SZS_METAS_WON: Record<string, Record<string, number>> = {
   "2026-11": { Marketing: 73, Parceiros: 128, Expansão: 141, Spots: 0, Outros: 29 },
   "2026-12": { Marketing: 75, Parceiros: 139, Expansão: 139, Spots: 31, Outros: 31 },
 };
-const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Expansão", "Spots", "Outros"];
+const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Mônica", "Expansão", "Spots", "Outros"];
 
 function rate(num: number, den: number): number {
   return den > 0 ? Math.round((num / den) * 10000) / 10000 : 0;
@@ -42,6 +42,13 @@ function buildFunil(
   contrato: number,
   spend: number,
 ): FunilEmpreendimento {
+  // For conversions: accumulated = deals that passed through the stage this month
+  // Every WON deal passed through both Ag. Dados and Contrato
+  // Every Contrato deal passed through Ag. Dados
+  // So: reservaAcum = reserva(snapshot) + contrato(snapshot) + won
+  //     contratoAcum = contrato(snapshot) + won
+  const rAcum = reserva + contrato + won;
+  const cAcum = contrato + won;
   return {
     emp,
     impressions,
@@ -54,8 +61,8 @@ function buildFunil(
     reserva,
     contrato,
     oppEvento: opp,
-    reservaEvento: reserva,
-    contratoEvento: contrato,
+    reservaEvento: rAcum,
+    contratoEvento: cAcum,
     wonEvento: won,
     spend: Math.round(spend * 100) / 100,
     cpl: cost(spend, leads),
@@ -68,9 +75,9 @@ function buildFunil(
     leadToMql: rate(mql, leads),
     mqlToSql: rate(sql, mql),
     sqlToOpp: rate(opp, sql),
-    oppToReserva: rate(reserva, opp),
-    reservaToContrato: rate(contrato, reserva),
-    contratoToWon: rate(won, contrato),
+    oppToReserva: rate(rAcum, opp),
+    reservaToContrato: rate(cAcum, rAcum),
+    contratoToWon: rate(won, cAcum),
     oppToWon: rate(won, opp),
   };
 }
@@ -128,6 +135,7 @@ export async function GET(req: NextRequest) {
           .in("tab", ["mql", "sql", "opp", "won"])
           .gte("date", startDate)
       ),
+      // Snapshot: current deals in stage (no date filter)
       fetchAll(
         supabase
           .from("szs_daily_counts")
