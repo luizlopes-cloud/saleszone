@@ -783,7 +783,7 @@ async function syncMetas(supabase: any) {
       mql: (day / totalDays) * ratioMqlSql * ratioSqlOpp * ratioOppWon * wonMetaSquad,
     };
     for (const tab of TABS) {
-      metaRows.push({ month: monthStart, squad_id: sq.id, tab, meta: metas[tab], synced_at: new Date().toISOString() });
+      metaRows.push({ month: monthStart, squad_id: sq.id, tab, meta: Math.round(metas[tab]), synced_at: new Date().toISOString() });
     }
   }
 
@@ -792,6 +792,49 @@ async function syncMetas(supabase: any) {
     { month: monthStart, ratios, counts_90d: counts90d, synced_at: new Date().toISOString() },
     { onConflict: "month" },
   );
+
+  // Save daily snapshot to szs_ratios_daily (global + per-canal_group)
+  const CANAL_ID_MAP: Record<string, number> = {
+    "Marketing": 1, "Parceiros": 2, "Expansão": 3, "Spots": 4, "Mônica": 5, "Outros": 6,
+  };
+  const canalCounts90d: Record<number, Record<Tab, number>> = {};
+  for (const cId of Object.values(CANAL_ID_MAP)) {
+    canalCounts90d[cId] = { mql: 0, sql: 0, opp: 0, won: 0 };
+  }
+  for (const tab of TABS) {
+    const { data: canalRows } = await supabase
+      .from("szs_daily_counts").select("count, canal_group").eq("tab", tab).gte("date", startDate).lte("date", endDate);
+    if (canalRows) {
+      for (const r of canalRows) {
+        const cId = CANAL_ID_MAP[r.canal_group];
+        if (cId && canalCounts90d[cId]) canalCounts90d[cId][tab] += r.count || 0;
+      }
+    }
+  }
+
+  const today = endDate;
+  const dailyRows = [
+    { date: today, squad_id: 0, ratios, counts_90d: counts90d, synced_at: new Date().toISOString() },
+  ];
+  for (const [canalName, cId] of Object.entries(CANAL_ID_MAP)) {
+    const cc = canalCounts90d[cId];
+    dailyRows.push({
+      date: today,
+      squad_id: cId,
+      ratios: {
+        opp_won: cc.won > 0 ? cc.opp / cc.won : 0,
+        sql_opp: cc.opp > 0 ? cc.sql / cc.opp : 0,
+        mql_sql: cc.sql > 0 ? cc.mql / cc.sql : 0,
+      },
+      counts_90d: cc,
+      synced_at: new Date().toISOString(),
+    });
+  }
+  const { error: dailyErr } = await supabase
+    .from("szs_ratios_daily")
+    .upsert(dailyRows, { onConflict: "date,squad_id" });
+  if (dailyErr) console.error("szs_ratios_daily upsert error:", dailyErr.message);
+  else console.log(`  szs_ratios_daily: ${dailyRows.length} rows for ${today}`);
 
   console.log(`syncMetas: ${metaRows.length} rows, total_won_meta=${wonMetaTotal}`);
   return { squadMetas: metaRows.length, ratios };
