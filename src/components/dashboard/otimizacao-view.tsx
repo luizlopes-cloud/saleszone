@@ -284,9 +284,6 @@ export function OtimizacaoView() {
         }
       } catch { /* Meta status é opcional */ }
 
-      const byVertical = perf.reduce((acc, a) => { acc[a.vertical] = (acc[a.vertical] || 0) + 1; return acc }, {} as Record<string, number>)
-      const byStatus = perf.reduce((acc, a) => { acc[a.effective_status] = (acc[a.effective_status] || 0) + 1; return acc }, {} as Record<string, number>)
-      console.log("[otimizacao] total perf:", perf.length, "| por vertical:", byVertical, "| por status:", byStatus)
       setAllAds(perf)
     } catch (err) { setError(String(err)) }
     finally { setLoading(false) }
