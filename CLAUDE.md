@@ -63,6 +63,7 @@ src/
       dashboard/diagnostico-vendas/route.ts  — Leadtime de follow-up por closer (deals abertos sem atividade)
       dashboard/forecast/route.ts            — Forecast: previsao de vendas do mes (pipeline aberto × conv. historica)
       dashboard/leadtime/route.ts             — Leadtime: tempo medio por etapa do funil (?days=N filtro periodo)
+      dashboard/ratios/route.ts               — Historico de ratios de conversao (?days=N)
       dashboard/avaliacoes/route.ts            — Avaliação de Reuniões: notas por closer via Fireflies + Claude
       backlog/contributions/route.ts           — Contribuicoes GitHub: stats do repo filtradas por users cadastrados
   components/dashboard/
@@ -83,6 +84,7 @@ src/
     forecast-view.tsx                        — Forecast: previsao de vendas (cards, range bar, pipeline por etapa, tabela squad/closer)
     leadtime-view.tsx                        — Leadtime: tempo medio por etapa do funil (criacao→venda), deal mais antigo por etapa, breakdown por closer
     avaliacoes-view.tsx                     — Avaliação Reuniões: nota media por closer (5 pilares), reunioes x transcricoes
+    conversoes-view.tsx                      — Historico de conversoes: cards de ratios atuais + grafico SVG (abaixo do heatmap na aba Acompanhamento)
     ui.tsx                                   — Componentes reutilizaveis (MediaFilterToggle, Pill, TH, etc)
   lib/
     constants.ts                             — Squads, empreendimentos, closers, UI tokens (T)
@@ -121,6 +123,7 @@ supabase/
 | `squad_alignment` | Deals abertos por empreendimento x owner |
 | `squad_metas` | Metas mensais por squad x tab (upsert month,squad_id,tab) |
 | `squad_ratios` | Ratios 90d MQL→SQL→OPP→WON e contagens (1 row por mes) |
+| `squad_ratios_daily` | Histórico diário de ratios de conversão. PK = `(date, squad_id)`. 4 rows/dia (global squad_id=0 + squads 1/2/3). Colunas JSONB: ratios {mql_sql, sql_opp, opp_won}, counts_90d {mql, sql, opp, won}. Populada pelo modo `metas` do sync-squad-dashboard |
 | `squad_calendar_events` | Eventos Google Calendar dos closers |
 | `squad_closer_rules` | Regras dos 15 closers (email, prefixo, setor) |
 | `squad_meta_ads` | Snapshot diario de ads Meta Ads SZI com diagnosticos. Campos `spend`/`leads` sao lifetime; usar `spend_month`/`leads_month` para dados do mes. Coluna `effective_status` (ACTIVE/PAUSED). |
@@ -150,7 +153,7 @@ ETL principal. Roda em 6 modos separados (cada um fica dentro do limite de 150MB
 | `daily-won` | Busca deals ganhos via `/deals?status=won&stage_id=X` por stage | **Substitui** (source=won) |
 | `daily-lost` | Busca deals perdidos via `/deals?status=lost&stage_id=X` com cutoff 90d | **Substitui** (source=lost) |
 | `alignment` | Deals abertos + `/users` API | Substitui squad_alignment |
-| `metas` | Calculo DB-only (squad_daily_counts + nekt_meta26_metas) | Upsert squad_metas + squad_ratios |
+| `metas` | Calculo DB-only (squad_daily_counts + nekt_meta26_metas) | Upsert squad_metas + squad_ratios + squad_ratios_daily |
 | `monthly-rollup` | Agrega squad_daily_counts por mes (DB-only) | Upsert squad_monthly_counts |
 
 **Sync Idempotente:** Cada modo usa coluna `source` (open/won/lost) e substitui somente suas proprias rows. PK = `(date, tab, empreendimento, source)`. Rodar qualquer modo multiplas vezes produz o mesmo resultado. API routes somam todos os sources automaticamente.
@@ -262,10 +265,12 @@ Total: 5 closers. Metas WON divididas por closer e distribuidas proporcionalment
 - **Funil:** Leads > MQL > SQL > OPP > Reserva > Contrato > WON + Investimento
 - **Leads** = leads Meta Ads (`leads_month`) + MQLs de outros canais (`max(MQL - leads_meta, 0)`)
 - **MQL/SQL/OPP/WON** = `squad_daily_counts` filtrado pelo mes (open + won + lost)
-- **Reserva/Contrato** = snapshots de deals nos stages 191/192 (sem filtro de data, sempre o ultimo)
+- **Reserva/Contrato (cards)** = snapshots de deals nos stages 191/192 (sem filtro de data, estado atual)
+- **Reserva/Contrato (conversoes)** = coorte de deals fechados no mes via `squad_deals`. Conta deals por `max_stage_order`: OPP (>=9), Reserva (>=13), Contrato (>=14), WON (status=won). Exclui `lost_reason = 'Duplicado/Erro'` em JS. Filtro: `won_time >= mesInicio OR lost_time >= mesInicio`
+- **IMPORTANTE:** Cards e conversoes usam fontes DIFERENTES. Card = `squad_daily_counts` (acumulado/snapshot). Conversao = `squad_deals` (coorte de fechados). NAO misturar — gera percentuais absurdos (ex: 600% quando snapshot tem 2 e WON tem 12)
 - **Investimento** = `spend_month` do Meta Ads (somente gasto do mes corrente)
 - **Custos:** CMQL (spend/MQL), COPP (spend/OPP), CPW (spend/WON) — todos usando dados do mes
-- **Sync:** usa `["dashboard", "meta-ads"]` (precisa de ambos)
+- **Sync:** usa `["dashboard", "meta-ads", "deals"]` (precisa dos tres — deals para conversoes)
 
 ## Filtro "Todos / Midia Paga"
 Toggle localizado dentro de cada view Meta Ads (Campanhas, Diagnostico Mkt). Default: **"Midia Paga"**.

@@ -6,63 +6,11 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
-// ---- Pipedrive constants ----
+// ---- Pipedrive constants (kept for deals-flow mode) ----
 const PIPEDRIVE_DOMAIN = "seazone-fd92b9.pipedrive.com";
 const BASE = `https://${PIPEDRIVE_DOMAIN}/api/v1`;
 const PIPELINE_ID = 28;
-const FIELD_CANAL = "93b3ada8b94bd1fc4898a25754d6bcac2713f835";
-const FIELD_EMPREENDIMENTO = "6d565fd4fce66c16da078f520a685fa2fa038272";
-const FIELD_QUALIFICACAO = "bc74bcc4326527cbeb331d1697d4c8812d68506e";
-const FIELD_REUNIAO = "bfafc352c5c6f2edbaa41bf6d1c6daa825fc9c16";
-const FIELD_RD_SOURCE = "ff53f6910138fa1d8969b686acb4b1336d50c9bd";
-const FIELD_PRESELLER = "34a7f4f5f78e8a8d4751ddfb3cfcfb224d8ff908";
 const CANAL_MARKETING_ID = "12";
-
-const EMPREENDIMENTO_MAP: Record<string, string> = {
-  // Ativos (11 — mapeados nos 3 squads)
-  "4109": "Ponta das Canas Spot II",
-  "3467": "Itacaré Spot",
-  "2935": "Marista 144 Spot",
-  "4495": "Natal Spot",
-  "4655": "Novo Campeche Spot II",
-  "3416": "Caraguá Spot",
-  "3451": "Bonito Spot II",
-  "3333": "Jurerê Spot II",
-  "4586": "Jurerê Spot III",
-  "3478": "Barra Grande Spot",
-  "637": "Vistas de Anitá II",
-  // Históricos / descontinuados
-  "4090": "Canas Beach Spot",
-  "4292": "Novo Campeche Spot",
-  "4056": "Foz Spot",
-  "3489": "Ponta das Canas Spot",
-  "2526": "Urubici Spot II",
-  "3298": "Santinho Spot",
-  "3158": "Meireles Spot",
-  "492": "Aguardando definição",
-  "1447": "Salvador Spot",
-  "2840": "Batel Spot",
-  "828": "Imbassaí Spot",
-  "1171": "Trancoso Spot",
-  "466": "Japaratinga Spot",
-  "3303": "Bonito Spot",
-  "464": "Ingleses Spot",
-  "465": "Urubici Spot",
-  "3201": "Ilha do Campeche II Spot",
-  "463": "Rosa Sul Spot",
-  "2868": "Sul da Ilha Spot",
-  "2885": "Morro das Pedras Spot",
-  "3119": "Santo Antônio Spot",
-  "3266": "Cachoeira Beach Spot",
-  "461": "Vistas de Anitá I",
-  "2573": "Canasvieiras Spot",
-  "490": "Penha Spot",
-  "2324": "Campeche Spot",
-  "506": "Jurerê Spot",
-  "3313": "Altavista",
-  "692": "Canela Spot",
-  "3470": "spot teste",
-};
 
 const PIPELINE_STAGES = [392, 184, 186, 338, 346, 339, 187, 340, 208, 312, 313, 311, 191, 192];
 
@@ -85,7 +33,87 @@ const STAGE_ORDER: Record<number, number> = {
 
 const OPP_MIN_ORDER = 9;
 
-// ---- Pipedrive API ----
+// ---- Nekt Data API helpers ----
+async function queryNekt(nektApiKey: string, sql: string): Promise<Record<string, string | null>[]> {
+  const queryRes = await fetch("https://api.nekt.ai/api/v1/sql-query/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": nektApiKey,
+    },
+    body: JSON.stringify({ sql, mode: "csv" }),
+  });
+
+  if (!queryRes.ok) {
+    const body = await queryRes.text();
+    throw new Error(`Nekt API error (${queryRes.status}): ${body}`);
+  }
+
+  const queryData = await queryRes.json();
+
+  let presignedUrl: string | undefined;
+  if (queryData.presigned_url) {
+    presignedUrl = queryData.presigned_url;
+  } else if (queryData.presigned_urls && Array.isArray(queryData.presigned_urls) && queryData.presigned_urls.length > 0) {
+    presignedUrl = queryData.presigned_urls[0];
+  } else if (queryData.url) {
+    presignedUrl = queryData.url;
+  }
+
+  if (!presignedUrl) {
+    throw new Error(`Nekt API: no presigned_url in response — ${JSON.stringify(queryData)}`);
+  }
+
+  const csvRes = await fetch(presignedUrl);
+  if (!csvRes.ok) throw new Error(`Failed to download CSV: ${csvRes.status}`);
+  const csvText = await csvRes.text();
+
+  return parseCSV(csvText);
+}
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === "," && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function parseCSV(csv: string): Record<string, string | null>[] {
+  const lines = csv.trim().split("\n");
+  if (lines.length < 2) return [];
+
+  const columns = parseCSVLine(lines[0]).map((h) => h.trim().toLowerCase());
+
+  return lines.slice(1).map((line) => {
+    const values = parseCSVLine(line);
+    const row: Record<string, string | null> = {};
+    for (let i = 0; i < columns.length; i++) {
+      const col = columns[i];
+      const val = (values[i] ?? "").trim();
+      row[col] = val === "" || val === "null" || val === "NULL" ? null : val;
+    }
+    return row;
+  });
+}
+
+// ---- Pipedrive API (kept for deals-flow mode) ----
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function pipedriveGet(apiToken: string, path: string, params: Record<string, string> = {}) {
@@ -107,39 +135,54 @@ async function pipedriveGet(apiToken: string, path: string, params: Record<strin
 }
 
 // ---- Deal helpers ----
-function getEmpreendimento(deal: any): string | null {
-  const enumId = String(deal[FIELD_EMPREENDIMENTO] || "");
-  return EMPREENDIMENTO_MAP[enumId] || null;
-}
-
-function dealToRow(deal: any, maxStageOrder: number | null, flowFetched: boolean) {
-  const stageOrder = STAGE_ORDER[deal.stage_id] || 0;
+function nektDealToRow(deal: Record<string, string | null>, maxStageOrder: number | null, flowFetched: boolean) {
+  const stageId = parseInt(deal.etapa || "0");
+  const stageOrder = STAGE_ORDER[stageId] || 0;
   return {
-    deal_id: deal.id,
-    title: deal.title || `Deal #${deal.id}`,
-    stage_id: deal.stage_id,
-    status: deal.status,
-    user_id: typeof deal.user_id === "object" ? deal.user_id?.id : deal.user_id,
-    owner_name: typeof deal.user_id === "object" ? deal.user_id?.name : null,
-    add_time: deal.add_time || null,
-    won_time: deal.won_time || null,
-    lost_time: deal.lost_time || null,
-    update_time: deal.update_time || null,
-    canal: String(deal[FIELD_CANAL] || ""),
-    empreendimento_id: String(deal[FIELD_EMPREENDIMENTO] || ""),
-    empreendimento: getEmpreendimento(deal),
-    qualificacao_date: deal[FIELD_QUALIFICACAO] || null,
-    reuniao_date: deal[FIELD_REUNIAO] || null,
-    lost_reason: deal.lost_reason || null,
-    rd_source: deal[FIELD_RD_SOURCE] || null,
-    preseller_name: typeof deal[FIELD_PRESELLER] === "object" ? deal[FIELD_PRESELLER]?.name : null,
+    deal_id: parseInt(deal.id || "0"),
+    title: deal.titulo || `Deal #${deal.id}`,
+    stage_id: stageId,
+    status: deal.status || "open",
+    user_id: parseInt(deal.owner_id || "0"),
+    owner_name: deal.owner_name || null,
+    add_time: deal.negocio_criado_em || null,
+    won_time: deal.ganho_em || null,
+    lost_time: deal.data_de_perda || null,
+    update_time: deal.atualizado_em || null,
+    canal: deal.canal || null,
+    empreendimento_id: null,
+    empreendimento: deal.empreendimento || null,
+    qualificacao_date: deal.data_de_qualificacao || null,
+    reuniao_date: deal.data_da_reuniao || null,
+    lost_reason: deal.motivo_da_perda || null,
+    rd_source: deal.rd_source || null,
+    preseller_name: deal.preseller_name || null,
     stage_order: stageOrder,
     max_stage_order: maxStageOrder ?? stageOrder,
-    last_activity_date: deal.last_activity_date || null,
-    next_activity_date: deal.next_activity_date || null,
+    last_activity_date: deal.data_da_ultima_atividade || null,
+    next_activity_date: deal.proxima_atividade_em || null,
     flow_fetched: flowFetched,
     synced_at: new Date().toISOString(),
   };
+}
+
+// ---- Nekt SQL builder ----
+function buildDealsSQL(status: string, cutoffDate?: string): string {
+  let where = `WHERE d.pipeline_id = 28 AND d.status = '${status}'`;
+  if (cutoffDate) {
+    where += ` AND d.negocio_criado_em >= TIMESTAMP '${cutoffDate}'`;
+  }
+  return `
+SELECT d.id, d.titulo, d.etapa, d.status, d.owner_id, u.name as owner_name,
+       d.negocio_criado_em, d.ganho_em, d.data_de_perda, d.atualizado_em,
+       d.canal, d.empreendimento, d.data_de_qualificacao, d.data_da_reuniao,
+       d.motivo_da_perda, d.rd_source, d.data_da_ultima_atividade, d.proxima_atividade_em,
+       d.pre_vendedor_a, pu.name as preseller_name
+FROM nekt_silver.pipedrive_deals_readable d
+LEFT JOIN nekt_silver.pipedrive_v2_users_scd2 u ON d.owner_id = u.id
+LEFT JOIN nekt_silver.pipedrive_v2_users_scd2 pu ON d.pre_vendedor_a = pu.id
+${where}
+  `.trim();
 }
 
 // ---- Batch upsert helper ----
@@ -190,48 +233,24 @@ async function getMaxStageReached(apiToken: string, dealId: number, currentOrder
   return max;
 }
 
-// ---- Mode: deals-open ----
-async function syncDealsOpen(apiToken: string, supabase: any) {
-  console.log(`syncDealsOpen: fetching pipeline ${PIPELINE_ID} open deals...`);
+// ---- Mode: deals-open (Nekt API) ----
+async function syncDealsOpen(nektApiKey: string, supabase: any) {
+  console.log(`syncDealsOpen: fetching pipeline 28 open deals from Nekt...`);
 
-  // /pipelines/{id}/deals returns user_id as integer (not object with name),
-  // so fetch user list to resolve owner names
-  const usersRes = await pipedriveGet(apiToken, "/users");
-  const userMap = new Map<number, string>(
-    (usersRes.data || []).map((u: any) => [u.id, u.name])
-  );
+  const sql = buildDealsSQL("open");
+  const nektRows = await queryNekt(nektApiKey, sql);
+  console.log(`  Nekt returned ${nektRows.length} open deals`);
 
   const rows: any[] = [];
-  let start = 0;
-  let total = 0;
-
-  while (true) {
-    const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, {
-      limit: "500", start: String(start),
-    });
-    if (!res.data || res.data.length === 0) break;
-    total += res.data.length;
-
-    for (const deal of res.data) {
-      // Pipeline endpoint only returns pipeline 28, but filter just in case
-      if (deal.pipeline_id !== PIPELINE_ID) continue;
-      // Resolve owner_name from userMap since this endpoint returns user_id as integer
-      const userId = typeof deal.user_id === "object" ? deal.user_id?.id : deal.user_id;
-      if (userId && typeof deal.user_id !== "object") {
-        deal.user_id = { id: userId, name: userMap.get(userId) || null };
-      }
-      const stageOrder = STAGE_ORDER[deal.stage_id] || 0;
-      rows.push(dealToRow(deal, stageOrder, true));
-    }
-
-    if (!res.additional_data?.pagination?.more_items_in_collection) break;
-    start += 500;
+  for (const deal of nektRows) {
+    const stageOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
+    rows.push(nektDealToRow(deal, stageOrder, true));
   }
 
-  console.log(`  Open deals fetched: ${total}, rows to upsert: ${rows.length}`);
+  console.log(`  Open deals rows to upsert: ${rows.length}`);
   await upsertBatch(supabase, rows);
 
-  // Mark stale deals: deals with status='open' in DB that are no longer open in Pipedrive
+  // Mark stale deals: deals with status='open' in DB that are no longer open in Nekt
   const openDealIds = new Set(rows.map((r) => r.deal_id));
   let staleOffset = 0;
   let staleCount = 0;
@@ -252,8 +271,6 @@ async function syncDealsOpen(apiToken: string, supabase: any) {
       .map((d: any) => d.deal_id);
 
     if (staleIds.length > 0) {
-      // Mark as 'lost' since they're no longer open in Pipedrive
-      // (deals-won sync will correct any that were actually won)
       for (let i = 0; i < staleIds.length; i += 100) {
         const batch = staleIds.slice(i, i + 100);
         const { error: updErr } = await supabase
@@ -270,145 +287,75 @@ async function syncDealsOpen(apiToken: string, supabase: any) {
   }
 
   if (staleCount > 0) console.log(`  Marked ${staleCount} stale deals as lost`);
-  return { totalFetched: total, upserted: rows.length, staleCleaned: staleCount };
+  return { totalFetched: nektRows.length, upserted: rows.length, staleCleaned: staleCount };
 }
 
-// ---- Mode: deals-won ----
-async function syncDealsWon(apiToken: string, supabase: any) {
-  console.log(`syncDealsWon: fetching won deals via stage_id loop...`);
-  const seenDealIds = new Set<number>();
+// ---- Mode: deals-won (Nekt API) ----
+async function syncDealsWon(nektApiKey: string, supabase: any) {
+  console.log(`syncDealsWon: fetching won deals from Nekt...`);
+
+  const sql = buildDealsSQL("won");
+  const nektRows = await queryNekt(nektApiKey, sql);
+  console.log(`  Nekt returned ${nektRows.length} won deals`);
+
   const rows: any[] = [];
-  let totalFetched = 0;
-
-  for (const stageId of PIPELINE_STAGES) {
-    let start = 0;
-    while (true) {
-      const res = await pipedriveGet(apiToken, "/deals", {
-        status: "won",
-        stage_id: String(stageId),
-        limit: "500",
-        start: String(start),
-      });
-      if (!res.data || res.data.length === 0) break;
-      totalFetched += res.data.length;
-
-      for (const deal of res.data) {
-        if (deal.pipeline_id !== PIPELINE_ID) continue;
-        if (seenDealIds.has(deal.id)) continue;
-        seenDealIds.add(deal.id);
-        // Won deals passed all stages: max_stage_order = 14
-        rows.push(dealToRow(deal, 14, true));
-      }
-
-      if (!res.additional_data?.pagination?.more_items_in_collection) break;
-      start += 500;
-    }
+  for (const deal of nektRows) {
+    // Won deals passed all stages: max_stage_order = 14
+    rows.push(nektDealToRow(deal, 14, true));
   }
 
-  console.log(`  Won deals fetched: ${totalFetched}, unique: ${seenDealIds.size}, rows: ${rows.length}`);
+  console.log(`  Won deals rows to upsert: ${rows.length}`);
   await upsertBatch(supabase, rows);
-  return { totalFetched, unique: seenDealIds.size, upserted: rows.length };
+  return { totalFetched: nektRows.length, upserted: rows.length };
 }
 
-// ---- Mode: deals-lost ----
-// Each stage is paginated independently. State is tracked per-stage via `stage_offsets`.
-// Body params: cutoff_days (0=no cutoff), stage_offsets (Record<stageId, offset>, default all 0)
-async function syncDealsLost(
-  apiToken: string,
-  supabase: any,
-  cutoffDays: number,
-  stageOffsets: Record<string, number>,
-) {
+// ---- Mode: deals-lost (Nekt API) ----
+async function syncDealsLost(nektApiKey: string, supabase: any, cutoffDays: number) {
   let cutoffStr = "";
   if (cutoffDays > 0) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - cutoffDays);
     cutoffStr = cutoff.toISOString().substring(0, 10);
   }
-  console.log(`syncDealsLost: cutoff=${cutoffStr || "NONE"}, stageOffsets=${JSON.stringify(stageOffsets)}`);
+  console.log(`syncDealsLost: fetching lost deals from Nekt, cutoff=${cutoffStr || "NONE"}`);
 
-  const seenDealIds = new Set<number>();
+  const sql = buildDealsSQL("lost", cutoffStr || undefined);
+  const nektRows = await queryNekt(nektApiKey, sql);
+  console.log(`  Nekt returned ${nektRows.length} lost deals`);
+
   const rows: any[] = [];
-  let totalFetched = 0;
-  const completedStages: number[] = [];
-  const nextOffsets: Record<string, number> = { ...stageOffsets };
-  let hitCap = false;
-
-  for (const stageId of PIPELINE_STAGES) {
-    const key = String(stageId);
-    // -1 means this stage was already fully synced in a prior invocation
-    if (nextOffsets[key] === -1) {
-      completedStages.push(stageId);
-      continue;
-    }
-
-    let start = nextOffsets[key] || 0;
-    let stageDone = false;
-
-    while (true) {
-      const res = await pipedriveGet(apiToken, "/deals", {
-        status: "lost",
-        stage_id: key,
-        sort: "add_time DESC",
-        limit: "500",
-        start: String(start),
-      });
-      if (!res.data || res.data.length === 0) { stageDone = true; break; }
-
-      for (const deal of res.data) {
-        if (deal.pipeline_id !== PIPELINE_ID) continue;
-        if (seenDealIds.has(deal.id)) continue;
-        seenDealIds.add(deal.id);
-
-        const stageOrder = STAGE_ORDER[deal.stage_id] || 0;
-        rows.push(dealToRow(deal, stageOrder, false));
-      }
-
-      totalFetched += res.data.length;
-
-      // Check cutoff
-      if (cutoffStr) {
-        const oldestAddTime = res.data[res.data.length - 1]?.add_time?.substring(0, 10) || "";
-        if (oldestAddTime && oldestAddTime < cutoffStr) { stageDone = true; break; }
-      }
-
-      if (!res.additional_data?.pagination?.more_items_in_collection) { stageDone = true; break; }
-      start += 500;
-
-      // Cap total rows at 5000 per invocation to stay within memory/time limits
-      if (rows.length >= 5000) { hitCap = true; break; }
-    }
-
-    if (stageDone) {
-      nextOffsets[key] = -1; // mark stage as complete
-      completedStages.push(stageId);
-    } else {
-      nextOffsets[key] = start; // save where we left off
-    }
-
-    if (hitCap) break;
+  for (const deal of nektRows) {
+    const stageOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
+    rows.push(nektDealToRow(deal, stageOrder, false));
   }
 
-  console.log(`  Lost deals fetched: ${totalFetched}, unique: ${seenDealIds.size}, rows: ${rows.length}, completedStages: ${completedStages.length}/${PIPELINE_STAGES.length}`);
+  console.log(`  Lost deals rows to upsert: ${rows.length}`);
   await upsertBatch(supabase, rows);
 
-  const allDone = completedStages.length === PIPELINE_STAGES.length;
   return {
-    dealsScanned: seenDealIds.size,
+    dealsScanned: nektRows.length,
     upserted: rows.length,
-    completedStages: completedStages.length,
-    totalStages: PIPELINE_STAGES.length,
-    done: allDone,
-    stage_offsets: allDone ? null : nextOffsets,
+    done: true,
   };
 }
 
-// ---- Mode: deals-flow ----
+// ---- Mode: deals-flow (KEPT ON PIPEDRIVE API) ----
 async function syncDealsFlow(apiToken: string, supabase: any) {
   console.log(`syncDealsFlow: fetching deals needing flow analysis...`);
 
   // Query deals that need flow: flow_fetched=false, status=lost, marketing, with empreendimento
-  const { data: deals, error: queryErr } = await supabase
+  // Note: canal is now text "Marketing" from Nekt (not "12")
+  // Check both values for compatibility during transition
+  const { data: dealsMarketing, error: queryErr1 } = await supabase
+    .from("squad_deals")
+    .select("deal_id, stage_order, canal, empreendimento")
+    .eq("flow_fetched", false)
+    .eq("status", "lost")
+    .eq("canal", "Marketing")
+    .not("empreendimento", "is", null)
+    .limit(500);
+
+  const { data: dealsLegacy, error: queryErr2 } = await supabase
     .from("squad_deals")
     .select("deal_id, stage_order, canal, empreendimento")
     .eq("flow_fetched", false)
@@ -417,12 +364,20 @@ async function syncDealsFlow(apiToken: string, supabase: any) {
     .not("empreendimento", "is", null)
     .limit(500);
 
-  if (queryErr) {
-    console.error("Query error:", queryErr.message);
-    return { processed: 0, remaining: 0, done: true, error: queryErr.message };
+  if (queryErr1) console.error("Query error (Marketing):", queryErr1.message);
+  if (queryErr2) console.error("Query error (12):", queryErr2.message);
+
+  // Merge and deduplicate
+  const seenIds = new Set<number>();
+  const deals: any[] = [];
+  for (const d of [...(dealsMarketing || []), ...(dealsLegacy || [])]) {
+    if (!seenIds.has(d.deal_id)) {
+      seenIds.add(d.deal_id);
+      deals.push(d);
+    }
   }
 
-  if (!deals || deals.length === 0) {
+  if (deals.length === 0) {
     console.log("  No deals need flow analysis");
     return { processed: 0, remaining: 0, done: true };
   }
@@ -450,7 +405,7 @@ async function syncDealsFlow(apiToken: string, supabase: any) {
     console.log(`  Skipped flow for ${skipFlow.length} deals (already OPP+)`);
   }
 
-  // Process deals that need flow API with concurrency=10
+  // Process deals that need flow API with concurrency=20
   let processed = 0;
   const CONCURRENCY = 20;
 
@@ -468,8 +423,16 @@ async function syncDealsFlow(apiToken: string, supabase: any) {
 
   console.log(`  Flow processed: ${processed}, skipped: ${skipFlow.length}`);
 
-  // Check if there are more deals remaining
-  const { count: remaining } = await supabase
+  // Check if there are more deals remaining (both canal values)
+  const { count: remaining1 } = await supabase
+    .from("squad_deals")
+    .select("deal_id", { count: "exact", head: true })
+    .eq("flow_fetched", false)
+    .eq("status", "lost")
+    .eq("canal", "Marketing")
+    .not("empreendimento", "is", null);
+
+  const { count: remaining2 } = await supabase
     .from("squad_deals")
     .select("deal_id", { count: "exact", head: true })
     .eq("flow_fetched", false)
@@ -477,10 +440,12 @@ async function syncDealsFlow(apiToken: string, supabase: any) {
     .eq("canal", CANAL_MARKETING_ID)
     .not("empreendimento", "is", null);
 
+  const remaining = (remaining1 || 0) + (remaining2 || 0);
+
   return {
     processed: processed + skipFlow.length,
-    remaining: remaining || 0,
-    done: (remaining || 0) === 0,
+    remaining,
+    done: remaining === 0,
   };
 }
 
@@ -498,13 +463,6 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Get Pipedrive token from vault
-    const { data: tokenData, error: tokenErr } = await supabase.rpc("vault_read_secret", {
-      secret_name: "PIPEDRIVE_API_TOKEN",
-    });
-    if (tokenErr || !tokenData) throw new Error(`Vault error: ${tokenErr?.message}`);
-    const apiToken = tokenData;
-
     // Parse mode from request body
     const body = await req.json().catch(() => ({}));
     const mode = body.mode || "deals-open";
@@ -514,24 +472,41 @@ Deno.serve(async (req) => {
 
     switch (mode) {
       case "deals-open":
-        result = await syncDealsOpen(apiToken, supabase);
-        break;
       case "deals-won":
-        result = await syncDealsWon(apiToken, supabase);
-        break;
       case "deals-lost": {
-        const cutoffDays = body.cutoff_days ?? 365; // 0 = no cutoff (full backfill)
-        const stageOffsets: Record<string, number> = body.stage_offsets || {};
-        result = await syncDealsLost(apiToken, supabase, cutoffDays, stageOffsets);
+        // These modes use Nekt API
+        const { data: nektKey, error: nektErr } = await supabase.rpc("vault_read_secret", {
+          secret_name: "NEKT_API_KEY",
+        });
+        if (nektErr || !nektKey) throw new Error(`Vault error (NEKT_API_KEY): ${nektErr?.message}`);
+
+        if (mode === "deals-open") {
+          result = await syncDealsOpen(nektKey, supabase);
+        } else if (mode === "deals-won") {
+          result = await syncDealsWon(nektKey, supabase);
+        } else {
+          const cutoffDays = body.cutoff_days ?? 365;
+          result = await syncDealsLost(nektKey, supabase, cutoffDays);
+        }
         break;
       }
-      case "deals-flow":
-        result = await syncDealsFlow(apiToken, supabase);
+      case "deals-flow": {
+        // This mode still uses Pipedrive API
+        const { data: tokenData, error: tokenErr } = await supabase.rpc("vault_read_secret", {
+          secret_name: "PIPEDRIVE_API_TOKEN",
+        });
+        if (tokenErr || !tokenData) throw new Error(`Vault error: ${tokenErr?.message}`);
+        result = await syncDealsFlow(tokenData, supabase);
         break;
+      }
       case "inspect-fields": {
-        // Temporary: list deal fields matching a search term
+        // Debug mode: still uses Pipedrive API
+        const { data: tokenData, error: tokenErr } = await supabase.rpc("vault_read_secret", {
+          secret_name: "PIPEDRIVE_API_TOKEN",
+        });
+        if (tokenErr || !tokenData) throw new Error(`Vault error: ${tokenErr?.message}`);
         const search = (body.search || "source").toLowerCase();
-        const fieldsRes = await pipedriveGet(apiToken, "/dealFields", { limit: "500", start: "0" });
+        const fieldsRes = await pipedriveGet(tokenData, "/dealFields", { limit: "500", start: "0" });
         const fields = (fieldsRes.data || [])
           .filter((f: any) => (f.name || "").toLowerCase().includes(search))
           .map((f: any) => ({ key: f.key, name: f.name, field_type: f.field_type, options: f.options?.slice(0, 10) }));

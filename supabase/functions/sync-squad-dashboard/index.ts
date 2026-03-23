@@ -4,84 +4,115 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS"
 };
-// ---- Pipedrive constants ----
-const PIPEDRIVE_DOMAIN = "seazone-fd92b9.pipedrive.com";
-const BASE = `https://${PIPEDRIVE_DOMAIN}/api/v1`;
+
+// ---- Constants ----
 const PIPELINE_ID = 28;
-const FIELD_CANAL = "93b3ada8b94bd1fc4898a25754d6bcac2713f835";
-const FIELD_EMPREENDIMENTO = "6d565fd4fce66c16da078f520a685fa2fa038272";
-const FIELD_QUALIFICACAO = "bc74bcc4326527cbeb331d1697d4c8812d68506e";
-const FIELD_REUNIAO = "bfafc352c5c6f2edbaa41bf6d1c6daa825fc9c16";
-const CANAL_MARKETING_ID = "12";
-const EMPREENDIMENTO_MAP: Record<string, string> = {
-  "4109": "Ponta das Canas Spot II",
-  "3467": "Itacaré Spot",
-  "2935": "Marista 144 Spot",
-  "4495": "Natal Spot",
-  "4655": "Novo Campeche Spot II",
-  "3416": "Caraguá Spot",
-  "3451": "Bonito Spot II",
-  "3333": "Jurerê Spot II",
-  "4586": "Jurerê Spot III",
-  "3478": "Barra Grande Spot",
-  "637": "Vistas de Anitá II"
+const STAGE_RESERVA = 191;
+const STAGE_CONTRATO = 192;
+const PIPELINE_STAGES: number[] = [392, 184, 186, 338, 346, 339, 187, 340, 208, 312, 313, 311, 191, 192];
+const STAGE_ORDER: Record<number, number> = {
+  392: 1,  // FUP Parceiro
+  184: 2,  // Lead in
+  186: 3,  // Contatados
+  338: 4,  // Qualificação
+  346: 5,  // Qualificado
+  339: 6,  // Aguardando data
+  187: 7,  // Agendado
+  340: 8,  // No Show/Em reagendamento
+  208: 9,  // Reunião Realizada/OPP
+  312: 10, // FUP
+  313: 11, // Negociação
+  311: 12, // Fila de espera
+  191: 13, // Reservas
+  192: 14, // Contrato
 };
+const MQL_MIN_ORDER = 2;  // Lead in
+const SQL_MIN_ORDER = 5;  // Qualificado
+const OPP_MIN_ORDER = 9;  // Reunião Realizada/OPP
+
 const SQUADS = [
   { id: 1, closers: 1, empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"] },
   { id: 2, closers: 2, empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"] },
   { id: 3, closers: 2, empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II"] },
 ];
 const TOTAL_CLOSERS = SQUADS.reduce((sum, sq) => sum + sq.closers, 0);
+const ALL_EMPREENDIMENTOS = SQUADS.flatMap(sq => sq.empreendimentos);
 const TABS = ["mql", "sql", "opp", "won"] as const;
 const ALL_TABS = ["mql", "sql", "opp", "won", "reserva", "contrato"] as const;
 type Tab = typeof TABS[number];
 type AllTab = typeof ALL_TABS[number];
 
-// Stage IDs for Reserva and Contrato
-const STAGE_RESERVA = 191;
-const STAGE_CONTRATO = 192;
+// ---- Nekt API helpers ----
+async function queryNekt(sql: string, nektApiKey: string): Promise<Record<string, string | null>[]> {
+  const res = await fetch("https://api.nekt.ai/api/v1/sql-query/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": nektApiKey },
+    body: JSON.stringify({ sql, mode: "csv" }),
+  });
+  if (!res.ok) throw new Error(`Nekt API error: ${res.status} ${await res.text()}`);
+  const data = await res.json();
+  const url = data.presigned_url || data.presigned_urls?.[0];
+  if (!url) throw new Error("Nekt: no presigned_url");
+  const csvRes = await fetch(url);
+  const csvText = await csvRes.text();
+  return parseCSV(csvText);
+}
 
-// Pipeline 28 stage IDs (for querying won/lost deals)
-const PIPELINE_STAGES = [392, 184, 186, 338, 346, 339, 187, 340, 208, 312, 313, 311, 191, 192];
-
-// ---- Pipedrive API ----
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function pipedriveGet(apiToken: string, path: string, params: Record<string, string> = {}) {
-  const url = new URL(`${BASE}${path}`);
-  url.searchParams.set("api_token", apiToken);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const RETRY_DELAYS = [5_000, 15_000, 30_000];
-  for (let attempt = 0; attempt <= 3; attempt++) {
-    const res = await fetch(url.toString());
-    if (res.ok) return res.json();
-    if (res.status === 429 && attempt < 3) {
-      console.warn(`Pipedrive 429 on ${path}, retry ${attempt + 1}/3 in ${RETRY_DELAYS[attempt] / 1000}s`);
-      await sleep(RETRY_DELAYS[attempt]);
-      continue;
+function parseCSV(csv: string): Record<string, string | null>[] {
+  const lines = csv.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+  return lines.slice(1).map(line => {
+    const values = parseCSVLine(line);
+    const row: Record<string, string | null> = {};
+    for (let i = 0; i < headers.length; i++) {
+      const val = (values[i] ?? "").trim();
+      row[headers[i]] = val === "" || val === "null" ? null : val;
     }
-    throw new Error(`Pipedrive ${path}: ${res.status}`);
-  }
-  throw new Error(`Pipedrive ${path}: max retries exceeded`);
+    return row;
+  });
 }
 
-// ---- Deal helpers ----
-function getDateField(deal: any, tab: Tab): string | null {
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+// ---- Deal helpers (Nekt row format) ----
+type NektDeal = Record<string, string | null>;
+
+function isMarketingDeal(deal: NektDeal): boolean {
+  return deal.canal === "Marketing";
+}
+
+function getEmpreendimento(deal: NektDeal): string | null {
+  const emp = deal.empreendimento || null;
+  if (!emp) return null;
+  return ALL_EMPREENDIMENTOS.includes(emp) ? emp : null;
+}
+
+function getDateField(deal: NektDeal, tab: Tab): string | null {
   switch (tab) {
-    case "mql": return deal.add_time || null;
-    case "sql": return deal[FIELD_QUALIFICACAO] || null;
-    case "opp": return deal[FIELD_REUNIAO] || null;
-    case "won": return deal.won_time || null;
+    case "mql": return deal.negocio_criado_em || null;
+    case "sql": return deal.data_de_qualificacao || null;
+    case "opp": return deal.data_da_reuniao || null;
+    case "won": return deal.ganho_em || null;
   }
-}
-
-function isMarketingDeal(deal: any) {
-  return String(deal[FIELD_CANAL]) === CANAL_MARKETING_ID;
-}
-
-function getEmpreendimento(deal: any) {
-  const enumId = String(deal[FIELD_EMPREENDIMENTO] || "");
-  return EMPREENDIMENTO_MAP[enumId] || null;
 }
 
 function getDateRange() {
@@ -92,16 +123,15 @@ function getDateRange() {
   return { startDate, endDate };
 }
 
-// ---- Stream deals from API, counting all tabs ----
+// ---- Count deals across all tabs ----
 function countDeals(
-  deals: any[], startDate: string, endDate: string,
+  deals: NektDeal[], startDate: string, endDate: string,
   countsPerTab: Record<Tab, Map<string, number>>,
 ) {
   let mkt = 0;
   for (const deal of deals) {
-    // Filter to pipeline 28 only (/deals endpoint returns ALL pipelines)
-    if (deal.pipeline_id !== PIPELINE_ID) continue;
     if (!isMarketingDeal(deal)) continue;
+    if (deal.motivo_da_perda === "Duplicado/Erro") continue;
     mkt++;
     const emp = getEmpreendimento(deal);
     if (!emp) continue;
@@ -150,15 +180,16 @@ async function writeDailyCounts(supabase: any, countsPerTab: Record<Tab, Map<str
 
 // ---- Count deals in specific stages (snapshot for today) ----
 function countDealsByStage(
-  deals: any[],
+  deals: NektDeal[],
   stageCounts: Record<"reserva" | "contrato", Map<string, number>>,
 ) {
   const today = new Date().toISOString().substring(0, 10);
   for (const deal of deals) {
     if (!isMarketingDeal(deal)) continue;
+    if (deal.motivo_da_perda === "Duplicado/Erro") continue;
     const emp = getEmpreendimento(deal);
     if (!emp) continue;
-    const stageId = deal.stage_id;
+    const stageId = parseInt(deal.etapa || "0");
     if (stageId === STAGE_RESERVA) {
       const key = `${today}|${emp}`;
       stageCounts.reserva.set(key, (stageCounts.reserva.get(key) || 0) + 1);
@@ -187,10 +218,19 @@ async function writeStageCounts(supabase: any, stageCounts: Record<"reserva" | "
   }
 }
 
-// ---- Mode: daily-open (pipeline endpoint, replaces counts) ----
-async function syncDailyOpen(apiToken: string, supabase: any) {
+// ---- Mode: daily-open ----
+async function syncDailyOpen(nektApiKey: string, supabase: any) {
   const { startDate, endDate } = getDateRange();
-  console.log(`syncDailyOpen: fetching pipeline ${PIPELINE_ID} open deals...`);
+  console.log(`syncDailyOpen: querying Nekt for open deals in pipeline ${PIPELINE_ID}...`);
+
+  const sql = `
+    SELECT id, pipeline_id, status, etapa, canal, empreendimento,
+           negocio_criado_em, ganho_em, data_de_perda,
+           data_de_qualificacao, data_da_reuniao, owner_id, motivo_da_perda
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'open'
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
 
   const countsPerTab: Record<Tab, Map<string, number>> = {
     mql: new Map(), sql: new Map(), opp: new Map(), won: new Map(),
@@ -198,116 +238,74 @@ async function syncDailyOpen(apiToken: string, supabase: any) {
   const stageCounts: Record<"reserva" | "contrato", Map<string, number>> = {
     reserva: new Map(), contrato: new Map(),
   };
-  let start = 0;
-  let total = 0;
-  while (true) {
-    const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, {
-      limit: "500", start: String(start),
-    });
-    if (!res.data || res.data.length === 0) break;
-    total += res.data.length;
-    countDeals(res.data, startDate, endDate, countsPerTab);
-    countDealsByStage(res.data, stageCounts);
-    if (!res.additional_data?.pagination?.more_items_in_collection) break;
-    start += 500;
-  }
+
+  const mkt = countDeals(deals, startDate, endDate, countsPerTab);
+  countDealsByStage(deals, stageCounts);
+
   const reservaTotal = Array.from(stageCounts.reserva.values()).reduce((a, b) => a + b, 0);
   const contratoTotal = Array.from(stageCounts.contrato.values()).reduce((a, b) => a + b, 0);
-  console.log(`  Open deals: ${total}, reserva=${reservaTotal}, contrato=${contratoTotal}`);
-  // Write main counts first, then stage counts (so stage counts aren't overwritten)
+  console.log(`  Open deals: ${deals.length}, marketing=${mkt}, reserva=${reservaTotal}, contrato=${contratoTotal}`);
+
   const mainResult = await writeDailyCounts(supabase, countsPerTab, startDate, endDate, "open");
   await writeStageCounts(supabase, stageCounts);
   return { ...mainResult, reserva: reservaTotal, contrato: contratoTotal };
 }
 
-// ---- Mode: daily-status (uses stage_id filter, merges with existing) ----
-// For lost deals: sorts by add_time DESC and stops when deals are older than cutoff
-async function syncDailyByStatus(apiToken: string, supabase: any, status: string) {
+// ---- Mode: daily-won / daily-lost ----
+async function syncDailyByStatus(nektApiKey: string, supabase: any, status: string) {
   const { startDate, endDate } = getDateRange();
-  // Cutoff: stop scanning when add_time is older than 90 days (generous buffer over 35-day window)
-  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+  const cutoffDays = status === "lost" ? 90 : 365;
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - cutoffDays);
   const cutoffStr = cutoff.toISOString().substring(0, 10);
-  console.log(`syncDailyByStatus: ${status} via stage_id, cutoff=${cutoffStr}`);
+  console.log(`syncDailyByStatus: ${status} from Nekt, cutoff=${cutoffStr}`);
+
+  const dateFilter = status === "won"
+    ? `AND ganho_em >= TIMESTAMP '${cutoffStr}'`
+    : `AND data_de_perda >= TIMESTAMP '${cutoffStr}'`;
+
+  const sql = `
+    SELECT id, pipeline_id, status, etapa, canal, empreendimento,
+           negocio_criado_em, ganho_em, data_de_perda,
+           data_de_qualificacao, data_da_reuniao, owner_id, motivo_da_perda
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = '${status}'
+    ${dateFilter}
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
 
   const countsPerTab: Record<Tab, Map<string, number>> = {
     mql: new Map(), sql: new Map(), opp: new Map(), won: new Map(),
   };
-  let totalDeals = 0;
-  let totalMkt = 0;
-  let skippedStages = 0;
-  // Deduplicate: /deals endpoint ignores stage_id param (same as pipeline_id),
-  // so each stage query returns ALL deals of that status, causing 14x duplication.
-  const seenDealIds = new Set<number>();
 
-  for (const stageId of PIPELINE_STAGES) {
-    let start = 0;
-    let stoppedEarly = false;
-    while (true) {
-      const res = await pipedriveGet(apiToken, "/deals", {
-        status,
-        stage_id: String(stageId),
-        sort: "add_time DESC",
-        limit: "500",
-        start: String(start),
-      });
-      if (!res.data || res.data.length === 0) break;
-
-      // Filter out deals already seen from previous stage queries
-      const newDeals = res.data.filter((d: any) => {
-        if (seenDealIds.has(d.id)) return false;
-        seenDealIds.add(d.id);
-        return true;
-      });
-
-      totalDeals += newDeals.length;
-      totalMkt += countDeals(newDeals, startDate, endDate, countsPerTab);
-
-      // Check if the oldest deal in this page is before cutoff
-      const oldestAddTime = res.data[res.data.length - 1]?.add_time?.substring(0, 10) || "";
-      if (oldestAddTime && oldestAddTime < cutoffStr) {
-        stoppedEarly = true;
-        break;
-      }
-
-      if (!res.additional_data?.pagination?.more_items_in_collection) break;
-      start += 500;
-    }
-    if (stoppedEarly) skippedStages++;
-  }
-  console.log(`  ${status}: ${totalDeals} unique deals (${seenDealIds.size} seen), ${totalMkt} marketing, ${skippedStages} stages stopped early`);
+  const mkt = countDeals(deals, startDate, endDate, countsPerTab);
+  console.log(`  ${status}: ${deals.length} deals, ${mkt} marketing`);
   return writeDailyCounts(supabase, countsPerTab, startDate, endDate, status);
 }
 
 // ---- Mode: alignment ----
-async function syncAlignment(apiToken: string, supabase: any) {
-  console.log(`syncAlignment: fetching pipeline ${PIPELINE_ID} open deals...`);
-  const deals: any[] = [];
-  let start = 0;
-  while (true) {
-    const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, {
-      limit: "500", start: String(start),
-    });
-    if (!res.data || res.data.length === 0) break;
-    deals.push(...res.data);
-    if (!res.additional_data?.pagination?.more_items_in_collection) break;
-    start += 500;
-  }
+async function syncAlignment(nektApiKey: string, supabase: any) {
+  console.log(`syncAlignment: querying Nekt for open deals + users...`);
 
-  const usersRes = await pipedriveGet(apiToken, "/users");
-  const userMap = new Map(usersRes.data.map((u: any) => [u.id, u.name]));
+  const sql = `
+    SELECT d.id, d.pipeline_id, d.canal, d.empreendimento, d.owner_id,
+           d.title, u.name AS owner_name
+    FROM nekt_silver.pipedrive_deals_readable d
+    LEFT JOIN nekt_silver.pipedrive_v2_users_scd2 u ON d.owner_id = u.id
+    WHERE d.pipeline_id = ${PIPELINE_ID} AND d.status = 'open'
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
+
   const counts = new Map<string, number>();
   const dealRows: Array<{deal_id: number; title: string; empreendimento: string; owner_name: string; synced_at: string}> = [];
+
   for (const deal of deals) {
     const emp = getEmpreendimento(deal);
     if (!emp) continue;
-    // Pipeline endpoint returns user_id as integer (not object)
-    const ownerId = typeof deal.user_id === "object" ? deal.user_id?.id : deal.user_id;
-    if (!ownerId) continue;
-    const ownerName = userMap.get(ownerId) || String(ownerId);
+    const ownerName = deal.owner_name || deal.owner_id || "Unknown";
     const key = `${emp}|${ownerName}`;
     counts.set(key, (counts.get(key) || 0) + 1);
     dealRows.push({
-      deal_id: deal.id,
+      deal_id: parseInt(deal.id || "0"),
       title: deal.title || `Deal #${deal.id}`,
       empreendimento: emp,
       owner_name: ownerName,
@@ -343,7 +341,7 @@ async function syncAlignment(apiToken: string, supabase: any) {
   return rows.length;
 }
 
-// ---- Mode: metas (DB only) ----
+// ---- Mode: metas (DB only — unchanged) ----
 function daysInMonth(year: number, month: number) {
   return new Date(year, month, 0).getDate();
 }
@@ -384,6 +382,29 @@ async function syncMetas(supabase: any) {
   const ratioMqlSql = counts90d.sql > 0 ? counts90d.mql / counts90d.sql : 0;
   const ratios = { opp_won: ratioOppWon, sql_opp: ratioSqlOpp, mql_sql: ratioMqlSql };
 
+  // Calculate per-squad 90d counts and ratios
+  const squadCounts90d: Record<number, Record<Tab, number>> = {};
+  const squadRatios: Record<number, { mql_sql: number; sql_opp: number; opp_won: number }> = {};
+  for (const sq of SQUADS) {
+    const sc: Record<Tab, number> = { mql: 0, sql: 0, opp: 0, won: 0 };
+    for (const tab of TABS) {
+      const { data: sqRows } = await supabase
+        .from("squad_daily_counts").select("count, empreendimento").eq("tab", tab).gte("date", startDate).lte("date", endDate);
+      if (sqRows) {
+        sc[tab] = sqRows
+          .filter((r: any) => sq.empreendimentos.includes(r.empreendimento))
+          .reduce((sum: number, r: any) => sum + (r.count || 0), 0);
+      }
+    }
+    squadCounts90d[sq.id] = sc;
+    squadRatios[sq.id] = {
+      opp_won: sc.won > 0 ? sc.opp / sc.won : 0,
+      sql_opp: sc.opp > 0 ? sc.sql / sc.opp : 0,
+      mql_sql: sc.sql > 0 ? sc.mql / sc.sql : 0,
+    };
+    console.log(`  Squad ${sq.id} 90d: mql=${sc.mql} sql=${sc.sql} opp=${sc.opp} won=${sc.won}`);
+  }
+
   const metaRows: any[] = [];
   for (const sq of SQUADS) {
     const wonMetaSquad = wonPerCloser * sq.closers;
@@ -404,18 +425,29 @@ async function syncMetas(supabase: any) {
     { onConflict: "month" },
   );
 
+  // Save daily snapshot to squad_ratios_daily (global + per-squad)
+  const today = endDate;
+  const dailyRows = [
+    { date: today, squad_id: 0, ratios, counts_90d: counts90d, synced_at: new Date().toISOString() },
+    ...SQUADS.map(sq => ({
+      date: today,
+      squad_id: sq.id,
+      ratios: squadRatios[sq.id],
+      counts_90d: squadCounts90d[sq.id],
+      synced_at: new Date().toISOString(),
+    })),
+  ];
+  const { error: dailyErr } = await supabase
+    .from("squad_ratios_daily")
+    .upsert(dailyRows, { onConflict: "date,squad_id" });
+  if (dailyErr) console.error("squad_ratios_daily upsert error:", dailyErr.message);
+  else console.log(`  squad_ratios_daily: ${dailyRows.length} rows for ${today}`);
+
   console.log(`syncMetas: ${metaRows.length} rows, total_won_meta=${wonMetaTotal}`);
   return { squadMetas: metaRows.length, ratios };
 }
 
-// ---- Mode: backfill-monthly-* (Pipedrive → squad_monthly_counts, 12 months) ----
-// Split into 3 separate calls to stay within 150MB memory:
-//   backfill-monthly-clear  → empties table
-//   backfill-monthly-open   → open deals (pipeline endpoint)
-//   backfill-monthly-won    → won deals (stage_id loop)
-//   backfill-monthly-lost   → lost deals (stage_id loop with cutoff)
-// Uses RPC add_monthly_counts for additive upsert (count += new).
-
+// ---- Mode: backfill-monthly-clear ----
 async function backfillMonthlyClear(supabase: any) {
   const { error } = await supabase.from("squad_monthly_counts").delete().neq("month", "");
   if (error) throw new Error(`Clear error: ${error.message}`);
@@ -423,55 +455,10 @@ async function backfillMonthlyClear(supabase: any) {
   return { cleared: true };
 }
 
-// Stage order for stage-based counting (Planejamento)
-const STAGE_ORDER: Record<number, number> = {
-  392: 1,  // FUP Parceiro
-  184: 2,  // Lead in
-  186: 3,  // Contatados
-  338: 4,  // Qualificação
-  346: 5,  // Qualificado
-  339: 6,  // Aguardando data
-  187: 7,  // Agendado
-  340: 8,  // No Show/Em reagendamento
-  208: 9,  // Reunião Realizada/OPP
-  312: 10, // FUP
-  313: 11, // Negociação
-  311: 12, // Fila de espera
-  191: 13, // Reservas
-  192: 14, // Contrato
-};
-const MQL_MIN_ORDER = 2;  // Lead in
-const SQL_MIN_ORDER = 5;  // Qualificado (NOT Qualificação)
-const OPP_MIN_ORDER = 9;  // Reunião Realizada/OPP
-
-// ---- Flow API: find max stage a deal ever reached ----
-async function getMaxStageReached(apiToken: string, dealId: number, currentOrder: number): Promise<number> {
-  if (currentOrder >= OPP_MIN_ORDER) return currentOrder; // Already at OPP+, skip flow
-  let max = currentOrder;
-  let s = 0;
-  try {
-    while (true) {
-      const res = await pipedriveGet(apiToken, `/deals/${dealId}/flow`, { limit: "100", start: String(s) });
-      if (!res.data) break;
-      for (const e of res.data) {
-        if (e.object === "dealChange" && e.data?.field_key === "stage_id") {
-          for (const v of [e.data.old_value, e.data.new_value]) {
-            const order = STAGE_ORDER[parseInt(v)] || 0;
-            if (order > max) max = order;
-          }
-        }
-      }
-      if (max >= OPP_MIN_ORDER) break; // Found OPP+, early exit
-      if (!res.additional_data?.pagination?.more_items_in_collection) break;
-      s += 100;
-    }
-  } catch (err) { console.error(`flow error deal ${dealId}:`, err); }
-  return max;
-}
-
 // Count deal into monthly map based on max stage reached
-function countDealByStage(deal: any, maxOrder: number, monthly: Map<string, number>, startDate: string, endDate: string) {
-  const addTime = deal.add_time;
+function countDealByStage(deal: NektDeal, maxOrder: number, monthly: Map<string, number>, startDate: string, endDate: string) {
+  if (deal.motivo_da_perda === "Duplicado/Erro") return;
+  const addTime = deal.negocio_criado_em;
   if (!addTime) return;
   const day = addTime.substring(0, 10);
   if (day < startDate || day > endDate) return;
@@ -493,8 +480,8 @@ function countDealByStage(deal: any, maxOrder: number, monthly: Map<string, numb
   }
 }
 
-// ---- Backfill open+won deals (stage_id based, no flow needed) ----
-async function backfillOpenWon(apiToken: string, supabase: any) {
+// ---- Backfill open+won deals ----
+async function backfillOpenWon(nektApiKey: string, supabase: any) {
   const now = new Date();
   const endDate = now.toISOString().substring(0, 10);
   const start365 = new Date(now); start365.setDate(start365.getDate() - 365);
@@ -502,46 +489,37 @@ async function backfillOpenWon(apiToken: string, supabase: any) {
   console.log(`backfillOpenWon: ${startDate} → ${endDate}`);
 
   const monthly = new Map<string, number>();
-  let totalOpen = 0, totalWon = 0;
 
-  // Open deals — stage_id is reliable for active deals (forward progression)
-  let s = 0;
-  while (true) {
-    const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, { limit: "500", start: String(s) });
-    if (!res.data || res.data.length === 0) break;
-    for (const deal of res.data) {
-      if (deal.pipeline_id !== PIPELINE_ID) continue;
-      if (!isMarketingDeal(deal)) continue;
-      if (!getEmpreendimento(deal)) continue;
-      totalOpen++;
-      const currentOrder = STAGE_ORDER[deal.stage_id] || 0;
-      countDealByStage(deal, currentOrder, monthly, startDate, endDate);
-    }
-    if (!res.additional_data?.pagination?.more_items_in_collection) break;
-    s += 500;
+  // Open deals — stage (etapa) is reliable for active deals
+  const openSql = `
+    SELECT id, pipeline_id, status, etapa, canal, empreendimento,
+           negocio_criado_em, ganho_em, data_de_qualificacao, data_da_reuniao, motivo_da_perda
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'open' AND canal = 'Marketing'
+  `;
+  const openDeals = await queryNekt(openSql, nektApiKey);
+  let totalOpen = 0;
+  for (const deal of openDeals) {
+    if (!getEmpreendimento(deal)) continue;
+    totalOpen++;
+    const currentOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
+    countDealByStage(deal, currentOrder, monthly, startDate, endDate);
   }
 
-  // Won deals — all at Contrato (order 14), no flow needed
-  const seenWon = new Set<number>();
-  for (const stageId of PIPELINE_STAGES) {
-    let ws = 0;
-    while (true) {
-      const res = await pipedriveGet(apiToken, "/deals", {
-        status: "won", stage_id: String(stageId), sort: "add_time DESC", limit: "500", start: String(ws),
-      });
-      if (!res.data || res.data.length === 0) break;
-      for (const deal of res.data) {
-        if (seenWon.has(deal.id)) continue;
-        seenWon.add(deal.id);
-        if (deal.pipeline_id !== PIPELINE_ID) continue;
-        if (!isMarketingDeal(deal)) continue;
-        if (!getEmpreendimento(deal)) continue;
-        totalWon++;
-        countDealByStage(deal, 14, monthly, startDate, endDate); // Won = passed all stages
-      }
-      if (!res.additional_data?.pagination?.more_items_in_collection) break;
-      ws += 500;
-    }
+  // Won deals — all at Contrato (order 14)
+  const wonSql = `
+    SELECT id, pipeline_id, status, etapa, canal, empreendimento,
+           negocio_criado_em, ganho_em, data_de_qualificacao, data_da_reuniao, motivo_da_perda
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'won' AND canal = 'Marketing'
+      AND negocio_criado_em >= TIMESTAMP '${startDate}'
+  `;
+  const wonDeals = await queryNekt(wonSql, nektApiKey);
+  let totalWon = 0;
+  for (const deal of wonDeals) {
+    if (!getEmpreendimento(deal)) continue;
+    totalWon++;
+    countDealByStage(deal, 14, monthly, startDate, endDate);
   }
 
   // Upsert (additive)
@@ -561,66 +539,33 @@ async function backfillOpenWon(apiToken: string, supabase: any) {
   return { totalOpen, totalWon, monthlyRows: rows.length };
 }
 
-// ---- Backfill lost deals with flow API (batched, parallel flow calls) ----
-async function backfillLostWithFlow(apiToken: string, supabase: any, startFrom: number = 0) {
+// ---- Backfill lost deals (Nekt has all data, no flow API needed) ----
+async function backfillLostWithFlow(nektApiKey: string, supabase: any, _startFrom: number = 0) {
   const now = new Date();
   const endDate = now.toISOString().substring(0, 10);
   const start365 = new Date(now); start365.setDate(start365.getDate() - 365);
   const startDate = start365.toISOString().substring(0, 10);
-  const BATCH_LIMIT = 5000; // API-returned deals per invocation
-  const FLOW_CONCURRENCY = 10; // parallel flow API calls
 
-  console.log(`backfillLostWithFlow(start=${startFrom}): ${startDate} → ${endDate}`);
+  console.log(`backfillLostWithFlow: ${startDate} → ${endDate}`);
+
+  const sql = `
+    SELECT id, pipeline_id, status, etapa, canal, empreendimento,
+           negocio_criado_em, ganho_em, data_de_qualificacao, data_da_reuniao, motivo_da_perda
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'lost' AND canal = 'Marketing'
+      AND negocio_criado_em >= TIMESTAMP '${startDate}'
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
 
   const monthly = new Map<string, number>();
-  const seenDealIds = new Set<number>();
-  let mktDeals = 0, flowCalls = 0;
-  let apiStart = startFrom;
-  let dealsScanned = 0;
-  let reachedEnd = false;
-  let reachedCutoff = false;
+  let mktDeals = 0;
 
-  while (dealsScanned < BATCH_LIMIT) {
-    const res = await pipedriveGet(apiToken, "/deals", {
-      status: "lost", sort: "add_time DESC", limit: "500", start: String(apiStart),
-    });
-    if (!res.data || res.data.length === 0) { reachedEnd = true; break; }
-
-    // Collect marketing deals that need flow
-    const dealsNeedingFlow: { deal: any; currentOrder: number }[] = [];
-    for (const deal of res.data) {
-      if (seenDealIds.has(deal.id)) continue;
-      seenDealIds.add(deal.id);
-      dealsScanned++;
-      if (deal.pipeline_id !== PIPELINE_ID) continue;
-      if (!isMarketingDeal(deal)) continue;
-      if (!getEmpreendimento(deal)) continue;
-      const addTime = deal.add_time;
-      if (!addTime) continue;
-      const day = addTime.substring(0, 10);
-      if (day < startDate || day > endDate) continue;
-      mktDeals++;
-      const currentOrder = STAGE_ORDER[deal.stage_id] || 0;
-      dealsNeedingFlow.push({ deal, currentOrder });
-    }
-
-    // Fetch flows in parallel batches
-    for (let i = 0; i < dealsNeedingFlow.length; i += FLOW_CONCURRENCY) {
-      const chunk = dealsNeedingFlow.slice(i, i + FLOW_CONCURRENCY);
-      const results = await Promise.all(
-        chunk.map(({ deal, currentOrder }) => getMaxStageReached(apiToken, deal.id, currentOrder))
-      );
-      flowCalls += chunk.length;
-      for (let j = 0; j < chunk.length; j++) {
-        countDealByStage(chunk[j].deal, results[j], monthly, startDate, endDate);
-      }
-    }
-
-    // Cutoff: stop when deals are older than our window
-    const oldest = res.data[res.data.length - 1]?.add_time?.substring(0, 10) || "";
-    if (oldest && oldest < startDate) { reachedCutoff = true; break; }
-    if (!res.additional_data?.pagination?.more_items_in_collection) { reachedEnd = true; break; }
-    apiStart += 500;
+  for (const deal of deals) {
+    if (!getEmpreendimento(deal)) continue;
+    mktDeals++;
+    // For lost deals, use current etapa as max stage (Nekt has the stage where deal was lost)
+    const currentOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
+    countDealByStage(deal, currentOrder, monthly, startDate, endDate);
   }
 
   // Upsert (additive)
@@ -636,14 +581,12 @@ async function backfillLostWithFlow(apiToken: string, supabase: any, startFrom: 
     }
   }
 
-  const done = reachedEnd || reachedCutoff;
-  const nextStart = done ? null : apiStart;
-  console.log(`backfillLostWithFlow: scanned=${dealsScanned} mkt=${mktDeals} flow=${flowCalls} rows=${rows.length} done=${done}`);
-  return { dealsScanned, mktDeals, flowCalls, monthlyRows: rows.length, nextStart, done };
+  console.log(`backfillLostWithFlow: deals=${deals.length} mkt=${mktDeals} rows=${rows.length}`);
+  return { dealsScanned: deals.length, mktDeals, flowCalls: 0, monthlyRows: rows.length, nextStart: null, done: true };
 }
 
-// ---- Mode: monthly-rollup (stage-based counting from Pipedrive for current + prev month) ----
-async function syncMonthlyRollup(apiToken: string, supabase: any) {
+// ---- Mode: monthly-rollup (stage-based counting for current + prev month) ----
+async function syncMonthlyRollup(nektApiKey: string, supabase: any) {
   const now = new Date();
   const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -655,19 +598,29 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
 
   const monthly = new Map<string, number>();
 
-  function countDeal(deal: any) {
-    if (deal.pipeline_id !== PIPELINE_ID) return;
-    if (!isMarketingDeal(deal)) return;
+  // Fetch all deals (open, won, lost) from Nekt for this period
+  const sql = `
+    SELECT id, pipeline_id, status, etapa, canal, empreendimento,
+           negocio_criado_em, ganho_em, data_de_qualificacao, data_da_reuniao, motivo_da_perda
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND canal = 'Marketing'
+      AND negocio_criado_em >= TIMESTAMP '${startDate}'
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
+  let totalDeals = 0;
+
+  for (const deal of deals) {
     const emp = getEmpreendimento(deal);
-    if (!emp) return;
-    const addTime = deal.add_time;
-    if (!addTime) return;
+    if (!emp) continue;
+    const addTime = deal.negocio_criado_em;
+    if (!addTime) continue;
     const day = addTime.substring(0, 10);
-    if (day < startDate || day > endDate) return;
+    if (day < startDate || day > endDate) continue;
+    totalDeals++;
     const month = day.substring(0, 7);
-    const stageOrder = STAGE_ORDER[deal.stage_id] || 0;
-    const hasQualDate = !!deal[FIELD_QUALIFICACAO];
-    const hasReunDate = !!deal[FIELD_REUNIAO];
+    const stageOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
+    const hasQualDate = !!deal.data_de_qualificacao;
+    const hasReunDate = !!deal.data_da_reuniao;
 
     monthly.set(`${month}|${emp}|mql`, (monthly.get(`${month}|${emp}|mql`) || 0) + 1);
     if (stageOrder >= SQL_MIN_ORDER || hasQualDate) {
@@ -680,49 +633,6 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
       monthly.set(`${month}|${emp}|won`, (monthly.get(`${month}|${emp}|won`) || 0) + 1);
     }
   }
-
-  // Scan open deals
-  let totalDeals = 0;
-  let start = 0;
-  while (true) {
-    const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, {
-      limit: "500", start: String(start),
-    });
-    if (!res.data || res.data.length === 0) break;
-    totalDeals += res.data.length;
-    for (const deal of res.data) countDeal(deal);
-    if (!res.additional_data?.pagination?.more_items_in_collection) break;
-    start += 500;
-  }
-
-  // Scan won + lost deals (deduped)
-  const seenDealIds = new Set<number>();
-  for (const dealStatus of ["won", "lost"] as const) {
-    for (const stageId of PIPELINE_STAGES) {
-      let s = 0;
-      let stoppedEarly = false;
-      while (true) {
-        const res = await pipedriveGet(apiToken, "/deals", {
-          status: dealStatus, stage_id: String(stageId),
-          sort: "add_time DESC", limit: "500", start: String(s),
-        });
-        if (!res.data || res.data.length === 0) break;
-        for (const deal of res.data) {
-          if (seenDealIds.has(deal.id)) continue;
-          seenDealIds.add(deal.id);
-          countDeal(deal);
-        }
-        if (dealStatus === "lost") {
-          const oldest = res.data[res.data.length - 1]?.add_time?.substring(0, 10) || "";
-          if (oldest && oldest < startDate) { stoppedEarly = true; break; }
-        }
-        if (!res.additional_data?.pagination?.more_items_in_collection) break;
-        s += 500;
-      }
-      if (dealStatus === "lost" && stoppedEarly) break;
-    }
-  }
-  totalDeals += seenDealIds.size;
 
   // Upsert (replace) for current + prev month
   const rows = Array.from(monthly.entries()).map(([key, count]) => {
@@ -750,12 +660,10 @@ Deno.serve(async (req) => {
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    // Auth handled by Supabase gateway (--no-verify-jwt not set)
-
-    // Get Pipedrive token from Vault
-    const { data: tokenData } = await supabase.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" });
-    const apiToken = tokenData?.trim();
-    if (!apiToken) throw new Error("PIPEDRIVE_API_TOKEN not found in vault");
+    // Get Nekt API key from Vault
+    const { data: nektKeyData } = await supabase.rpc("vault_read_secret", { secret_name: "NEKT_API_KEY" });
+    const nektApiKey = nektKeyData?.trim();
+    if (!nektApiKey) throw new Error("NEKT_API_KEY not found in vault");
 
     // Parse mode
     let mode = "daily-open";
@@ -769,123 +677,38 @@ Deno.serve(async (req) => {
     let result;
     switch (mode) {
       case "daily-open":
-        // Open deals from pipeline endpoint (replaces counts)
-        result = await syncDailyOpen(apiToken, supabase);
+        result = await syncDailyOpen(nektApiKey, supabase);
         break;
       case "daily-won":
-        // Won deals via stage_id filter (merges with existing)
-        result = await syncDailyByStatus(apiToken, supabase, "won");
+        result = await syncDailyByStatus(nektApiKey, supabase, "won");
         break;
       case "daily-lost":
-        // Lost deals via stage_id filter (merges with existing)
-        result = await syncDailyByStatus(apiToken, supabase, "lost");
+        result = await syncDailyByStatus(nektApiKey, supabase, "lost");
         break;
       case "alignment":
-        result = { rows: await syncAlignment(apiToken, supabase) };
+        result = { rows: await syncAlignment(nektApiKey, supabase) };
         break;
       case "metas":
         result = await syncMetas(supabase);
         break;
       case "monthly-rollup":
-        result = await syncMonthlyRollup(apiToken, supabase);
+        result = await syncMonthlyRollup(nektApiKey, supabase);
         break;
       case "backfill-monthly-clear":
         result = await backfillMonthlyClear(supabase);
         break;
       case "backfill-open-won":
-        result = await backfillOpenWon(apiToken, supabase);
+        result = await backfillOpenWon(nektApiKey, supabase);
         break;
       case "backfill-lost-flows": {
         const startFrom = body?.start || 0;
-        result = await backfillLostWithFlow(apiToken, supabase, startFrom);
-        break;
-      }
-      case "debug-stages": {
-        // Debug: scan a sample of deals and report stage_id distribution
-        const stageDistOpen: Record<string, number> = {};
-        const stageDistWon: Record<string, number> = {};
-        const stageDistLost: Record<string, number> = {};
-        let sampleOpen = 0, sampleWon = 0, sampleLost = 0;
-        let mktOpen = 0, mktWon = 0, mktLost = 0;
-
-        // Open deals
-        let s = 0;
-        while (true) {
-          const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, { limit: "500", start: String(s) });
-          if (!res.data || res.data.length === 0) break;
-          for (const d of res.data) {
-            if (d.pipeline_id !== PIPELINE_ID) continue;
-            sampleOpen++;
-            if (isMarketingDeal(d) && getEmpreendimento(d)) {
-              mktOpen++;
-              const sid = String(d.stage_id);
-              stageDistOpen[sid] = (stageDistOpen[sid] || 0) + 1;
-            }
-          }
-          if (!res.additional_data?.pagination?.more_items_in_collection) break;
-          s += 500;
-        }
-
-        // Won deals (first 2000)
-        const seenW = new Set<number>();
-        for (const stageId of PIPELINE_STAGES) {
-          let ws = 0;
-          while (true) {
-            const res = await pipedriveGet(apiToken, "/deals", { status: "won", stage_id: String(stageId), sort: "add_time DESC", limit: "500", start: String(ws) });
-            if (!res.data || res.data.length === 0) break;
-            for (const d of res.data) {
-              if (seenW.has(d.id)) continue;
-              seenW.add(d.id);
-              if (d.pipeline_id !== PIPELINE_ID) continue;
-              sampleWon++;
-              if (isMarketingDeal(d) && getEmpreendimento(d)) {
-                mktWon++;
-                const sid = String(d.stage_id);
-                stageDistWon[sid] = (stageDistWon[sid] || 0) + 1;
-              }
-            }
-            if (!res.additional_data?.pagination?.more_items_in_collection) break;
-            ws += 500;
-          }
-        }
-
-        // Lost deals (first 5000, sorted by add_time DESC)
-        const seenL = new Set<number>();
-        for (const stageId of PIPELINE_STAGES) {
-          let ls = 0;
-          while (true) {
-            const res = await pipedriveGet(apiToken, "/deals", { status: "lost", stage_id: String(stageId), sort: "add_time DESC", limit: "500", start: String(ls) });
-            if (!res.data || res.data.length === 0) break;
-            for (const d of res.data) {
-              if (seenL.has(d.id)) continue;
-              seenL.add(d.id);
-              if (d.pipeline_id !== PIPELINE_ID) continue;
-              sampleLost++;
-              if (isMarketingDeal(d) && getEmpreendimento(d)) {
-                mktLost++;
-                const sid = String(d.stage_id);
-                stageDistLost[sid] = (stageDistLost[sid] || 0) + 1;
-              }
-            }
-            if (seenL.size >= 5000) break;
-            if (!res.additional_data?.pagination?.more_items_in_collection) break;
-            ls += 500;
-          }
-          if (seenL.size >= 5000) break;
-        }
-
-        result = {
-          open: { total: sampleOpen, marketing: mktOpen, stages: stageDistOpen },
-          won: { total: sampleWon, marketing: mktWon, stages: stageDistWon },
-          lost: { total: sampleLost, marketing: mktLost, stages: stageDistLost },
-        };
+        result = await backfillLostWithFlow(nektApiKey, supabase, startFrom);
         break;
       }
       case "all": {
-        // Full sync: open + won + alignment + metas (lost runs separately due to volume)
-        const daily = await syncDailyOpen(apiToken, supabase);
-        const won = await syncDailyByStatus(apiToken, supabase, "won");
-        const alignment = await syncAlignment(apiToken, supabase);
+        const daily = await syncDailyOpen(nektApiKey, supabase);
+        const won = await syncDailyByStatus(nektApiKey, supabase, "won");
+        const alignment = await syncAlignment(nektApiKey, supabase);
         const metas = await syncMetas(supabase);
         result = { daily, won, alignment, metas };
         break;
