@@ -494,19 +494,25 @@ O botao envia: `["dashboard-light", "meta-ads", "deals-light", "calendar", "pres
 
 ## Forecast (Previsão de Vendas do Mês)
 - Aba dentro do dropdown "Resultados" no header
-- **API:** `/api/dashboard/forecast` — calcula previsão de WON para o mês corrente
-- **Dados:** usa `squad_deals` (filtro `is_marketing=true`, `empreendimento IS NOT NULL`)
-- **Lógica:**
+- **API SZI:** `/api/dashboard/forecast` — previsão WON do mês, agrupado por squad/closer
+- **API SZS:** `/api/szs/forecast` — previsão WON do mês, agrupado por **canal** (Marketing, Parceiros, Expansão, Spots, Outros)
+- **Dados SZI:** `squad_deals` (filtro `is_marketing=true`, `empreendimento IS NOT NULL`)
+- **Dados SZS:** `szs_deals` (todos os canais, sem filtro de canal)
+- **Lógica (mesma para SZI e SZS):**
   1. **Já Ganhos:** deals WON no mês corrente (`status=won`, `won_time >= mes_inicio`)
   2. **Pipeline:** deals abertos por etapa × taxa de conversão histórica 90d por etapa
   3. **Taxa conversão por etapa:** de todos os deals que passaram pela etapa X (`max_stage_order >= X`) nos últimos 90d (filtro `add_time >= 90d`), qual % virou WON. Exclui `lost_reason = 'Duplicado/Erro'` em JS (não no Supabase, por causa do bug do `neq` com NULLs)
-  4. **Leadtime por etapa:** tempo médio (média, não mediana — mais conservador) da etapa até WON. Usa deals que FECHARAM nos últimos 90d (`won_time >= 90d`, query separada). Fórmula: `ciclo_total × (14 - stage_order) / 13`
+  4. **Leadtime por etapa:** tempo médio (média, não mediana — mais conservador) da etapa até WON. Usa deals que FECHARAM nos últimos 90d (`won_time >= 90d`, query separada). Fórmula SZI: `ciclo_total × (14 - stage_order) / 13`. SZS: `ciclo_total × (12 - stage_order) / 11`
   5. **Forecast = Já Ganhos + Pipeline**
 - **Ranges:** pessimista (pipeline ×0.7), esperado (×1.0), otimista (×1.3)
-- **Breakdown:** por squad (expansível para closers) com meta e % meta
-- **Metas:** lê meta TOTAL do mês de `nekt_meta26_metas` (won_szi_meta_pago + won_szi_meta_direto) via service role key (tabela tem RLS, anon key retorna vazio). Divide por 5 closers e distribui por squad. NAO usar `squad_metas` — essa tabela armazena meta proporcional ao dia (meta_to_date), não meta total do mês
-- **View:** cards resumo (Já Ganhos, Pipeline, Forecast Total), range bar visual com linha de meta, tabela pipeline por etapa (com coluna Leadtime → WON), tabela squad/closer
-- **Sync:** usa `["deals"]` (depende de `squad_deals` atualizado)
+- **Breakdown SZI:** por squad (expansível para closers) com meta e % meta
+- **Breakdown SZS:** por canal (Marketing, Parceiros, Mônica, Expansão, Spots, Outros). Usa `ForecastSquadRow` reutilizado (canal = "squad", closers = [])
+- **Metas SZI:** `nekt_meta26_metas.won_szi_meta_pago + won_szi_meta_direto` via service role key. Divide por 5 closers e distribui por squad
+- **Metas SZS:** `nekt_meta26_metas` campos por canal: `won_szs_meta_pago` (Marketing), `won_szs_meta_parceiro` (Parceiros), `won_szs_meta_exp` (Expansão), `won_szs_meta_spot` (Spots), `won_szs_meta_direto` (Outros)
+- **IMPORTANTE meta:** SEMPRE usar `nekt_meta26_metas` (meta TOTAL do mês). NAO usar `squad_metas`/`szs_metas` — essas tabelas armazenam meta proporcional ao dia (meta_to_date), não meta total do mês. Extrapolar meta_to_date gera valores imprecisos
+- **View:** cards resumo (Já Ganhos, Pipeline, Forecast Total), range bar visual com linha de meta, tabela pipeline por etapa (com coluna Leadtime → WON), tabela squad/closer (SZI) ou canal (SZS)
+- **Sync SZI:** usa `["deals"]` (depende de `squad_deals` atualizado)
+- **Sync SZS:** usa `["szs-deals"]` (depende de `szs_deals` atualizado). **CUIDADO:** `szs_deals` tem ~20k+ lost deals. `deals-lost` carrega em batches de 5000. `deals-flow` processa 500/batch (~2 min cada). Precisa de múltiplas rodadas para preencher `max_stage_order` de todos os lost deals. Sem flow, conversões dos stages intermediários ficam infladas (100%)
 - **CUIDADO queries de leadtime vs conversão:** conversão usa `add_time >= 90d` (deals criados no período). Leadtime usa `won_time >= 90d` (deals que fecharam no período, independente de quando foram criados). Misturar os filtros gera leadtimes artificialmente curtos porque `add_time >= 90d` só pega deals recentes com ciclos rápidos
 - **CUIDADO neq + NULL:** Supabase `.neq("campo", "valor")` exclui rows onde campo é NULL. Para filtrar `lost_reason != 'Duplicado/Erro'` sem excluir NULLs, filtrar em JS com `if (d.lost_reason === "Duplicado/Erro") continue`
 - **CUIDADO datas UTC:** `new Date("2026-03-01")` em BRT (UTC-3) vira 28/fev 21h. Usar `new Date("2026-03-01T12:00:00")` para exibição de mês
