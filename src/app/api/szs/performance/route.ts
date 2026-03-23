@@ -54,8 +54,7 @@ async function fetchDeals(cutoff: string | null): Promise<DealRow[]> {
   while (true) {
     let query = supabase
       .from("szs_deals")
-      .select("deal_id, owner_name, preseller_name, empreendimento, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time")
-      .not("canal", "in", "(582,583,1748,3189)");
+      .select("deal_id, owner_name, preseller_name, empreendimento, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time");
     if (cutoff) {
       query = query.or(`status.eq.open,won_time.gte.${cutoff},lost_time.gte.${cutoff},add_time.gte.${cutoff}`);
     }
@@ -154,12 +153,16 @@ export async function GET(request: Request) {
       return result.sort((a, b) => b.mql - a.mql);
     }
 
+    // Pipeline 14 stages: Lead in(1) → Contatados(2) → Qualificação(3) → Qualificado(4)
+    // → Ag.data(5) → Agendado(6) → No Show(7) → Reunião Realizada(8) → FUP(9)
+    // → Negociação(10) → Ag.Dados(11) → Contrato(12)
+    // OPP_MIN_ORDER = 9 (FUP) in sync — matches the SZS pipeline definition
     function countFunnel(dealList: DealRow[]) {
       let mql = 0, sql = 0, opp = 0, won = 0;
       for (const d of dealList) {
-        if (d.max_stage_order >= 2) mql++;
-        if (d.max_stage_order >= 5) sql++;
-        if (d.max_stage_order >= 9) opp++;
+        if (d.max_stage_order >= 1) mql++;  // MQL = all deals (Lead in)
+        if (d.max_stage_order >= 4) sql++;  // SQL = Qualificado (stage 4)
+        if (d.max_stage_order >= 9) opp++;  // OPP = FUP (stage 9) — consistent with OPP_MIN_ORDER in sync
         if (d.status === "won") won++;
       }
       return { mql, sql, opp, won };
@@ -340,9 +343,9 @@ export async function GET(request: Request) {
       presellerPresalesMap.get(key)!.push(row);
     }
 
+    // SZS: iterate over ALL configured presellers (not just squad.preVenda)
     const allPresellers: PerformancePresellerRow[] = [];
-    for (const sq of mc.squads) {
-      const pvName = sq.preVenda;
+    for (const pvName of mc.presellers) {
       const pvNorm = norm(pvName);
 
       const pvFunnelDeals = deals.filter((d) => d.preseller_name && norm(d.preseller_name) === pvNorm);
@@ -357,7 +360,7 @@ export async function GET(request: Request) {
       allPresellers.push({
         name: pvName,
         role: "preseller",
-        squadId: sq.id,
+        squadId: 1, // SZS has a single squad
         ...funnel,
         mqlToSql: rate(funnel.sql, funnel.mql),
         sqlToOpp: rate(funnel.opp, funnel.sql),
@@ -374,10 +377,15 @@ export async function GET(request: Request) {
       });
     }
 
-    // Marketing (MIA)
+    // Marketing (MIA) — for SZS, get deals NOT attributed to any preseller
     for (const sq of mc.squads) {
-      const sqEmpDeals = deals.filter((d) => (sq.empreendimentos as readonly string[]).includes(d.empreendimento!));
-      const funnel = countFunnel(sqEmpDeals);
+      const allPresellerNorms = new Set(mc.presellers.map(norm));
+      const miaDeals = deals.filter((d) => {
+        // Deals where preseller is the MIA person, or has no preseller
+        if (!d.preseller_name) return false;
+        return norm(d.preseller_name) === norm(sq.marketing);
+      });
+      const funnel = countFunnel(miaDeals);
       allPresellers.push({
         name: sq.marketing,
         role: "marketing",
@@ -394,7 +402,7 @@ export async function GET(request: Request) {
         actReunioes: 0,
         avgResponseMin: 0,
         medianResponseMin: 0,
-        byEmp: buildByEmp(sqEmpDeals),
+        byEmp: buildByEmp(miaDeals),
       });
     }
 
