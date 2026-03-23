@@ -35,11 +35,27 @@ const SQUAD_OPTIONS = [
   { id: 3, label: "Squad 3" },
 ];
 
+const SZS_CANAL_OPTIONS = [
+  { id: 0, label: "Global" },
+  { id: 1, label: "Marketing" },
+  { id: 2, label: "Parceiros" },
+  { id: 3, label: "Expansão" },
+  { id: 4, label: "Spots" },
+  { id: 5, label: "Mônica" },
+  { id: 6, label: "Outros" },
+];
+
+const SZS_CANAL_COLORS: Record<number, string> = {
+  1: T.azul600, 2: T.roxo600, 3: T.teal600,
+  4: T.laranja500, 5: "#E91E63", 6: T.cinza400,
+};
+
 interface Props {
   data: RatioHistoryData | null;
   loading: boolean;
   daysBack: number;
   onDaysChange: (days: number) => void;
+  moduleId?: string;
 }
 
 function ratioToConvPct(ratio: number): number {
@@ -144,10 +160,12 @@ function TrendBadge({ label, diff, direction }: { label: string; diff: number; d
 }
 
 // SVG line chart — one ratio at a time, all squads as separate lines
-function RatioChart({ history, selectedRatio, period }: {
+function RatioChart({ history, selectedRatio, period, squadIds, squadColors: chartColors }: {
   history: RatioSnapshot[];
   selectedRatio: RatioKey;
   period: number;
+  squadIds: number[];
+  squadColors: Record<number, string>;
 }) {
   const [tooltip, setTooltip] = useState<{ x: number; y: number; content: string } | null>(null);
 
@@ -226,10 +244,10 @@ function RatioChart({ history, selectedRatio, period }: {
         ))}
 
         {/* Lines: one per squad */}
-        {[0, 1, 2, 3].map(sqId => {
+        {squadIds.map(sqId => {
           const points = chartData.get(sqId);
           if (!points || points.length < 2) return null;
-          const color = sqId === 0 ? T.cinza600 : SQUAD_COLORS[sqId] || T.cinza400;
+          const color = sqId === 0 ? T.cinza600 : chartColors[sqId] || T.cinza400;
           const strokeW = sqId === 0 ? 2 : 2.5;
           const dash = sqId === 0 ? "6,4" : undefined;
           return (
@@ -246,10 +264,10 @@ function RatioChart({ history, selectedRatio, period }: {
         })}
 
         {/* Hover dots for all squads */}
-        {[1, 2, 3, 0].map(sqId => {
+        {[...squadIds.filter(id => id !== 0), 0].map(sqId => {
           const points = chartData.get(sqId);
           if (!points) return null;
-          const color = sqId === 0 ? T.cinza600 : SQUAD_COLORS[sqId] || T.cinza400;
+          const color = sqId === 0 ? T.cinza600 : chartColors[sqId] || T.cinza400;
           return points.map((p, i) => (
             <circle
               key={`${sqId}-${i}`}
@@ -416,14 +434,19 @@ function RatioHeatmap({ squads, getSnapshot, history }: {
 }
 
 // Daily conversion heatmap — same format as acompanhamento heatmap
-function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSnapshot }: {
+function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSnapshot, squadDefs, squadColors, empLabel }: {
   empDaily: Record<string, Record<string, Record<string, number>>>;
   dates: string[];
   selectedRatio: RatioKey;
   history: RatioSnapshot[];
   getSnapshot: (id: number) => RatioSnapshot;
+  squadDefs: Array<{ id: number; name: string; empreendimentos: readonly string[] }>;
+  squadColors: Record<number, string>;
+  empLabel: string;
 }) {
-  const [expandedSq, setExpandedSq] = useState<Record<number, boolean>>({ 1: true, 2: true, 3: true });
+  const defaultExpanded: Record<number, boolean> = {};
+  for (const sq of squadDefs) defaultExpanded[sq.id] = true;
+  const [expandedSq, setExpandedSq] = useState<Record<number, boolean>>(defaultExpanded);
   const [hCol, setHCol] = useState<number | null>(null);
   const toggle = (id: number) => setExpandedSq(p => ({ ...p, [id]: !p[id] }));
 
@@ -493,7 +516,7 @@ function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSn
 
   // Collect all non-zero values for heat coloring
   const allVals: number[] = [];
-  for (const sq of SQUADS) {
+  for (const sq of squadDefs) {
     const sqConv = getSquadDailyConv(sq.id);
     sqConv.forEach(v => { if (v > 0) allVals.push(v); });
   }
@@ -530,9 +553,9 @@ function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSn
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1600px" }}>
           <thead>
             <tr style={{ backgroundColor: T.fg }}>
-              <th style={{ ...hdrStyle, textAlign: "left", width: "120px", padding: "6px 10px", color: T.primaryFg }} title="Squad / Canal">Squad</th>
-              <th style={{ ...hdrStyle, width: "170px", textAlign: "left", padding: "6px 10px", color: T.primaryFg }} title="Empreendimento do squad">Empreendimento</th>
-              <th style={{ ...hdrStyle, width: "60px", color: T.primaryFg }} title="Taxa de conversão atual (janela rolling 90 dias)">90d %</th>
+              <th style={{ ...hdrStyle, textAlign: "left", width: "120px", padding: "6px 10px", color: T.primaryFg }}>{empLabel === "Cidade" ? "Canal" : "Squad"}</th>
+              <th style={{ ...hdrStyle, width: "170px", textAlign: "left", padding: "6px 10px", color: T.primaryFg }} title={empLabel}>{empLabel}</th>
+              <th style={{ ...hdrStyle, width: "60px", color: T.primaryFg }} title="Taxa de conversão nos últimos 30 dias (para comparar com o rolling 90d diário)">30d %</th>
               {parsedDates.map((d, i) => (
                 <th
                   key={i}
@@ -556,14 +579,24 @@ function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSn
             </tr>
           </thead>
           <tbody>
-            {SQUADS.map(sq => {
+            {squadDefs.map(sq => {
               const isOpen = expandedSq[sq.id] !== false;
-              const clr = SQUAD_COLORS[sq.id] || T.azul600;
+              const clr = squadColors[sq.id] || T.azul600;
               const sqConv = getSquadDailyConv(sq.id);
               const sqEmps = sq.empreendimentos;
-              // Squad 90d total (same as ratio calculation)
-              const sqSnap = getSnapshot(sq.id);
-              const sqMonthPct = ratioToConvPct(getRatio(sqSnap, selectedRatio));
+              // Squad 30d conversion (to compare with 90d daily values)
+              const now30 = new Date();
+              now30.setDate(now30.getDate() - 30);
+              const cutoff30 = now30.toISOString().substring(0, 10);
+              let sq30Num = 0, sq30Den = 0;
+              for (const emp of sqEmps) {
+                for (const d of allDatesInData) {
+                  if (d < cutoff30) continue;
+                  const c = empDaily[emp]?.[d];
+                  if (c) { sq30Num += c[numTab] || 0; sq30Den += c[denTab] || 0; }
+                }
+              }
+              const sqMonthPct = sq30Den > 0 ? (sq30Num / sq30Den) * 100 : 0;
 
               return [
                 <tr
@@ -583,7 +616,7 @@ function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSn
                   <td style={{ ...tdStyle, fontWeight: 700, color: T.fg }}>TOTAL</td>
                   <td
                     style={{ ...tdStyle, fontWeight: 700, color: T.fg, backgroundColor: heatBg(sqMonthPct, allVals) }}
-                    title={`${sq.name}: ${numTab.toUpperCase()} ÷ ${denTab.toUpperCase()} nos últimos 90 dias = ${sqMonthPct.toFixed(1)}%`}
+                    title={`${sq.name}: ${numTab.toUpperCase()} ÷ ${denTab.toUpperCase()} nos últimos 30 dias = ${sqMonthPct.toFixed(1)}% (${sq30Num} / ${sq30Den})`}
                   >{sqMonthPct.toFixed(1)}%</td>
                   {sqConv.map((v, i) => (
                     <td
@@ -605,8 +638,14 @@ function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSn
                 </tr>,
                 ...(isOpen ? sqEmps.map((emp, ri) => {
                   const empConv = getEmpDailyConv(emp);
-                  // 90d total for this emp (latest value = most recent date's rolling 90d)
-                  const eMonthPct = empConv.length > 0 ? empConv[0] : 0;
+                  // 30d conversion for this emp
+                  let e30Num = 0, e30Den = 0;
+                  for (const d of allDatesInData) {
+                    if (d < cutoff30) continue;
+                    const c = empDaily[emp]?.[d];
+                    if (c) { e30Num += c[numTab] || 0; e30Den += c[denTab] || 0; }
+                  }
+                  const eMonthPct = e30Den > 0 ? (e30Num / e30Den) * 100 : 0;
                   return (
                     <tr
                       key={`${sq.id}-${ri}`}
@@ -617,7 +656,7 @@ function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSn
                       <td style={{ ...tdStyle, paddingLeft: "28px", color: T.fg, fontWeight: 500 }}>{emp}</td>
                       <td
                         style={{ ...tdStyle, fontWeight: 600, color: T.fg, backgroundColor: heatBg(eMonthPct, allVals) }}
-                        title={`${emp}: ${numTab.toUpperCase()} ÷ ${denTab.toUpperCase()} nos últimos 90 dias = ${eMonthPct.toFixed(1)}%`}
+                        title={`${emp}: ${numTab.toUpperCase()} ÷ ${denTab.toUpperCase()} nos últimos 30 dias = ${eMonthPct.toFixed(1)}% (${e30Num} / ${e30Den})`}
                       >
                         {eMonthPct.toFixed(1)}%
                       </td>
@@ -645,8 +684,19 @@ function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSn
             {/* TOTAL GERAL row */}
             {(() => {
               const globalConv = getSquadDailyConv(0);
-              const globalSnap = getSnapshot(0);
-              const globalMonthPct = ratioToConvPct(getRatio(globalSnap, selectedRatio));
+              // Global 30d
+              const now30g = new Date();
+              now30g.setDate(now30g.getDate() - 30);
+              const cutoff30g = now30g.toISOString().substring(0, 10);
+              let g30Num = 0, g30Den = 0;
+              for (const emp of Object.keys(empDaily)) {
+                for (const d of allDatesInData) {
+                  if (d < cutoff30g) continue;
+                  const c = empDaily[emp]?.[d];
+                  if (c) { g30Num += c[numTab] || 0; g30Den += c[denTab] || 0; }
+                }
+              }
+              const globalMonthPct = g30Den > 0 ? (g30Num / g30Den) * 100 : 0;
               return (
                 <tr style={{ backgroundColor: T.fg }}>
                   <td colSpan={2} style={{ ...tdStyle, fontWeight: 700, color: T.primaryFg, borderBottom: "none" }}>TOTAL GERAL</td>
@@ -684,16 +734,35 @@ function MiniTrend({ diff, direction, label }: { diff: number; direction: "bette
   );
 }
 
-export function ConversoesView({ data, loading, daysBack, onDaysChange }: Props) {
+export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId }: Props) {
   const [expanded, setExpanded] = useState(true);
   const [selectedRatio, setSelectedRatio] = useState<RatioKey>("opp_won");
+  const isSZS = moduleId === "szs";
 
   if (loading && !data) return null;
   if (!data) return null;
 
   const { current, history } = data;
 
-  // Get snapshot for each squad
+  // Module-specific config
+  const groupOptions = isSZS ? SZS_CANAL_OPTIONS : SQUAD_OPTIONS;
+  const groupColors = isSZS ? SZS_CANAL_COLORS : SQUAD_COLORS;
+  const groupLabel = isSZS ? "Canal" : "Squad";
+  const empLabel = isSZS ? "Cidade" : "Empreendimento";
+
+  // Build squad defs from empDaily keys grouped by canal/squad
+  const squadDefs = isSZS
+    ? SZS_CANAL_OPTIONS.filter(o => o.id !== 0).map(o => ({
+        id: o.id,
+        name: o.label,
+        empreendimentos: Object.keys(data.empDaily || {}).filter(emp => {
+          // For SZS, empDaily is keyed by canal_group name
+          return emp === o.label;
+        }),
+      }))
+    : SQUADS.map(sq => ({ id: sq.id, name: sq.name, empreendimentos: [...sq.empreendimentos] }));
+
+  // Get snapshot for each squad/canal
   const getSnapshot = (sqId: number): RatioSnapshot => {
     if (sqId === 0) return current.global;
     const sq = current.squads.find(s => s.squad_id === sqId);
@@ -754,6 +823,9 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange }: Props)
                 selectedRatio={selectedRatio}
                 history={history}
                 getSnapshot={getSnapshot}
+                squadDefs={squadDefs}
+                squadColors={groupColors}
+                empLabel={empLabel}
               />
             </>
           )}
@@ -814,8 +886,8 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange }: Props)
 
             {/* Legend */}
             <div style={{ display: "flex", gap: "16px", marginBottom: "8px" }}>
-              {SQUAD_OPTIONS.map(sq => {
-                const color = sq.id === 0 ? T.cinza600 : SQUAD_COLORS[sq.id];
+              {groupOptions.map(sq => {
+                const color = sq.id === 0 ? T.cinza600 : groupColors[sq.id];
                 return (
                   <div key={sq.id} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
                     <span style={{
@@ -832,18 +904,17 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange }: Props)
               })}
             </div>
 
-            <RatioChart history={history} selectedRatio={selectedRatio} period={daysBack} />
+            <RatioChart history={history} selectedRatio={selectedRatio} period={daysBack} squadIds={groupOptions.map(o => o.id)} squadColors={groupColors} />
           </div>
 
           {/* Trend summary badges */}
           <div style={{ marginTop: "12px", display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            {[1, 2, 3].map(sqId => {
-              const sqLabel = `Squad ${sqId}`;
+            {groupOptions.filter(o => o.id !== 0).map(({ id: sqId, label: sqLabel }) => {
               return RATIO_KEYS.map(key => {
                 const t30 = getTrend(history, sqId, key, 30);
                 if (!t30 || t30.direction === "neutral") return null;
                 const isBetter = t30.direction === "better";
-                const color = SQUAD_COLORS[sqId] || T.cinza600;
+                const color = groupColors[sqId] || T.cinza600;
                 return (
                   <div key={`${sqId}-${key}`} style={{
                     fontSize: "11px",
