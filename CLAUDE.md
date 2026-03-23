@@ -603,3 +603,31 @@ npm run lint         # ESLint
 - **REGRA:** Alucinações: filtrar patterns conhecidos (opusdei, amara.org, etc)
 - **Matching:** email do closer + data + hora (tolerância 30min). Eventos já marcados com `fireflies_id` são pulados
 - **Avaliação manual alternativa:** Pode ser feita diretamente pelo Claude Code (sem ANTHROPIC_API_KEY) usando agentes que leem as transcrições do Supabase, avaliam e gravam via curl PATCH
+
+## Módulo SZS (Seazone Serviços) — Notas
+- **Pipeline Pipedrive:** 14 (vs SZI = 28)
+- **Hierarquia:** Canal Group > Cidade (vs SZI que é Squad > Empreendimento)
+- **Canal Groups:** Marketing (12), Parceiros (582+583), Mônica (4551), Expansão (1748), Spots (3189), Outros (fallback)
+- **Stages Pipeline 14:** Lead in (70), Contatados (71), Qualificação (72), Qualificado (345), Aguardando data (341), Agendado (73), No Show (342), Reunião Realizada (151), FUP (74), Negociação (75), Aguardando Dados (152), Contrato (76)
+- **Stage mapping no funil:** "Reserva" = Aguardando Dados (stage 152), "Contrato" = Contrato (stage 76). Frontend mostra "Ag. Dados" em vez de "Reserva" quando isSZS=true
+- **Conversão Ag. Dados/Contrato:** snapshot para exibição, acumulado para conversão. Acumulado = `reservaAcum = reserva + contrato + won`, `contratoAcum = contrato + won` (todo deal WON passou por ambos os stages)
+- **Metas WON:** hardcoded em `SZS_METAS_WON` por mês/canal na API route (não usa nekt_meta26_metas)
+- **CUIDADO paginação:** `szs_daily_counts` pode ter >1000 rows na janela de 28 dias. Routes DEVEM paginar com queries separadas (não reutilizar query builder com `.range()`). Bug corrigido em `route.ts` e `acompanhamento/route.ts`
+- **Edge Function:** `sync-szs-dashboard` — deploy com `supabase functions deploy sync-szs-dashboard --no-verify-jwt`
+- **pg_cron:** verificar se jobs SZS estão configurados (sync parou por 4 dias sem ser detectado)
+
+## Heartbeats Slack — Skills e Automação
+- **Skills disponíveis:**
+  - `/resumo-heartbeat` — #heartbeats-szni (C06HZSR1LCF, privado)
+  - `/resumo-heartbeat-mkt` — #heartbeats-marketing (C04QY0ALXAS)
+  - `/resumo-heartbeat-comercial` — 4 canais comerciais (C08AE1Y6BGR, C0ANV4SP38Q, C0AN63WCQ30, C0AN85JLRL2)
+  - `/resumo-heartbeat-mktp` — #heartbeats-marketplace (C0AN9SUPY5P)
+  - `/resumo-heartbeat-cro` — #heartbeats-cro (C06SLRZVBTL, privado)
+- **App Slack:** "Heartbeats" (bot token: xoxb-462947370822-..., bot user: U0AN8G720UA). Gera notificações push (DMs normais não notificam)
+- **Automação launchd (3 jobs):**
+  - `com.seazone.heartbeat-reminder` — Quinta 9h: @channel em 7 canais (exceto SZNI) lembrando de enviar heartbeat
+  - `com.seazone.heartbeat-followup` — Sexta 9h: menciona individualmente quem não postou (compara membros vs quem postou desde quarta)
+  - `com.seazone.weekly-heartbeat` — Sexta 18h: 5 resumos executivos enviados no DM do Ambrosi via app Heartbeats
+- **Scripts:** `scripts/heartbeat_reminder.sh`, `scripts/heartbeat_followup.py`, `scripts/weekly_heartbeat.sh`
+- **Plists:** `/Users/matheusambrosi/Library/LaunchAgents/com.seazone.heartbeat-*.plist`
+- **CUIDADO:** launchd executa job atrasado ao ligar o Mac, mas precisa que o Mac esteja ligado para rodar no horário certo

@@ -13,24 +13,30 @@ interface ResultadosViewProps {
   moduleId?: string;
 }
 
-const STAGES = [
-  { key: "leads", label: "Leads", color: T.azul600 },
-  { key: "mql", label: "MQL", color: T.azul600 },
-  { key: "sql", label: "SQL", color: T.roxo600 },
-  { key: "opp", label: "OPP", color: T.laranja500 },
-  { key: "reserva", label: "Reserva", color: T.verde700 },
-  { key: "contrato", label: "Contrato", color: T.teal600 },
-  { key: "won", label: "WON", color: T.verde600 },
-] as const;
+function getStages(isSZS: boolean) {
+  const reservaLabel = isSZS ? "Ag. Dados" : "Reserva";
+  return [
+    { key: "leads", label: "Leads", color: T.azul600 },
+    { key: "mql", label: "MQL", color: T.azul600 },
+    { key: "sql", label: "SQL", color: T.roxo600 },
+    { key: "opp", label: "OPP", color: T.laranja500 },
+    { key: "reserva", label: reservaLabel, color: T.verde700 },
+    { key: "contrato", label: "Contrato", color: T.teal600 },
+    { key: "won", label: "WON", color: T.verde600 },
+  ] as const;
+}
 
-const RATE_LABELS: Record<string, string> = {
-  leads: "Lead→MQL",
-  mql: "MQL→SQL",
-  sql: "SQL→OPP",
-  opp: "OPP→Reserva",
-  reserva: "Reserva→Contrato",
-  contrato: "Contrato→WON",
-};
+function getRateLabels(isSZS: boolean): Record<string, string> {
+  const reservaLabel = isSZS ? "Ag. Dados" : "Reserva";
+  return {
+    leads: "Lead→MQL",
+    mql: "MQL→SQL",
+    sql: "SQL→OPP",
+    opp: `OPP→${reservaLabel}`,
+    reserva: `${reservaLabel}→Contrato`,
+    contrato: "Contrato→WON",
+  };
+}
 
 const RATE_KEYS: Record<string, keyof FunilEmpreendimento> = {
   leads: "leadToMql",
@@ -58,8 +64,8 @@ function fmtPct(n: number): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
-function FunnelBar({ data }: { data: FunilEmpreendimento }) {
-  const stages = STAGES.map((s) => ({
+function FunnelBar({ data, isSZS = false }: { data: FunilEmpreendimento; isSZS?: boolean }) {
+  const stages = getStages(isSZS).map((s) => ({
     ...s,
     value: data[s.key as keyof FunilEmpreendimento] as number,
   }));
@@ -130,11 +136,12 @@ function SortableHeader({ label, sortKey, currentSort, currentDir, onSort, right
   );
 }
 
-function SquadTable({ squad, expanded, onToggle, groupLabel }: {
+function SquadTable({ squad, expanded, onToggle, groupLabel, isSZS = false }: {
   squad: { id: number; name: string; empreendimentos: FunilEmpreendimento[]; totals: FunilEmpreendimento };
   expanded: boolean;
   onToggle: () => void;
   groupLabel: string;
+  isSZS?: boolean;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("emp");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -187,7 +194,7 @@ function SquadTable({ squad, expanded, onToggle, groupLabel }: {
           <span style={{ color: T.cinza600 }}>MQL <b style={{ color: T.fg }}>{fmt(t.mql)}</b></span>
           <span style={{ color: T.cinza600 }}>SQL <b style={{ color: T.fg }}>{fmt(t.sql)}</b></span>
           <span style={{ color: T.cinza600 }}>OPP <b style={{ color: T.fg }}>{fmt(t.opp)}</b></span>
-          <span style={{ color: T.cinza600 }}>Reserva <b style={{ color: T.fg }}>{fmt(t.reserva)}</b></span>
+          <span style={{ color: T.cinza600 }}>{isSZS ? "Ag. Dados" : "Reserva"} <b style={{ color: T.fg }}>{fmt(t.reserva)}</b></span>
           <span style={{ color: T.cinza600 }}>Contrato <b style={{ color: T.fg }}>{fmt(t.contrato)}</b></span>
           <span style={{ color: T.cinza600 }}>WON <b style={{ color: T.verde600 }}>{fmt(t.won)}</b></span>
           <span style={{ color: T.cinza600 }}>Invest. <b style={{ color: T.fg }}>{fmtMoney(t.spend)}</b></span>
@@ -206,7 +213,7 @@ function SquadTable({ squad, expanded, onToggle, groupLabel }: {
                 <SortableHeader label="MQL" sortKey="mql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
                 <SortableHeader label="SQL" sortKey="sql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
                 <SortableHeader label="OPP" sortKey="opp" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
-                <SortableHeader label="Reserva" sortKey="reserva" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+                <SortableHeader label={isSZS ? "Ag. Dados" : "Reserva"} sortKey="reserva" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
                 <SortableHeader label="Contrato" sortKey="contrato" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
                 <SortableHeader label="WON" sortKey="won" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
                 <SortableHeader label="Invest." sortKey="spend" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
@@ -259,7 +266,7 @@ function SquadTable({ squad, expanded, onToggle, groupLabel }: {
   );
 }
 
-function CidadeDetailTable({ cidades }: { cidades: FunilCidade[] }) {
+function CidadeDetailTable({ cidades, isSZS = false }: { cidades: FunilCidade[]; isSZS?: boolean }) {
   const [expandedCities, setExpandedCities] = useState<Set<string>>(new Set());
   const [sortKey, setSortKey] = useState<SortKey>("mql");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -301,7 +308,7 @@ function CidadeDetailTable({ cidades }: { cidades: FunilCidade[] }) {
             <SortableHeader label="MQL" sortKey="mql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
             <SortableHeader label="SQL" sortKey="sql" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
             <SortableHeader label="OPP" sortKey="opp" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
-            <SortableHeader label="Reserva" sortKey="reserva" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
+            <SortableHeader label={isSZS ? "Ag. Dados" : "Reserva"} sortKey="reserva" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
             <SortableHeader label="Contrato" sortKey="contrato" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
             <SortableHeader label="WON" sortKey="won" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
             <SortableHeader label="Invest." sortKey="spend" currentSort={sortKey} currentDir={sortDir} onSort={handleSort} right />
@@ -408,10 +415,10 @@ export function ResultadosView({ data, loading, lastUpdated, moduleId }: Resulta
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       {/* Summary cards */}
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-        {STAGES.map((s) => {
+        {getStages(isSZS).map((s) => {
           const value = g[s.key as keyof FunilEmpreendimento] as number;
           const rateKey = RATE_KEYS[s.key];
-          const rateLabel = RATE_LABELS[s.key];
+          const rateLabel = getRateLabels(isSZS)[s.key];
           const rateValue = rateKey ? (g[rateKey] as number) : undefined;
           return (
             <div
@@ -474,14 +481,14 @@ export function ResultadosView({ data, loading, lastUpdated, moduleId }: Resulta
         }}
       >
         <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: "0 0 14px 0" }}>Funil Comercial — {data.month}</h3>
-        <FunnelBar data={g} />
+        <FunnelBar data={g} isSZS={isSZS} />
       </div>
 
       {/* Detail tables */}
       <div>
         <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: "0 0 10px 0" }}>{sectionTitle}</h3>
         {isSZS && data.squads[0]?.cidades ? (
-          <CidadeDetailTable cidades={data.squads[0].cidades} />
+          <CidadeDetailTable cidades={data.squads[0].cidades} isSZS={isSZS} />
         ) : (
           data.squads.map((sq) => (
             <SquadTable
@@ -490,6 +497,7 @@ export function ResultadosView({ data, loading, lastUpdated, moduleId }: Resulta
               expanded={expandedSquads.has(sq.id)}
               onToggle={() => toggleSquad(sq.id)}
               groupLabel={groupLabel}
+              isSZS={isSZS}
             />
           ))
         )}

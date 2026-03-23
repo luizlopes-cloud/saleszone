@@ -22,6 +22,7 @@ const CANAL_GROUPS: Record<string, string> = {
   "583": "Parceiros",   // Indicação de Franquia
   "1748": "Expansão",
   "3189": "Spots",       // Spot Seazone
+  "4551": "Mônica",
 };
 // Any canal ID not in this map → "Outros"
 const EMPREENDIMENTO_MAP: Record<string, string> = {
@@ -410,10 +411,10 @@ const ALL_TABS = ["mql", "sql", "opp", "won", "reserva", "contrato"] as const;
 type Tab = typeof TABS[number];
 type AllTab = typeof ALL_TABS[number];
 
-// Stage IDs for Reserva and Contrato
-// SZS has no Reserva stage — use -1 so no deal matches
-const STAGE_RESERVA = -1;
-const STAGE_CONTRATO = 76;
+// Stage IDs for Aguardando Dados and Contrato
+// SZS uses "Aguardando Dados" (stage 152) instead of "Reserva"
+const STAGE_RESERVA = 152;  // "Aguardando Dados"
+const STAGE_CONTRATO = 76;  // "Contrato"
 
 const PIPELINE_STAGES: number[] = [70, 71, 72, 345, 341, 73, 342, 151, 74, 75, 152, 76];
 

@@ -929,4 +929,6 @@ export interface RatioHistoryData {
     squads: RatioSnapshot[];
   };
   history: RatioSnapshot[];
+  empDaily?: Record<string, Record<string, Record<string, number>>>; // emp → date → { mql, sql, opp, won }
+  dates?: string[]; // 28 dates (most recent first)
 }

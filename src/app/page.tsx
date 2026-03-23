@@ -4,10 +4,11 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { T } from "@/lib/constants";
 import { getModuleConfig, DEFAULT_MODULE } from "@/lib/modules";
-import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, LostsData, UserRole } from "@/lib/types";
+import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, LostsData, RatioHistoryData, UserRole } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { Header } from "@/components/dashboard/header";
 import { AcompanhamentoView } from "@/components/dashboard/acompanhamento-view";
+import { ConversoesView } from "@/components/dashboard/conversoes-view";
 import { AlinhamentoView } from "@/components/dashboard/alinhamento-view";
 import { BalanceamentoView } from "@/components/dashboard/balanceamento-view";
 import { CampanhasView } from "@/components/dashboard/campanhas-view";
@@ -85,6 +86,8 @@ export default function Dashboard() {
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [mensalData, setMensalData] = useState<any>(null);
+  const [ratioData, setRatioData] = useState<RatioHistoryData | null>(null);
+  const [ratioDays, setRatioDays] = useState(90);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
   const [syncElapsed, setSyncElapsed] = useState<number | null>(null);
   const syncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -360,6 +363,16 @@ export default function Dashboard() {
     }
   }, [moduleConfig.apiBase]);
 
+  const fetchRatios = useCallback(async (days: number = 90) => {
+    try {
+      const res = await fetch(`${moduleConfig.apiBase}/ratios?days=${days}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setRatioData(await res.json());
+    } catch (err) {
+      console.error("Fetch ratios error:", err);
+    }
+  }, [moduleConfig.apiBase]);
+
   const handleBudgetSave = useCallback(async (value: number) => {
     const now = new Date();
     const mes = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -389,8 +402,9 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (mainView === "acompanhamento" && !acompData[activeTab]) {
-      fetchAcomp(activeTab, "all");
+    if (mainView === "acompanhamento") {
+      if (!acompData[activeTab]) fetchAcomp(activeTab, "all");
+      if (!ratioData) fetchRatios(ratioDays);
     } else if (mainView === "alinhamento" && !alinhData) {
       fetchAlinh();
     } else if (mainView === "ociosidade" && !ocioData) {
@@ -455,6 +469,7 @@ export default function Dashboard() {
     setAvaliacoesData(null);
     setLostsData(null);
     setMensalData(null);
+    setRatioData(null);
   };
 
   const fetchCurrentView = async () => {
@@ -562,14 +577,22 @@ export default function Dashboard() {
       )}
       <div style={{ padding: "16px 20px", maxWidth: "2200px", margin: "0 auto" }}>
         {mainView === "acompanhamento" && (
-          <AcompanhamentoView
-            data={acompData[activeTab] || null}
-            activeTab={activeTab}
-            setActiveTab={(tab: TabKey) => setActiveTab(tab)}
-            loading={loading}
-            lastUpdated={lastUpdated}
-            moduleId={activeModule}
-          />
+          <>
+            <AcompanhamentoView
+              data={acompData[activeTab] || null}
+              activeTab={activeTab}
+              setActiveTab={(tab: TabKey) => setActiveTab(tab)}
+              loading={loading}
+              lastUpdated={lastUpdated}
+              moduleId={activeModule}
+            />
+            <ConversoesView
+              data={ratioData}
+              loading={loading}
+              daysBack={ratioDays}
+              onDaysChange={(d) => { setRatioDays(d); setRatioData(null); fetchRatios(d); }}
+            />
+          </>
         )}
         {mainView === "alinhamento" && <AlinhamentoView data={alinhData} misalignedDeals={misalignedDeals} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "ociosidade" && <OciosidadeView data={ocioData} loading={loading} lastUpdated={lastUpdated} />}
