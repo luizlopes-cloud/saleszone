@@ -298,8 +298,12 @@ export interface FunilEmpreendimento {
   sql: number;
   opp: number;
   won: number;
-  reserva: number;
-  contrato: number;
+  reserva: number;        // snapshot: deals no stage agora
+  contrato: number;       // snapshot: deals no stage agora
+  oppEvento: number;      // coorte: deals fechados no mês que passaram por OPP
+  reservaEvento: number;  // coorte: deals fechados no mês que passaram por Reserva
+  contratoEvento: number; // coorte: deals fechados no mês que passaram por Contrato
+  wonEvento: number;      // coorte: deals fechados no mês que viraram WON
   spend: number;
   // Custos
   cpl: number;   // spend / leads
@@ -909,4 +913,20 @@ export interface PresalesData {
     medianMinutes: number;
     pctSub30: number;
   };
+}
+
+// Histórico de Conversões (Ratios Diários)
+export interface RatioSnapshot {
+  date: string;
+  squad_id: number;
+  ratios: { mql_sql: number; sql_opp: number; opp_won: number };
+  counts_90d: { mql: number; sql: number; opp: number; won: number };
+}
+
+export interface RatioHistoryData {
+  current: {
+    global: RatioSnapshot;
+    squads: RatioSnapshot[];
+  };
+  history: RatioSnapshot[];
 }
