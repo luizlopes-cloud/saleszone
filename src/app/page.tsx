@@ -591,6 +591,7 @@ export default function Dashboard() {
               loading={loading}
               daysBack={ratioDays}
               onDaysChange={(d) => { setRatioDays(d); setRatioData(null); fetchRatios(d); }}
+              moduleId={activeModule}
             />
           </>
         )}
