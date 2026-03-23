@@ -123,7 +123,8 @@ supabase/
 | `squad_alignment` | Deals abertos por empreendimento x owner |
 | `squad_metas` | Metas mensais por squad x tab (upsert month,squad_id,tab) |
 | `squad_ratios` | Ratios 90d MQL→SQL→OPP→WON e contagens (1 row por mes) |
-| `squad_ratios_daily` | Histórico diário de ratios de conversão. PK = `(date, squad_id)`. 4 rows/dia (global squad_id=0 + squads 1/2/3). Colunas JSONB: ratios {mql_sql, sql_opp, opp_won}, counts_90d {mql, sql, opp, won}. Populada pelo modo `metas` do sync-squad-dashboard |
+| `squad_ratios_daily` | Histórico diário de ratios de conversão SZI. PK = `(date, squad_id)`. 4 rows/dia (global squad_id=0 + squads 1/2/3). Colunas JSONB: ratios {mql_sql, sql_opp, opp_won}, counts_90d {mql, sql, opp, won}. Populada pelo modo `metas` do sync-squad-dashboard |
+| `szs_ratios_daily` | Histórico diário de ratios de conversão SZS por canal. PK = `(date, squad_id)`. 7 rows/dia (global=0, Marketing=1, Parceiros=2, Expansão=3, Spots=4, Mônica=5, Outros=6). Mesma estrutura JSONB. Populada pelo modo `metas` do sync-szs-dashboard |
 | `squad_calendar_events` | Eventos Google Calendar dos closers |
 | `squad_closer_rules` | Regras dos 15 closers (email, prefixo, setor) |
 | `squad_meta_ads` | Snapshot diario de ads Meta Ads SZI com diagnosticos. Campos `spend`/`leads` sao lifetime; usar `spend_month`/`leads_month` para dados do mes. Coluna `effective_status` (ACTIVE/PAUSED). |
