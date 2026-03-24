@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from "react";
 import { T } from "@/lib/constants";
 import type { LostsData, LostDealRow, LostAlert } from "@/lib/types";
+import type { ModuleConfig } from "@/lib/modules";
 import { DataSourceFooter } from "./ui";
 
 interface Props {
@@ -11,6 +12,10 @@ interface Props {
   lastUpdated?: Date | null;
   lostsDate: string;
   onDateChange: (d: string) => void;
+  /** Which side of the monitor to show */
+  mode: "pre_vendas" | "vendas";
+  /** Active module config — used to match people and pipeline */
+  moduleConfig: ModuleConfig;
 }
 
 const thStyle: React.CSSProperties = {
@@ -310,7 +315,21 @@ function TrendMini({ dates, totals }: { dates: string[]; totals: number[] }) {
 
 // ─── Main View ───
 
-export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange }: Props) {
+/** Normalize name for comparison: strip accents, lowercase */
+function norm(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+/** Check if a deal's owner belongs to a list of people (accent-insensitive, partial match) */
+function ownerInList(deal: LostDealRow, people: readonly string[]): boolean {
+  const dn = norm(deal.owner_name);
+  return people.some((p) => {
+    const pn = norm(p);
+    return dn.includes(pn) || pn.includes(dn);
+  });
+}
+
+export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange, mode, moduleConfig }: Props) {
   if (loading || !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
@@ -320,24 +339,50 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange 
   }
 
   const { summary, deals, alerts, trend } = data;
+  const isPreVendas = mode === "pre_vendas";
+  const modeLabel = isPreVendas ? "Pré-vendas" : "Vendas";
+  const modeColor = isPreVendas ? "#2563eb" : "#dc2626";
+  const pipelineLabel = moduleConfig.shortLabel;
 
-  // Split deals by category
-  const preVendasDeals = deals.filter((d) => d.stage_category === "pre_vendas");
-  const vendasDeals = deals.filter((d) => d.stage_category === "vendas");
+  // Filter deals by category for this mode
+  const modeDeals = deals.filter((d) => d.stage_category === mode);
+  const modeTotal = modeDeals.length;
 
-  // Pré-vendas: same-day losts (campaign misalignment)
-  const sameDayDeals = preVendasDeals.filter(isSameDay);
+  // Pré-vendas specific: same-day losts (campaign misalignment)
+  const sameDayDeals = isPreVendas ? modeDeals.filter(isSameDay) : [];
 
-  // Vendas: advanced stage losts — separated by pipeline
-  const advancedDeals = vendasDeals.filter(isAdvancedStage);
-  const advancedSZS = advancedDeals.filter((d) => !(d.pipeline_name?.toLowerCase() ?? "").includes("szi"));
-  const advancedSZI = advancedDeals.filter((d) => (d.pipeline_name?.toLowerCase() ?? "").includes("szi"));
+  // Vendas specific: advanced stage losts — only for the active pipeline
+  const advancedDeals = !isPreVendas
+    ? modeDeals.filter((d) => {
+        const pipe = d.pipeline_name?.toLowerCase() ?? "";
+        // Only show advanced stages for the current module's pipeline
+        if (pipelineLabel === "SZI" && !pipe.includes("szi")) return false;
+        if (pipelineLabel === "SZS" && !pipe.includes("szs")) return false;
+        if (pipelineLabel === "MKTP" && !pipe.includes("mktp") && !pipe.includes("marketplace")) return false;
+        return isAdvancedStage(d);
+      })
+    : [];
 
-  // Timing deals without next activity (warning)
-  const timingNoActivity = deals.filter((d) => hasTimingReason(d) && !d.next_activity_date);
+  // Timing deals — filtered by people belonging to this mode's group
+  const modeTimingPeople = isPreVendas ? moduleConfig.presellers : moduleConfig.closers;
+  const timingNoActivity = deals.filter(
+    (d) => hasTimingReason(d) && !d.next_activity_date && ownerInList(d, modeTimingPeople)
+  );
+  const timingRetomadas = deals.filter(
+    (d) => hasTimingReason(d) && d.next_activity_date && ownerInList(d, modeTimingPeople)
+  );
 
-  // Timing deals WITH scheduled activity (retomadas da semana)
-  const timingRetomadas = deals.filter((d) => hasTimingReason(d) && d.next_activity_date);
+  // Summary metrics for this mode
+  const sameDayCount = sameDayDeals.length;
+  const sameDayPct = modeTotal > 0 ? Math.round((sameDayCount / modeTotal) * 100) : 0;
+  const batchAfter18 = modeDeals.filter((d) => d.lost_hour >= 18).length;
+  const batchPct = modeTotal > 0 ? Math.round((batchAfter18 / modeTotal) * 100) : 0;
+  const medianDays = (() => {
+    if (modeDeals.length === 0) return null;
+    const sorted = [...modeDeals].map((d) => d.days_in_funnel).sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? Math.round((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
+  })();
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -351,37 +396,37 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange 
           style={{ fontSize: "12px", padding: "6px 10px", border: "1px solid #E6E7EA", borderRadius: "8px", color: T.fg }}
         />
         <span style={{ fontSize: "12px", color: "#6B6E84" }}>
-          Pipeline SZS · {summary.total} deals lost
+          Pipeline {pipelineLabel} · {modeLabel} · {modeTotal} deals lost
         </span>
       </div>
 
       {/* Summary cards */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-        <SummaryCard label="Total Lost" value={summary.total} />
-        <SummaryCard label="Pré-vendas" value={summary.pre_vendas} sub={`${summary.pre_vendas_pct}%`} color="#2563eb" />
-        <SummaryCard label="Vendas" value={summary.vendas} sub={`${summary.vendas_pct}%`} color="#dc2626" />
-        <SummaryCard label="Mediana Funil" value={summary.median_days_in_funnel != null ? `${summary.median_days_in_funnel}d` : "—"} />
-        <SummaryCard
-          label="Same-day"
-          value={`${summary.same_day_lost_pct}%`}
-          sub={`${sameDayDeals.length} deals`}
-          color={summary.same_day_lost_pct > 20 ? "#d97706" : undefined}
-        />
+        <SummaryCard label="Total Lost" value={modeTotal} />
+        <SummaryCard label="Mediana Funil" value={medianDays != null ? `${medianDays}d` : "—"} />
+        {isPreVendas && (
+          <SummaryCard
+            label="Same-day"
+            value={`${sameDayPct}%`}
+            sub={`${sameDayCount} deals`}
+            color={sameDayPct > 20 ? "#d97706" : undefined}
+          />
+        )}
         <SummaryCard
           label="Batch 18h+"
-          value={`${summary.batch_after_18h_pct}%`}
-          color={summary.batch_after_18h_pct > 60 ? "#d97706" : undefined}
+          value={`${batchPct}%`}
+          color={batchPct > 60 ? "#d97706" : undefined}
         />
       </div>
 
       {/* Trend */}
       <TrendMini dates={trend.dates} totals={trend.totals} />
 
-      {/* ════════════════ PRÉ-VENDAS ════════════════ */}
-      <SectionHeader title="Pré-vendas" count={preVendasDeals.length} color="#2563eb" />
+      {/* ════════════════ SECTION ════════════════ */}
+      <SectionHeader title={modeLabel} count={modeTotal} color={modeColor} />
 
-      {/* 🚨 Desalinhamento de Campanha (same-day losts) */}
-      {sameDayDeals.length > 0 && (
+      {/* Pré-vendas: Desalinhamento de Campanha (same-day losts) */}
+      {isPreVendas && sameDayDeals.length > 0 && (
         <AlertBox
           title="Desalinhamento de Campanha — Deals perdidos no mesmo dia da criação"
           items={sameDayDeals.map((d) => ({ deal: d, extra: d.lost_reason || undefined }))}
@@ -389,48 +434,29 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange 
         />
       )}
 
-      {/* Motivos + Owners lado a lado */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-        <ReasonsTable deals={preVendasDeals} total={preVendasDeals.length} />
-        <OwnersTable deals={preVendasDeals} />
-      </div>
-
-      {/* Tabela Pré-vendas */}
-      <CompactDealsTable deals={preVendasDeals} title="Deals Pré-vendas" />
-
-      {/* ════════════════ VENDAS ════════════════ */}
-      <SectionHeader title="Vendas" count={vendasDeals.length} color="#dc2626" />
-
-      {/* 🚨 Losts em Etapas Avançadas — separados por pipeline */}
-      {advancedSZS.length > 0 && (
+      {/* Vendas: Losts em Etapas Avançadas — only current pipeline */}
+      {!isPreVendas && advancedDeals.length > 0 && (
         <AlertBox
-          title="Losts em Etapas Avançadas — SZS (Aguardando Dados, Contrato)"
-          items={advancedSZS.map((d) => ({ deal: d, extra: `${d.days_in_funnel}d no funil` }))}
-          severity="critical"
-        />
-      )}
-      {advancedSZI.length > 0 && (
-        <AlertBox
-          title="Losts em Etapas Avançadas — SZI (Fila de Espera, Reserva, Contrato)"
-          items={advancedSZI.map((d) => ({ deal: d, extra: `${d.days_in_funnel}d no funil` }))}
+          title={`Losts em Etapas Avançadas — ${pipelineLabel}`}
+          items={advancedDeals.map((d) => ({ deal: d, extra: `${d.days_in_funnel}d no funil` }))}
           severity="critical"
         />
       )}
 
-      {/* ⚠️ Timing sem Atividade Futura */}
+      {/* ⚠️ Timing sem Atividade Futura — filtered by people in this group */}
       {timingNoActivity.length > 0 && (
         <AlertBox
-          title="Timing sem Atividade Futura Programada"
+          title={`Timing sem Atividade Futura Programada — ${modeLabel}`}
           items={timingNoActivity.map((d) => ({ deal: d, extra: `${d.days_in_funnel}d no funil` }))}
           severity="warning"
         />
       )}
 
-      {/* 📋 Retomadas da Semana */}
+      {/* 📋 Retomadas da Semana — filtered by people in this group */}
       {timingRetomadas.length > 0 && (
         <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "10px", padding: "12px 16px", marginBottom: "8px" }}>
           <div style={{ fontSize: "12px", fontWeight: 600, color: "#16a34a", marginBottom: "6px" }}>
-            Retomadas da Semana — Timing com atividade programada ({timingRetomadas.length})
+            Retomadas da Semana — {modeLabel} ({timingRetomadas.length})
           </div>
           {timingRetomadas.map((d) => (
             <div key={d.deal_id} style={{ fontSize: "12px", color: "#141A3C", marginBottom: "3px", display: "flex", gap: "6px" }}>
@@ -454,12 +480,12 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange 
 
       {/* Motivos + Owners lado a lado */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-        <ReasonsTable deals={vendasDeals} total={vendasDeals.length} />
-        <OwnersTable deals={vendasDeals} />
+        <ReasonsTable deals={modeDeals} total={modeTotal} />
+        <OwnersTable deals={modeDeals} />
       </div>
 
-      {/* Tabela Vendas */}
-      <CompactDealsTable deals={vendasDeals} title="Deals Vendas" />
+      {/* Tabela de deals */}
+      <CompactDealsTable deals={modeDeals} title={`Deals ${modeLabel}`} />
 
       <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
