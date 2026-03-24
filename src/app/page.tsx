@@ -436,7 +436,7 @@ export default function Dashboard() {
       fetchLeadtime(leadtimeDays);
     } else if (mainView === "avaliacoes" && !avaliacoesData) {
       fetchAvaliacoes(avaliacoesDays);
-    } else if (mainView === "losts" && !lostsData) {
+    } else if ((mainView === "losts-prevendas" || mainView === "losts-vendas") && !lostsData) {
       fetchLosts(lostsDate);
     } else if (mainView === "mensal" && !mensalData) {
       fetchMensal();
@@ -489,7 +489,7 @@ export default function Dashboard() {
     else if (mainView === "forecast") await fetchForecast();
     else if (mainView === "leadtime") await fetchLeadtime(leadtimeDays);
     else if (mainView === "avaliacoes") await fetchAvaliacoes(avaliacoesDays);
-    else if (mainView === "losts") await fetchLosts(lostsDate);
+    else if (mainView === "losts-prevendas" || mainView === "losts-vendas") await fetchLosts(lostsDate);
     else if (mainView === "mensal") await fetchMensal();
   };
 
@@ -613,13 +613,15 @@ export default function Dashboard() {
         {mainView === "avaliacoes" && <AvaliacoesView data={avaliacoesData} loading={loading} daysBack={avaliacoesDays} onDaysChange={(d) => { setAvaliacoesDays(d); setAvaliacoesData(null); fetchAvaliacoes(d); }} lastUpdated={lastUpdated} />}
         {mainView === "otimizacao" && <OtimizacaoView />}
         {mainView === "explorador" && <ExploradorView />}
-        {mainView === "losts" && (
+        {(mainView === "losts-prevendas" || mainView === "losts-vendas") && (
           <LostsView
             data={lostsData}
             loading={loading}
             lastUpdated={lastUpdated}
             lostsDate={lostsDate}
             onDateChange={(d) => { setLostsDate(d); setLostsData(null); fetchLosts(d); }}
+            mode={mainView === "losts-prevendas" ? "pre_vendas" : "vendas"}
+            moduleConfig={moduleConfig}
           />
         )}
         {mainView === "backlog" && <BacklogView />}
