@@ -446,7 +446,7 @@ function MetricsCells({ r, avgCpl, vis }: { r: { spend: number; leads: number; m
 
 function HistoricoCampanhasSection({ moduleConfig }: { moduleConfig: ModuleConfig }) {
   const isSZS = moduleConfig?.id === "szs";
-  const ACTIVE_EMPS = useMemo(() => new Set<string>(moduleConfig.squads.flatMap((s) => [...s.empreendimentos])), [moduleConfig]);
+  const ACTIVE_EMPS = useMemo(() => new Set<string>((moduleConfig?.squads || []).flatMap((s) => [...s.empreendimentos])), [moduleConfig]);
   const [histData, setHistData] = useState<HistoricoCampanhasData | null>(null);
   const [histLoading, setHistLoading] = useState(true);
   const [histError, setHistError] = useState<string | null>(null);
@@ -871,7 +871,7 @@ const DAYS_OPTIONS = [
 
 export function PlanejamentoView({ data, loading, daysBack, onDaysChange, moduleConfig, lastUpdated }: PlanejamentoViewProps) {
   const isSZS = moduleConfig?.id === "szs";
-  const ACTIVE_EMPS = useMemo(() => new Set<string>(moduleConfig.squads.flatMap((s) => [...s.empreendimentos])), [moduleConfig.squads]);
+  const ACTIVE_EMPS = useMemo(() => new Set<string>((moduleConfig?.squads || []).flatMap((s) => [...s.empreendimentos])), [moduleConfig?.squads]);
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "mql", dir: "desc" });
   const [activeFilter, setActiveFilter] = useState<"all" | "active" | "inactive">("all");
   const [squadFilter, setSquadFilter] = useState<number>(0); // 0 = all
