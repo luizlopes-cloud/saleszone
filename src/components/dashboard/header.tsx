@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers, Mic, Calendar } from "lucide-react";
+import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers, Mic, Calendar, UserX } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 import { T } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
@@ -10,7 +10,7 @@ import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 
 const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento", "explorador", "otimizacao"] as const;
 const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas", "ociosidade", "leadtime", "avaliacoes", "losts-vendas"] as const;
-const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento", "squad-atividades", "losts-prevendas"] as const;
+const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento", "squad-atividades", "losts-prevendas", "noshow"] as const;
 const RESULTADOS_VIEWS = ["resultados", "acompanhamento", "forecast", "mensal"] as const;
 
 const SeazoneIcon = () => (
@@ -275,6 +275,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
                 { key: "balanceamento", label: "Régua de Qualificação", icon: <Scale size={13} /> },
                 { key: "squad-atividades", label: "Atividades", icon: <Activity size={13} /> },
                 { key: "losts-prevendas", label: "Monitor Losts", icon: <Layers size={13} /> },
+                { key: "noshow", label: "Monitor No-Show", icon: <UserX size={13} /> },
               ] as const).map((item) => (
                 <button
                   key={item.key}
