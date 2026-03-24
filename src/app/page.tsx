@@ -1,8 +1,37 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { T } from "@/lib/constants";
+
+class ViewErrorBoundary extends React.Component<
+  { children: React.ReactNode; onReset: () => void },
+  { hasError: boolean; error: string }
+> {
+  constructor(props: { children: React.ReactNode; onReset: () => void }) {
+    super(props);
+    this.state = { hasError: false, error: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error.message };
+  }
+  componentDidCatch() {
+    localStorage.setItem("mainView", "campanhas");
+    setTimeout(() => this.props.onReset(), 100);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ textAlign: "center", padding: "60px 20px", color: "#E7000B" }}>
+          <p style={{ fontSize: "14px", fontWeight: 600 }}>Erro ao carregar esta aba</p>
+          <p style={{ fontSize: "12px", color: "#6B6E84", marginTop: "8px" }}>{this.state.error}</p>
+          <p style={{ fontSize: "12px", color: "#9C9FAD", marginTop: "4px" }}>Redirecionando...</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { getModuleConfig, DEFAULT_MODULE } from "@/lib/modules";
 import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, LostsData, RatioHistoryData, UserRole } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
@@ -578,6 +607,7 @@ export default function Dashboard() {
         </div>
       )}
       <div style={{ padding: "16px 20px", maxWidth: "2200px", margin: "0 auto" }}>
+       <ViewErrorBoundary onReset={() => setMainViewRaw("campanhas")}>
         {mainView === "acompanhamento" && (
           <>
             <AcompanhamentoView
@@ -636,6 +666,7 @@ export default function Dashboard() {
             <p style={{ fontSize: "16px" }}>Aba Venda — em construção</p>
           </div>
         )}
+       </ViewErrorBoundary>
       </div>
     </div>
   );
