@@ -866,8 +866,12 @@ export interface LostsSummary {
   batch_after_18h_pct: number;
 }
 
+export type LostsPeriod = "yesterday" | "week" | "month" | "custom";
+
 export interface LostsData {
   date: string;
+  period?: LostsPeriod;
+  dateRange?: { from: string; to: string };
   summary: LostsSummary;
   deals: LostDealRow[];
   alerts: LostAlert[];

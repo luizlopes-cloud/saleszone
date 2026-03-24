@@ -79,7 +79,8 @@ export default function Dashboard() {
   const [avaliacoesData, setAvaliacoesData] = useState<AvaliacoesData | null>(null);
   const [avaliacoesDays, setAvaliacoesDays] = useState(30);
   const [lostsData, setLostsData] = useState<LostsData | null>(null);
-  const [lostsDate, setLostsDate] = useState(() => {
+  const [lostsPeriod, setLostsPeriod] = useState<"yesterday" | "week" | "month" | "custom">("yesterday");
+  const [lostsCustomDate, setLostsCustomDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 1);
     return d.toISOString().split("T")[0];
@@ -337,10 +338,11 @@ export default function Dashboard() {
     }
   }, [moduleConfig.apiBase]);
 
-  const fetchLosts = useCallback(async (date: string) => {
+  const fetchLosts = useCallback(async (period: "yesterday" | "week" | "month" | "custom", customDate?: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/dashboard/losts?date=${date}`);
+      const params = period === "custom" && customDate ? `date=${customDate}` : `period=${period}`;
+      const res = await fetch(`/api/dashboard/losts?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setLostsData(await res.json());
     } catch (err) {
@@ -436,8 +438,8 @@ export default function Dashboard() {
       fetchLeadtime(leadtimeDays);
     } else if (mainView === "avaliacoes" && !avaliacoesData) {
       fetchAvaliacoes(avaliacoesDays);
-    } else if (mainView === "losts" && !lostsData) {
-      fetchLosts(lostsDate);
+    } else if ((mainView === "losts-prevendas" || mainView === "losts-vendas") && !lostsData) {
+      fetchLosts(lostsPeriod, lostsCustomDate);
     } else if (mainView === "mensal" && !mensalData) {
       fetchMensal();
     }
@@ -489,7 +491,7 @@ export default function Dashboard() {
     else if (mainView === "forecast") await fetchForecast();
     else if (mainView === "leadtime") await fetchLeadtime(leadtimeDays);
     else if (mainView === "avaliacoes") await fetchAvaliacoes(avaliacoesDays);
-    else if (mainView === "losts") await fetchLosts(lostsDate);
+    else if (mainView === "losts-prevendas" || mainView === "losts-vendas") await fetchLosts(lostsPeriod, lostsCustomDate);
     else if (mainView === "mensal") await fetchMensal();
   };
 
@@ -613,13 +615,16 @@ export default function Dashboard() {
         {mainView === "avaliacoes" && <AvaliacoesView data={avaliacoesData} loading={loading} daysBack={avaliacoesDays} onDaysChange={(d) => { setAvaliacoesDays(d); setAvaliacoesData(null); fetchAvaliacoes(d); }} lastUpdated={lastUpdated} />}
         {mainView === "otimizacao" && <OtimizacaoView />}
         {mainView === "explorador" && <ExploradorView />}
-        {mainView === "losts" && (
+        {(mainView === "losts-prevendas" || mainView === "losts-vendas") && (
           <LostsView
             data={lostsData}
             loading={loading}
             lastUpdated={lastUpdated}
-            lostsDate={lostsDate}
-            onDateChange={(d) => { setLostsDate(d); setLostsData(null); fetchLosts(d); }}
+            period={lostsPeriod}
+            customDate={lostsCustomDate}
+            onPeriodChange={(p, d) => { setLostsPeriod(p); if (d) setLostsCustomDate(d); setLostsData(null); fetchLosts(p, d); }}
+            mode={mainView === "losts-prevendas" ? "pre_vendas" : "vendas"}
+            moduleConfig={moduleConfig}
           />
         )}
         {mainView === "backlog" && <BacklogView />}

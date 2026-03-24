@@ -2,15 +2,19 @@
 
 import React, { useState, useMemo } from "react";
 import { T } from "@/lib/constants";
-import type { LostsData, LostDealRow, LostAlert } from "@/lib/types";
+import type { LostsData, LostDealRow, LostAlert, LostsPeriod } from "@/lib/types";
+import type { ModuleConfig } from "@/lib/modules";
 import { DataSourceFooter } from "./ui";
 
 interface Props {
   data: LostsData | null;
   loading: boolean;
   lastUpdated?: Date | null;
-  lostsDate: string;
-  onDateChange: (d: string) => void;
+  period: LostsPeriod;
+  customDate: string;
+  onPeriodChange: (period: LostsPeriod, customDate?: string) => void;
+  mode: "pre_vendas" | "vendas";
+  moduleConfig: ModuleConfig;
 }
 
 const thStyle: React.CSSProperties = {
@@ -310,7 +314,136 @@ function TrendMini({ dates, totals }: { dates: string[]; totals: number[] }) {
 
 // ─── Main View ───
 
-export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange }: Props) {
+/** Normalize name for comparison: strip accents, lowercase */
+function norm(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+/** Check if a deal's owner belongs to a list of people (accent-insensitive, partial match) */
+function ownerInList(deal: LostDealRow, people: readonly string[]): boolean {
+  const dn = norm(deal.owner_name);
+  return people.some((p) => {
+    const pn = norm(p);
+    return dn.includes(pn) || pn.includes(dn);
+  });
+}
+
+const PERIOD_OPTIONS: { key: LostsPeriod; label: string }[] = [
+  { key: "yesterday", label: "Ontem" },
+  { key: "week", label: "Semana" },
+  { key: "month", label: "Mês" },
+  { key: "custom", label: "📅" },
+];
+
+const pillBase: React.CSSProperties = {
+  fontSize: "12px", fontWeight: 500, padding: "5px 14px",
+  borderRadius: "9999px", cursor: "pointer", border: "1px solid #E6E7EA",
+  transition: "all 0.15s",
+};
+
+function PeriodSelector({ period, customDate, onChange }: { period: LostsPeriod; customDate: string; onChange: (p: LostsPeriod, d?: string) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+      {PERIOD_OPTIONS.map((opt) => {
+        const active = period === opt.key;
+        return (
+          <button
+            key={opt.key}
+            onClick={() => onChange(opt.key)}
+            style={{
+              ...pillBase,
+              backgroundColor: active ? T.primary : "#FFF",
+              color: active ? "#FFF" : "#6B6E84",
+              borderColor: active ? T.primary : "#E6E7EA",
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+      {period === "custom" && (
+        <input
+          type="date"
+          value={customDate}
+          onChange={(e) => onChange("custom", e.target.value)}
+          style={{ fontSize: "12px", padding: "5px 10px", border: "1px solid #E6E7EA", borderRadius: "8px", color: T.fg }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Análise por Campanha: same-day + lead-in breakdown por canal */
+function CampaignAnalysis({ deals }: { deals: LostDealRow[] }) {
+  const analysis = useMemo(() => {
+    const isLeadIn = (d: LostDealRow) => d.stage_name.toLowerCase().includes("lead");
+    const byCanal: Record<string, { total: number; sameDay: number; leadIn: number }> = {};
+    let totalSameDay = 0;
+    let totalLeadIn = 0;
+
+    for (const d of deals) {
+      const canal = d.canal || "Sem canal";
+      if (!byCanal[canal]) byCanal[canal] = { total: 0, sameDay: 0, leadIn: 0 };
+      byCanal[canal].total++;
+      if (isSameDay(d)) { byCanal[canal].sameDay++; totalSameDay++; }
+      if (isLeadIn(d)) { byCanal[canal].leadIn++; totalLeadIn++; }
+    }
+
+    const rows = Object.entries(byCanal).sort((a, b) => b[1].total - a[1].total);
+    return { rows, totalSameDay, totalLeadIn, total: deals.length };
+  }, [deals]);
+
+  if (analysis.total === 0) return null;
+  const { rows, totalSameDay, totalLeadIn, total } = analysis;
+  const sdPct = total > 0 ? Math.round((totalSameDay / total) * 100) : 0;
+  const liPct = total > 0 ? Math.round((totalLeadIn / total) * 100) : 0;
+
+  return (
+    <div style={{ backgroundColor: "#FFF", border: "1px solid #E6E7EA", borderRadius: "12px", padding: "16px" }}>
+      <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, marginBottom: "12px" }}>Análise por Campanha</h3>
+
+      {/* Summary pills */}
+      <div style={{ display: "flex", gap: "12px", marginBottom: "14px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#d97706", fontWeight: 600 }}>
+          Same-day: {totalSameDay} ({sdPct}%)
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#7c3aed", fontWeight: 600 }}>
+          Lead In: {totalLeadIn} ({liPct}%)
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Canal</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Same-day</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>%</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Lead In</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([canal, v]) => (
+              <tr key={canal}>
+                <td style={tdStyle}>{canal}</td>
+                <td style={{ ...tdStyle, textAlign: "right" }}>{v.total}</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: v.sameDay > 0 ? "#d97706" : undefined }}>{v.sameDay}</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: "#6B6E84" }}>{v.total > 0 ? Math.round((v.sameDay / v.total) * 100) : 0}%</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: v.leadIn > 0 ? "#7c3aed" : undefined }}>{v.leadIn}</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: "#6B6E84" }}>{v.total > 0 ? Math.round((v.leadIn / v.total) * 100) : 0}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export function LostsView({ data, loading, lastUpdated, period, customDate, onPeriodChange, mode, moduleConfig }: Props) {
   if (loading || !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
@@ -320,68 +453,94 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange 
   }
 
   const { summary, deals, alerts, trend } = data;
+  const isPreVendas = mode === "pre_vendas";
+  const modeLabel = isPreVendas ? "Pré-vendas" : "Vendas";
+  const modeColor = isPreVendas ? "#2563eb" : "#dc2626";
+  const pipelineLabel = moduleConfig.shortLabel;
 
-  // Split deals by category
-  const preVendasDeals = deals.filter((d) => d.stage_category === "pre_vendas");
-  const vendasDeals = deals.filter((d) => d.stage_category === "vendas");
+  // Filter deals by category for this mode
+  const modeDeals = deals.filter((d) => d.stage_category === mode);
+  const modeTotal = modeDeals.length;
 
-  // Pré-vendas: same-day losts (campaign misalignment)
-  const sameDayDeals = preVendasDeals.filter(isSameDay);
+  // Pré-vendas specific: same-day losts (campaign misalignment)
+  const sameDayDeals = isPreVendas ? modeDeals.filter(isSameDay) : [];
 
-  // Vendas: advanced stage losts — separated by pipeline
-  const advancedDeals = vendasDeals.filter(isAdvancedStage);
-  const advancedSZS = advancedDeals.filter((d) => !(d.pipeline_name?.toLowerCase() ?? "").includes("szi"));
-  const advancedSZI = advancedDeals.filter((d) => (d.pipeline_name?.toLowerCase() ?? "").includes("szi"));
+  // Vendas specific: advanced stage losts — only for the active pipeline
+  const advancedDeals = !isPreVendas
+    ? modeDeals.filter((d) => {
+        const pipe = d.pipeline_name?.toLowerCase() ?? "";
+        if (pipelineLabel === "SZI" && !pipe.includes("szi")) return false;
+        if (pipelineLabel === "SZS" && !pipe.includes("szs")) return false;
+        if (pipelineLabel === "MKTP" && !pipe.includes("mktp") && !pipe.includes("marketplace")) return false;
+        return isAdvancedStage(d);
+      })
+    : [];
 
-  // Timing deals without next activity (warning)
-  const timingNoActivity = deals.filter((d) => hasTimingReason(d) && !d.next_activity_date);
+  // Timing deals — filtered by people belonging to this mode's group
+  const modeTimingPeople = isPreVendas ? moduleConfig.presellers : moduleConfig.closers;
+  const timingNoActivity = deals.filter(
+    (d) => hasTimingReason(d) && !d.next_activity_date && ownerInList(d, modeTimingPeople)
+  );
+  const timingRetomadas = deals.filter(
+    (d) => hasTimingReason(d) && d.next_activity_date && ownerInList(d, modeTimingPeople)
+  );
 
-  // Timing deals WITH scheduled activity (retomadas da semana)
-  const timingRetomadas = deals.filter((d) => hasTimingReason(d) && d.next_activity_date);
+  // Summary metrics for this mode
+  const sameDayCount = sameDayDeals.length;
+  const sameDayPct = modeTotal > 0 ? Math.round((sameDayCount / modeTotal) * 100) : 0;
+  const batchAfter18 = modeDeals.filter((d) => d.lost_hour >= 18).length;
+  const batchPct = modeTotal > 0 ? Math.round((batchAfter18 / modeTotal) * 100) : 0;
+  const medianDays = (() => {
+    if (modeDeals.length === 0) return null;
+    const sorted = [...modeDeals].map((d) => d.days_in_funnel).sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0 ? Math.round((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
+  })();
+
+  const periodLabel = data.dateRange
+    ? data.dateRange.from === data.dateRange.to
+      ? data.dateRange.from.split("-").reverse().join("/")
+      : `${data.dateRange.from.split("-").reverse().join("/")} — ${data.dateRange.to.split("-").reverse().join("/")}`
+    : "";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      {/* Date picker row */}
-      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        <label style={{ fontSize: "12px", color: "#6B6E84", fontWeight: 500 }}>Data:</label>
-        <input
-          type="date"
-          value={lostsDate}
-          onChange={(e) => onDateChange(e.target.value)}
-          style={{ fontSize: "12px", padding: "6px 10px", border: "1px solid #E6E7EA", borderRadius: "8px", color: T.fg }}
-        />
+      {/* Period selector row */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+        <PeriodSelector period={period} customDate={customDate} onChange={onPeriodChange} />
         <span style={{ fontSize: "12px", color: "#6B6E84" }}>
-          Pipeline SZS · {summary.total} deals lost
+          {periodLabel} · Pipeline {pipelineLabel} · {modeLabel} · {modeTotal} deals lost
         </span>
       </div>
 
       {/* Summary cards */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-        <SummaryCard label="Total Lost" value={summary.total} />
-        <SummaryCard label="Pré-vendas" value={summary.pre_vendas} sub={`${summary.pre_vendas_pct}%`} color="#2563eb" />
-        <SummaryCard label="Vendas" value={summary.vendas} sub={`${summary.vendas_pct}%`} color="#dc2626" />
-        <SummaryCard label="Mediana Funil" value={summary.median_days_in_funnel != null ? `${summary.median_days_in_funnel}d` : "—"} />
+        <SummaryCard label="Total Lost" value={modeTotal} />
+        <SummaryCard label="Mediana Funil" value={medianDays != null ? `${medianDays}d` : "—"} />
         <SummaryCard
           label="Same-day"
-          value={`${summary.same_day_lost_pct}%`}
-          sub={`${sameDayDeals.length} deals`}
-          color={summary.same_day_lost_pct > 20 ? "#d97706" : undefined}
+          value={`${sameDayPct}%`}
+          sub={`${sameDayCount} deals`}
+          color={sameDayPct > 20 ? "#d97706" : undefined}
         />
         <SummaryCard
           label="Batch 18h+"
-          value={`${summary.batch_after_18h_pct}%`}
-          color={summary.batch_after_18h_pct > 60 ? "#d97706" : undefined}
+          value={`${batchPct}%`}
+          color={batchPct > 60 ? "#d97706" : undefined}
         />
       </div>
 
       {/* Trend */}
       <TrendMini dates={trend.dates} totals={trend.totals} />
 
-      {/* ════════════════ PRÉ-VENDAS ════════════════ */}
-      <SectionHeader title="Pré-vendas" count={preVendasDeals.length} color="#2563eb" />
+      {/* ════════════════ Análise por Campanha ════════════════ */}
+      <CampaignAnalysis deals={modeDeals} />
 
-      {/* 🚨 Desalinhamento de Campanha (same-day losts) */}
-      {sameDayDeals.length > 0 && (
+      {/* ════════════════ SECTION ════════════════ */}
+      <SectionHeader title={modeLabel} count={modeTotal} color={modeColor} />
+
+      {/* Pré-vendas: Desalinhamento de Campanha (same-day losts) */}
+      {isPreVendas && sameDayDeals.length > 0 && (
         <AlertBox
           title="Desalinhamento de Campanha — Deals perdidos no mesmo dia da criação"
           items={sameDayDeals.map((d) => ({ deal: d, extra: d.lost_reason || undefined }))}
@@ -389,48 +548,29 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange 
         />
       )}
 
-      {/* Motivos + Owners lado a lado */}
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-        <ReasonsTable deals={preVendasDeals} total={preVendasDeals.length} />
-        <OwnersTable deals={preVendasDeals} />
-      </div>
-
-      {/* Tabela Pré-vendas */}
-      <CompactDealsTable deals={preVendasDeals} title="Deals Pré-vendas" />
-
-      {/* ════════════════ VENDAS ════════════════ */}
-      <SectionHeader title="Vendas" count={vendasDeals.length} color="#dc2626" />
-
-      {/* 🚨 Losts em Etapas Avançadas — separados por pipeline */}
-      {advancedSZS.length > 0 && (
+      {/* Vendas: Losts em Etapas Avançadas — only current pipeline */}
+      {!isPreVendas && advancedDeals.length > 0 && (
         <AlertBox
-          title="Losts em Etapas Avançadas — SZS (Aguardando Dados, Contrato)"
-          items={advancedSZS.map((d) => ({ deal: d, extra: `${d.days_in_funnel}d no funil` }))}
-          severity="critical"
-        />
-      )}
-      {advancedSZI.length > 0 && (
-        <AlertBox
-          title="Losts em Etapas Avançadas — SZI (Fila de Espera, Reserva, Contrato)"
-          items={advancedSZI.map((d) => ({ deal: d, extra: `${d.days_in_funnel}d no funil` }))}
+          title={`Losts em Etapas Avançadas — ${pipelineLabel}`}
+          items={advancedDeals.map((d) => ({ deal: d, extra: `${d.days_in_funnel}d no funil` }))}
           severity="critical"
         />
       )}
 
-      {/* ⚠️ Timing sem Atividade Futura */}
+      {/* ⚠️ Timing sem Atividade Futura — filtered by people in this group */}
       {timingNoActivity.length > 0 && (
         <AlertBox
-          title="Timing sem Atividade Futura Programada"
+          title={`Timing sem Atividade Futura Programada — ${modeLabel}`}
           items={timingNoActivity.map((d) => ({ deal: d, extra: `${d.days_in_funnel}d no funil` }))}
           severity="warning"
         />
       )}
 
-      {/* 📋 Retomadas da Semana */}
+      {/* 📋 Retomadas da Semana — filtered by people in this group */}
       {timingRetomadas.length > 0 && (
         <div style={{ backgroundColor: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "10px", padding: "12px 16px", marginBottom: "8px" }}>
           <div style={{ fontSize: "12px", fontWeight: 600, color: "#16a34a", marginBottom: "6px" }}>
-            Retomadas da Semana — Timing com atividade programada ({timingRetomadas.length})
+            Retomadas da Semana — {modeLabel} ({timingRetomadas.length})
           </div>
           {timingRetomadas.map((d) => (
             <div key={d.deal_id} style={{ fontSize: "12px", color: "#141A3C", marginBottom: "3px", display: "flex", gap: "6px" }}>
@@ -454,12 +594,12 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange 
 
       {/* Motivos + Owners lado a lado */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-        <ReasonsTable deals={vendasDeals} total={vendasDeals.length} />
-        <OwnersTable deals={vendasDeals} />
+        <ReasonsTable deals={modeDeals} total={modeTotal} />
+        <OwnersTable deals={modeDeals} />
       </div>
 
-      {/* Tabela Vendas */}
-      <CompactDealsTable deals={vendasDeals} title="Deals Vendas" />
+      {/* Tabela de deals */}
+      <CompactDealsTable deals={modeDeals} title={`Deals ${modeLabel}`} />
 
       <DataSourceFooter lastUpdated={lastUpdated} />
     </div>

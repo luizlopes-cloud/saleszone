@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { LostsData, LostDealRow, LostAlert, LostsSummary } from "@/lib/types";
+import type { LostsData, LostDealRow, LostAlert, LostsSummary, LostsPeriod } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-/** Direct REST API for monitor tables (jp-rambo project) — bypasses Supabase JS client schema cache issues */
+/** Direct REST API for monitor tables (jp-rambo project) */
 const MONITOR_REST = "https://iobxudcyihqfdwiggohz.supabase.co/rest/v1";
 const MONITOR_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvYnh1ZGN5aWhxZmR3aWdnb2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzNTE4NDMsImV4cCI6MjA4ODkyNzg0M30.BelWphFGytC583TK2Iunmf_Ah__yR-d7N_823OGd9j8";
 
@@ -14,7 +14,6 @@ const HEADERS = {
   Prefer: "return=representation",
 };
 
-/** Generic fetch helper for PostgREST queries */
 async function restQuery(table: string, params: string): Promise<unknown[]> {
   const url = `${MONITOR_REST}/${table}?${params}`;
   const res = await fetch(url, { headers: HEADERS, cache: "no-store" });
@@ -25,19 +24,51 @@ async function restQuery(table: string, params: string): Promise<unknown[]> {
   return res.json();
 }
 
-/** Paginate REST queries that may exceed 1000 rows */
-async function paginateDeals(date: string): Promise<LostDealRow[]> {
+/** Resolve date range from period param */
+function resolveDateRange(period: LostsPeriod | null, dateParam: string | null): { from: string; to: string } {
+  const yesterday = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split("T")[0];
+  };
+
+  if (period === "week") {
+    const to = yesterday();
+    const from = new Date(to + "T12:00:00");
+    from.setDate(from.getDate() - 6);
+    return { from: from.toISOString().split("T")[0], to };
+  }
+  if (period === "month") {
+    const to = yesterday();
+    const from = to.slice(0, 8) + "01"; // first day of same month
+    return { from, to };
+  }
+  if (dateParam) {
+    return { from: dateParam, to: dateParam };
+  }
+  // default: yesterday
+  const y = yesterday();
+  return { from: y, to: y };
+}
+
+/** Build PostgREST date filter string */
+function dateFilter(from: string, to: string): string {
+  if (from === to) return `date=eq.${from}`;
+  return `date=gte.${from}&date=lte.${to}`;
+}
+
+/** Paginate REST queries for deals */
+async function paginateDeals(from: string, to: string): Promise<LostDealRow[]> {
   const PAGE = 1000;
   const all: LostDealRow[] = [];
   let offset = 0;
   let hasMore = true;
-
   const select = "deal_id,title,stage_name,stage_category,owner_name,owner_email,lost_time,lost_hour,days_in_funnel,lost_reason,canal,add_time,next_activity_date,pipeline_name";
+  const df = dateFilter(from, to);
 
   while (hasMore) {
-    const params = `select=${select}&date=eq.${date}&order=lost_time.desc&offset=${offset}&limit=${PAGE}`;
+    const params = `select=${select}&${df}&order=lost_time.desc&offset=${offset}&limit=${PAGE}`;
     const data = (await restQuery("monitor_lost_deals", params)) as Record<string, unknown>[];
-
     if (!data || data.length === 0) break;
 
     for (const d of data) {
@@ -58,76 +89,108 @@ async function paginateDeals(date: string): Promise<LostDealRow[]> {
         pipeline_name: (d.pipeline_name as string) ?? null,
       });
     }
-
     hasMore = data.length === PAGE;
     offset += PAGE;
   }
-
   return all;
+}
+
+/** Aggregate multiple daily summaries into one */
+function aggregateSummaries(rows: Record<string, unknown>[], deals: LostDealRow[], from: string, to: string): LostsSummary {
+  if (rows.length === 0) {
+    return {
+      date: from, total: 0, pre_vendas: 0, vendas: 0,
+      pre_vendas_pct: 0, vendas_pct: 0,
+      by_reason: {}, by_owner: {}, by_canal: {},
+      median_days_in_funnel: null, same_day_lost_pct: 0, batch_after_18h_pct: 0,
+    };
+  }
+
+  // Single day — return directly
+  if (rows.length === 1) {
+    const r = rows[0];
+    const parseJson = (v: unknown) => typeof v === "string" ? JSON.parse(v) : (v as Record<string, number>) ?? {};
+    return {
+      date: r.date as string,
+      total: (r.total as number) ?? 0,
+      pre_vendas: (r.pre_vendas as number) ?? 0,
+      vendas: (r.vendas as number) ?? 0,
+      pre_vendas_pct: (r.pre_vendas_pct as number) ?? 0,
+      vendas_pct: (r.vendas_pct as number) ?? 0,
+      by_reason: parseJson(r.by_reason),
+      by_owner: parseJson(r.by_owner),
+      by_canal: parseJson(r.by_canal),
+      median_days_in_funnel: r.median_days_in_funnel as number | null,
+      same_day_lost_pct: (r.same_day_lost_pct as number) ?? 0,
+      batch_after_18h_pct: (r.batch_after_18h_pct as number) ?? 0,
+    };
+  }
+
+  // Multiple days — aggregate from deals
+  const total = deals.length;
+  const preVendas = deals.filter((d) => d.stage_category === "pre_vendas").length;
+  const vendas = total - preVendas;
+
+  // Merge JSONB maps
+  const mergeMap = (key: string) => {
+    const merged: Record<string, number> = {};
+    for (const r of rows) {
+      const val = typeof r[key] === "string" ? JSON.parse(r[key] as string) : (r[key] as Record<string, number>) ?? {};
+      for (const [k, v] of Object.entries(val)) merged[k] = (merged[k] ?? 0) + (v as number);
+    }
+    return merged;
+  };
+
+  // Compute from deals
+  const isSameDay = (d: LostDealRow) => d.add_time && d.lost_time && d.add_time.slice(0, 10) === d.lost_time.slice(0, 10);
+  const sameDayCount = deals.filter(isSameDay).length;
+  const batchCount = deals.filter((d) => d.lost_hour >= 18).length;
+  const sortedDays = [...deals].map((d) => d.days_in_funnel).sort((a, b) => a - b);
+  const mid = Math.floor(sortedDays.length / 2);
+  const median = sortedDays.length === 0 ? null
+    : sortedDays.length % 2 === 0 ? Math.round((sortedDays[mid - 1] + sortedDays[mid]) / 2) : sortedDays[mid];
+
+  return {
+    date: `${from} a ${to}`,
+    total,
+    pre_vendas: preVendas,
+    vendas,
+    pre_vendas_pct: total > 0 ? Math.round((preVendas / total) * 100) : 0,
+    vendas_pct: total > 0 ? Math.round((vendas / total) * 100) : 0,
+    by_reason: mergeMap("by_reason"),
+    by_owner: mergeMap("by_owner"),
+    by_canal: mergeMap("by_canal"),
+    median_days_in_funnel: median,
+    same_day_lost_pct: total > 0 ? Math.round((sameDayCount / total) * 100) : 0,
+    batch_after_18h_pct: total > 0 ? Math.round((batchCount / total) * 100) : 0,
+  };
 }
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const periodParam = searchParams.get("period") as LostsPeriod | null;
     const dateParam = searchParams.get("date");
 
-    // Default to yesterday
-    const targetDate = dateParam || (() => {
-      const d = new Date();
-      d.setDate(d.getDate() - 1);
-      return d.toISOString().split("T")[0];
-    })();
+    const range = resolveDateRange(periodParam, dateParam);
+    const df = dateFilter(range.from, range.to);
+    const period: LostsPeriod = periodParam ?? (dateParam ? "custom" : "yesterday");
 
-    // 1. Fetch summary
+    // 1. Fetch deals (paginated)
+    const deals = await paginateDeals(range.from, range.to);
+
+    // 2. Fetch summary rows and aggregate
     const summaryRows = (await restQuery(
       "monitor_lost_daily_summary",
-      `select=*&date=eq.${targetDate}&limit=1`
+      `select=*&${df}&order=date.asc`
     )) as Record<string, unknown>[];
 
-    const rawSummary = summaryRows?.[0];
-    const summary: LostsSummary = rawSummary
-      ? {
-          date: rawSummary.date as string,
-          total: (rawSummary.total as number) ?? 0,
-          pre_vendas: (rawSummary.pre_vendas as number) ?? 0,
-          vendas: (rawSummary.vendas as number) ?? 0,
-          pre_vendas_pct: (rawSummary.pre_vendas_pct as number) ?? 0,
-          vendas_pct: (rawSummary.vendas_pct as number) ?? 0,
-          by_reason: typeof rawSummary.by_reason === "string"
-            ? JSON.parse(rawSummary.by_reason)
-            : (rawSummary.by_reason as Record<string, number>) ?? {},
-          by_owner: typeof rawSummary.by_owner === "string"
-            ? JSON.parse(rawSummary.by_owner)
-            : (rawSummary.by_owner as Record<string, number>) ?? {},
-          by_canal: typeof rawSummary.by_canal === "string"
-            ? JSON.parse(rawSummary.by_canal)
-            : (rawSummary.by_canal as Record<string, number>) ?? {},
-          median_days_in_funnel: rawSummary.median_days_in_funnel as number | null,
-          same_day_lost_pct: (rawSummary.same_day_lost_pct as number) ?? 0,
-          batch_after_18h_pct: (rawSummary.batch_after_18h_pct as number) ?? 0,
-        }
-      : {
-          date: targetDate,
-          total: 0,
-          pre_vendas: 0,
-          vendas: 0,
-          pre_vendas_pct: 0,
-          vendas_pct: 0,
-          by_reason: {},
-          by_owner: {},
-          by_canal: {},
-          median_days_in_funnel: null,
-          same_day_lost_pct: 0,
-          batch_after_18h_pct: 0,
-        };
-
-    // 2. Fetch deals (paginated — may exceed 1000)
-    const deals = await paginateDeals(targetDate);
+    const summary = aggregateSummaries(summaryRows, deals, range.from, range.to);
 
     // 3. Fetch alerts
     const alertRows = (await restQuery(
       "monitor_lost_alerts",
-      `select=*&date=eq.${targetDate}&order=severity.asc`
+      `select=*&${df}&order=severity.asc`
     )) as Record<string, unknown>[];
 
     const alerts: LostAlert[] = (alertRows ?? []).map((a) => ({
@@ -142,8 +205,9 @@ export async function GET(request: NextRequest) {
       threshold_value: (a.threshold_value as number) ?? null,
     }));
 
-    // 4. Fetch 7-day trend
-    const trendStart = new Date(targetDate);
+    // 4. Fetch 7-day trend (from end of period)
+    const trendEnd = new Date(range.to + "T12:00:00");
+    const trendStart = new Date(trendEnd);
     trendStart.setDate(trendStart.getDate() - 6);
     const trendStartStr = trendStart.toISOString().split("T")[0];
 
@@ -151,7 +215,7 @@ export async function GET(request: NextRequest) {
     try {
       const trendRows = (await restQuery(
         "monitor_lost_daily_summary",
-        `select=date,total&date=gte.${trendStartStr}&date=lte.${targetDate}&order=date.asc`
+        `select=date,total&date=gte.${trendStartStr}&date=lte.${range.to}&order=date.asc`
       )) as Record<string, unknown>[];
 
       trend = {
@@ -162,13 +226,21 @@ export async function GET(request: NextRequest) {
       console.error("[losts] Trend query error:", trendErr);
     }
 
-    const result: LostsData = { date: targetDate, summary, deals, alerts, trend };
+    const result: LostsData = {
+      date: range.from === range.to ? range.from : `${range.from} a ${range.to}`,
+      period,
+      dateRange: range,
+      summary,
+      deals,
+      alerts,
+      trend,
+    };
 
     return NextResponse.json(result);
   } catch (err) {
     console.error("[losts] Error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Unknown error", _v: "rest-v2" },
+      { error: err instanceof Error ? err.message : "Unknown error", _v: "rest-v3" },
       { status: 500 }
     );
   }
