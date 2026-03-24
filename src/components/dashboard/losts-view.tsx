@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { T } from "@/lib/constants";
-import type { LostsData, LostDealRow, LostAlert } from "@/lib/types";
+import type { LostsData, LostDealRow, LostAlert, LostsPeriod } from "@/lib/types";
 import type { ModuleConfig } from "@/lib/modules";
 import { DataSourceFooter } from "./ui";
 
@@ -10,11 +10,10 @@ interface Props {
   data: LostsData | null;
   loading: boolean;
   lastUpdated?: Date | null;
-  lostsDate: string;
-  onDateChange: (d: string) => void;
-  /** Which side of the monitor to show */
+  period: LostsPeriod;
+  customDate: string;
+  onPeriodChange: (period: LostsPeriod, customDate?: string) => void;
   mode: "pre_vendas" | "vendas";
-  /** Active module config — used to match people and pipeline */
   moduleConfig: ModuleConfig;
 }
 
@@ -329,7 +328,122 @@ function ownerInList(deal: LostDealRow, people: readonly string[]): boolean {
   });
 }
 
-export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange, mode, moduleConfig }: Props) {
+const PERIOD_OPTIONS: { key: LostsPeriod; label: string }[] = [
+  { key: "yesterday", label: "Ontem" },
+  { key: "week", label: "Semana" },
+  { key: "month", label: "Mês" },
+  { key: "custom", label: "📅" },
+];
+
+const pillBase: React.CSSProperties = {
+  fontSize: "12px", fontWeight: 500, padding: "5px 14px",
+  borderRadius: "9999px", cursor: "pointer", border: "1px solid #E6E7EA",
+  transition: "all 0.15s",
+};
+
+function PeriodSelector({ period, customDate, onChange }: { period: LostsPeriod; customDate: string; onChange: (p: LostsPeriod, d?: string) => void }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+      {PERIOD_OPTIONS.map((opt) => {
+        const active = period === opt.key;
+        return (
+          <button
+            key={opt.key}
+            onClick={() => onChange(opt.key)}
+            style={{
+              ...pillBase,
+              backgroundColor: active ? T.primary : "#FFF",
+              color: active ? "#FFF" : "#6B6E84",
+              borderColor: active ? T.primary : "#E6E7EA",
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+      {period === "custom" && (
+        <input
+          type="date"
+          value={customDate}
+          onChange={(e) => onChange("custom", e.target.value)}
+          style={{ fontSize: "12px", padding: "5px 10px", border: "1px solid #E6E7EA", borderRadius: "8px", color: T.fg }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Análise por Campanha: same-day + lead-in breakdown por canal */
+function CampaignAnalysis({ deals }: { deals: LostDealRow[] }) {
+  const analysis = useMemo(() => {
+    const isLeadIn = (d: LostDealRow) => d.stage_name.toLowerCase().includes("lead");
+    const byCanal: Record<string, { total: number; sameDay: number; leadIn: number }> = {};
+    let totalSameDay = 0;
+    let totalLeadIn = 0;
+
+    for (const d of deals) {
+      const canal = d.canal || "Sem canal";
+      if (!byCanal[canal]) byCanal[canal] = { total: 0, sameDay: 0, leadIn: 0 };
+      byCanal[canal].total++;
+      if (isSameDay(d)) { byCanal[canal].sameDay++; totalSameDay++; }
+      if (isLeadIn(d)) { byCanal[canal].leadIn++; totalLeadIn++; }
+    }
+
+    const rows = Object.entries(byCanal).sort((a, b) => b[1].total - a[1].total);
+    return { rows, totalSameDay, totalLeadIn, total: deals.length };
+  }, [deals]);
+
+  if (analysis.total === 0) return null;
+  const { rows, totalSameDay, totalLeadIn, total } = analysis;
+  const sdPct = total > 0 ? Math.round((totalSameDay / total) * 100) : 0;
+  const liPct = total > 0 ? Math.round((totalLeadIn / total) * 100) : 0;
+
+  return (
+    <div style={{ backgroundColor: "#FFF", border: "1px solid #E6E7EA", borderRadius: "12px", padding: "16px" }}>
+      <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, marginBottom: "12px" }}>Análise por Campanha</h3>
+
+      {/* Summary pills */}
+      <div style={{ display: "flex", gap: "12px", marginBottom: "14px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#d97706", fontWeight: 600 }}>
+          Same-day: {totalSameDay} ({sdPct}%)
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: "#7c3aed", fontWeight: 600 }}>
+          Lead In: {totalLeadIn} ({liPct}%)
+        </div>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Canal</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Total</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Same-day</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>%</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Lead In</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([canal, v]) => (
+              <tr key={canal}>
+                <td style={tdStyle}>{canal}</td>
+                <td style={{ ...tdStyle, textAlign: "right" }}>{v.total}</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: v.sameDay > 0 ? "#d97706" : undefined }}>{v.sameDay}</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: "#6B6E84" }}>{v.total > 0 ? Math.round((v.sameDay / v.total) * 100) : 0}%</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: v.leadIn > 0 ? "#7c3aed" : undefined }}>{v.leadIn}</td>
+                <td style={{ ...tdStyle, textAlign: "right", color: "#6B6E84" }}>{v.total > 0 ? Math.round((v.leadIn / v.total) * 100) : 0}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+export function LostsView({ data, loading, lastUpdated, period, customDate, onPeriodChange, mode, moduleConfig }: Props) {
   if (loading || !data) {
     return (
       <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
@@ -355,7 +469,6 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange,
   const advancedDeals = !isPreVendas
     ? modeDeals.filter((d) => {
         const pipe = d.pipeline_name?.toLowerCase() ?? "";
-        // Only show advanced stages for the current module's pipeline
         if (pipelineLabel === "SZI" && !pipe.includes("szi")) return false;
         if (pipelineLabel === "SZS" && !pipe.includes("szs")) return false;
         if (pipelineLabel === "MKTP" && !pipe.includes("mktp") && !pipe.includes("marketplace")) return false;
@@ -384,19 +497,19 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange,
     return sorted.length % 2 === 0 ? Math.round((sorted[mid - 1] + sorted[mid]) / 2) : sorted[mid];
   })();
 
+  const periodLabel = data.dateRange
+    ? data.dateRange.from === data.dateRange.to
+      ? data.dateRange.from.split("-").reverse().join("/")
+      : `${data.dateRange.from.split("-").reverse().join("/")} — ${data.dateRange.to.split("-").reverse().join("/")}`
+    : "";
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      {/* Date picker row */}
-      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-        <label style={{ fontSize: "12px", color: "#6B6E84", fontWeight: 500 }}>Data:</label>
-        <input
-          type="date"
-          value={lostsDate}
-          onChange={(e) => onDateChange(e.target.value)}
-          style={{ fontSize: "12px", padding: "6px 10px", border: "1px solid #E6E7EA", borderRadius: "8px", color: T.fg }}
-        />
+      {/* Period selector row */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+        <PeriodSelector period={period} customDate={customDate} onChange={onPeriodChange} />
         <span style={{ fontSize: "12px", color: "#6B6E84" }}>
-          Pipeline {pipelineLabel} · {modeLabel} · {modeTotal} deals lost
+          {periodLabel} · Pipeline {pipelineLabel} · {modeLabel} · {modeTotal} deals lost
         </span>
       </div>
 
@@ -404,14 +517,12 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange,
       <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
         <SummaryCard label="Total Lost" value={modeTotal} />
         <SummaryCard label="Mediana Funil" value={medianDays != null ? `${medianDays}d` : "—"} />
-        {isPreVendas && (
-          <SummaryCard
-            label="Same-day"
-            value={`${sameDayPct}%`}
-            sub={`${sameDayCount} deals`}
-            color={sameDayPct > 20 ? "#d97706" : undefined}
-          />
-        )}
+        <SummaryCard
+          label="Same-day"
+          value={`${sameDayPct}%`}
+          sub={`${sameDayCount} deals`}
+          color={sameDayPct > 20 ? "#d97706" : undefined}
+        />
         <SummaryCard
           label="Batch 18h+"
           value={`${batchPct}%`}
@@ -421,6 +532,9 @@ export function LostsView({ data, loading, lastUpdated, lostsDate, onDateChange,
 
       {/* Trend */}
       <TrendMini dates={trend.dates} totals={trend.totals} />
+
+      {/* ════════════════ Análise por Campanha ════════════════ */}
+      <CampaignAnalysis deals={modeDeals} />
 
       {/* ════════════════ SECTION ════════════════ */}
       <SectionHeader title={modeLabel} count={modeTotal} color={modeColor} />
