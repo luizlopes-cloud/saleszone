@@ -881,6 +881,57 @@ export interface LostsData {
   };
 }
 
+// Monitor de No-Show — Deals que passaram pelo stage No Show (Pipeline SZI)
+export interface NoShowDealRow {
+  deal_id: number;
+  title: string;
+  stage_name: string;
+  current_stage: string;
+  owner_name: string;
+  preseller_name: string | null;
+  empreendimento: string | null;
+  pipeline_name: string;
+  add_time: string | null;
+  days_in_funnel: number;
+  canal: string | null;
+  stage_order: number;
+  status: "open" | "won" | "lost";
+  lost_reason: string | null;
+}
+
+export interface NoShowSummary {
+  total: number;
+  open_count: number;
+  won_count: number;
+  lost_count: number;
+  by_preseller: Record<string, number>;
+  by_empreendimento: Record<string, number>;
+  by_owner: Record<string, number>;
+  by_canal: Record<string, number>;
+  avg_days_in_funnel: number | null;
+  calendar_noshow_rate: number | null;
+  calendar_total_events: number;
+  calendar_cancelled_events: number;
+}
+
+export interface NoShowAlert {
+  id: string;
+  severity: "critical" | "warning" | "info";
+  alert_type: string;
+  message: string;
+  seller_name: string;
+  metric_value: number | null;
+  threshold_value: number | null;
+}
+
+export interface NoShowData {
+  days: number;
+  summary: NoShowSummary;
+  deals: NoShowDealRow[];
+  alerts: NoShowAlert[];
+  trend: { dates: string[]; totals: number[] };
+}
+
 // Pré-Venda — Tempo de resposta dos pré-vendedores
 export interface PresalesDealRow {
   deal_id: number;
