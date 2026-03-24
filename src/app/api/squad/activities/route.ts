@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getPipeline } from '@/lib/squad/config'
 import { getSquadsFromDB } from '@/lib/squad/config-db'
-import { matchOwnerName } from '@/lib/squad/pipedrive'
+import { pipedriveGet, matchOwnerName } from '@/lib/squad/pipedrive'
 import { getDiasUteis } from '@/lib/squad/metas-2026'
-import { queryActiveUsers, queryActivityCounts } from '@/lib/squad/nekt'
+
+export const dynamic = 'force-dynamic'
 
 // Meta mensal de atividades por pré-vendedor
 const META_MENSAL = 2000
 
 // Tipos de atividade permitidos para pré-venda
-const ALLOWED_TYPES = ['call', 'mensagem', 'message', 'whatsapp_chat']
+const ALLOWED_TYPES = new Set(['call', 'mensagem', 'message', 'whatsapp_chat'])
 
 // Cores e labels por tipo de atividade
 const ACTIVITY_TYPE_COLORS: Record<string, string> = {
@@ -34,6 +35,45 @@ const ACTIVITY_TYPE_LABELS: Record<string, string> = {
   mensagem: 'Mensagem',
   message: 'Mensagem',
   demo: 'Demonstração',
+}
+
+interface PipedriveActivity {
+  id: number
+  user_id: number
+  type: string
+  due_date: string
+  due_time: string | null
+  marked_as_done_time: string | null
+  done: boolean
+  [key: string]: unknown
+}
+
+// Busca atividades de um user_id com paginação
+async function fetchUserActivities(
+  userId: number,
+  startDate: string,
+  endDate: string
+): Promise<PipedriveActivity[]> {
+  const all: PipedriveActivity[] = []
+  let start = 0
+  const limit = 500
+  let hasMore = true
+
+  while (hasMore) {
+    const res = await pipedriveGet<PipedriveActivity[]>('activities', {
+      user_id: userId,
+      start_date: startDate,
+      end_date: endDate,
+      done: 1,
+      start,
+      limit,
+    })
+    if (res.data) all.push(...res.data)
+    hasMore = res.additional_data?.pagination?.more_items_in_collection ?? false
+    start = res.additional_data?.pagination?.next_start ?? start + limit
+  }
+
+  return all
 }
 
 export async function GET(request: NextRequest) {
@@ -68,20 +108,15 @@ export async function GET(request: NextRequest) {
     const dateFrom = searchParams.get('dateFrom')
     const dateTo = searchParams.get('dateTo')
 
-    // Usa fuso de São Paulo para calcular "hoje"
     const nowSP = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Sao_Paulo' }))
     const fmtDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
     const startDate = dateFrom || `${nowSP.getFullYear()}-${String(nowSP.getMonth() + 1).padStart(2, '0')}-01`
     const endDate = dateTo || fmtDate(nowSP)
 
-    // Para Nekt/Athena, end_date precisa ser +1 dia (filtro é <, não <=)
-    const endNext = new Date(endDate + 'T12:00:00')
-    endNext.setDate(endNext.getDate() + 1)
-    const endDateQuery = endNext.toISOString().split('T')[0]
-
-    // Buscar usuários ativos do Pipedrive via Nekt
-    const allUsers = await queryActiveUsers()
+    // Buscar usuários ativos do Pipedrive
+    const usersRes = await pipedriveGet<{ id: number; name: string; active_flag: boolean }[]>('users')
+    const allUsers = (usersRes.data ?? []).filter(u => u.active_flag)
 
     // Mapeia preseller name → user_id
     const pvUserIds = new Map<string, number>()
@@ -90,28 +125,54 @@ export async function GET(request: NextRequest) {
       if (user) pvUserIds.set(pv.name, user.id)
     }
 
-    // Coleta todos os user_ids dos presellers
+    // Busca atividades de cada pré-vendedor em paralelo
     const userIds = Array.from(pvUserIds.values())
+    const activitiesPerUser = await Promise.all(
+      userIds.map(uid => fetchUserActivities(uid, startDate, endDate))
+    )
 
-    // Busca todas as contagens agregadas do Nekt em 3 queries paralelas
-    const counts = await queryActivityCounts(startDate, endDateQuery, userIds, ALLOWED_TYPES)
+    // Indexa atividades por user_id
+    const actByUser = new Map<number, PipedriveActivity[]>()
+    userIds.forEach((uid, i) => actByUser.set(uid, activitiesPerUser[i]))
 
-    // Cria lookups rápidos por user_id
+    // Processa lookups: por tipo, por dia, por hora — filtrando por ALLOWED_TYPES
     const byUserType = new Map<number, Map<string, number>>()
     const byUserDay = new Map<number, Map<string, number>>()
     const byUserHour = new Map<number, Map<number, number>>()
 
-    for (const r of counts.byUserType) {
-      if (!byUserType.has(r.user_id)) byUserType.set(r.user_id, new Map())
-      byUserType.get(r.user_id)!.set(r.type, r.count)
-    }
-    for (const r of counts.byUserDay) {
-      if (!byUserDay.has(r.user_id)) byUserDay.set(r.user_id, new Map())
-      byUserDay.get(r.user_id)!.set(r.day, r.count)
-    }
-    for (const r of counts.byUserHour) {
-      if (!byUserHour.has(r.user_id)) byUserHour.set(r.user_id, new Map())
-      byUserHour.get(r.user_id)!.set(r.hour, r.count)
+    for (const [uid, activities] of actByUser) {
+      const typeMap = new Map<string, number>()
+      const dayMap = new Map<string, number>()
+      const hourMap = new Map<number, number>()
+
+      for (const act of activities) {
+        const tipo = (act.type || '').toLowerCase()
+        if (!ALLOWED_TYPES.has(tipo)) continue
+
+        // Por tipo
+        typeMap.set(tipo, (typeMap.get(tipo) || 0) + 1)
+
+        // Por dia (due_date = "YYYY-MM-DD")
+        if (act.due_date) {
+          const day = act.due_date.split(' ')[0] // caso venha com hora
+          dayMap.set(day, (dayMap.get(day) || 0) + 1)
+        }
+
+        // Por hora (marked_as_done_time = "YYYY-MM-DD HH:MM:SS")
+        if (act.marked_as_done_time) {
+          const timePart = act.marked_as_done_time.split(' ')[1]
+          if (timePart) {
+            const hour = parseInt(timePart.split(':')[0], 10)
+            if (!isNaN(hour)) {
+              hourMap.set(hour, (hourMap.get(hour) || 0) + 1)
+            }
+          }
+        }
+      }
+
+      byUserType.set(uid, typeMap)
+      byUserDay.set(uid, dayMap)
+      byUserHour.set(uid, hourMap)
     }
 
     // Dias úteis para meta pro-rata
@@ -135,7 +196,6 @@ export async function GET(request: NextRequest) {
 
     // Contagem global por tipo
     const tiposTotais: Record<string, number> = {}
-    // Heatmap global: dia → hora → count
     const heatmapGlobal: Record<string, Record<number, number>> = {}
 
     interface PVStats {
@@ -186,14 +246,8 @@ export async function GET(request: NextRequest) {
       if (userHours) {
         for (const [hour, cnt] of userHours) {
           porHora[hour] = cnt
-          // Heatmap global: precisamos de dia+hora, mas como agregamos por user+hora,
-          // distribuímos proporcionalmente pelos dias
         }
       }
-
-      // Heatmap global: agregar dia+hora dos dados por dia e hora
-      // Como byUserDay e byUserHour são independentes, usamos byUserHour para o heatmap
-      // (simplificação: o heatmap mostra soma por hora de todos os dias)
 
       const metaDiaria = diasUteisTotal > 0 ? Math.round(META_MENSAL / diasUteisTotal) : 0
       const metaTotal = META_MENSAL
@@ -252,15 +306,6 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     console.error('Erro na rota /api/squad/activities:', msg)
-
-    // Token Nekt não configurado ou expirado
-    if (msg.includes('NEKT_ACCESS_TOKEN') || msg.includes('invalid_token')) {
-      return NextResponse.json(
-        { error: 'Token Nekt não configurado ou expirado. Contate o administrador.', detail: msg },
-        { status: 503 }
-      )
-    }
-
     return NextResponse.json(
       { error: 'Erro interno ao calcular métricas de atividades', detail: msg },
       { status: 500 }
