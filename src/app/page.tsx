@@ -16,7 +16,7 @@ class ViewErrorBoundary extends React.Component<
     return { hasError: true, error: error.message };
   }
   componentDidCatch() {
-    localStorage.setItem("mainView", "campanhas");
+    localStorage.setItem("mainView", "acompanhamento");
     setTimeout(() => this.props.onReset(), 100);
   }
   render() {
@@ -607,7 +607,7 @@ export default function Dashboard() {
         </div>
       )}
       <div style={{ padding: "16px 20px", maxWidth: "2200px", margin: "0 auto" }}>
-       <ViewErrorBoundary onReset={() => setMainViewRaw("campanhas")}>
+       <ViewErrorBoundary onReset={() => setMainViewRaw("acompanhamento")}>
         {mainView === "acompanhamento" && (
           <>
             <AcompanhamentoView
