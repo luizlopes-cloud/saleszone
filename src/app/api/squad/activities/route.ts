@@ -250,19 +250,9 @@ export async function GET(request: NextRequest) {
       updatedAt: new Date().toISOString(),
     })
   } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
-    console.error('Erro na rota /api/squad/activities:', msg)
-
-    // Token Nekt não configurado ou expirado
-    if (msg.includes('NEKT_ACCESS_TOKEN') || msg.includes('invalid_token')) {
-      return NextResponse.json(
-        { error: 'Token Nekt não configurado ou expirado. Contate o administrador.', detail: msg },
-        { status: 503 }
-      )
-    }
-
+    console.error('Erro na rota /api/squad/activities:', error)
     return NextResponse.json(
-      { error: 'Erro interno ao calcular métricas de atividades', detail: msg },
+      { error: 'Erro interno ao calcular métricas de atividades' },
       { status: 500 }
     )
   }
