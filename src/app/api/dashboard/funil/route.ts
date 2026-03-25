@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS } from "@/lib/constants";
 import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
 
@@ -116,7 +117,7 @@ export async function GET(req: NextRequest) {
     const mesFim = `${yearStr}-${String(Number(monthStr) + 1).padStart(2, "0")}-01`;
 
     // Queries paralelas
-    const [metaRes, countsRes, stageSnapshotRes, dealsRes] = await Promise.all([
+    const [metaRes, countsRes, stageSnapshotRes, dealsRes, baserowLeadsRes, paidDealsRes] = await Promise.all([
       // Meta Ads — spend_month/leads_month
       supabase
         .from("squad_meta_ads")
@@ -145,6 +146,33 @@ export async function GET(req: NextRequest) {
           .or(`won_time.gte.${startDate},lost_time.gte.${startDate}`)
           .range(o, o + ps - 1),
       ),
+      // Baserow leads — formulários preenchidos no mês (fonte real de Leads)
+      // Usa service_role porque baserow_leads tem RLS sem policy para anon
+      (() => {
+        const admin = createSquadSupabaseAdmin();
+        return paginate((o, ps) =>
+          admin
+            .from("baserow_leads")
+            .select("nome_empreendimento")
+            .gte("data_criacao_ads", startDate)
+            .lt("data_criacao_ads", mesFim)
+            .range(o, o + ps - 1),
+        );
+      })(),
+      // Deals de mídia paga no mês (rd_source contendo "pag") — para modo Mídia Paga
+      (() => {
+        const admin = createSquadSupabaseAdmin();
+        return paginate((o, ps) =>
+          admin
+            .from("squad_deals")
+            .select("empreendimento, max_stage_order, status, lost_reason")
+            .eq("is_marketing", true)
+            .not("empreendimento", "is", null)
+            .ilike("rd_source", "%pag%")
+            .gte("add_time", startDate)
+            .range(o, o + ps - 1),
+        );
+      })(),
     ]);
 
     if (metaRes.error) throw new Error(`Meta Ads query error: ${metaRes.error.message}`);
@@ -193,6 +221,28 @@ export async function GET(req: NextRequest) {
       cur[row.tab as "reserva" | "contrato"] = (cur[row.tab as "reserva" | "contrato"] || 0) + (row.count || 0);
     }
 
+    // Agregar Baserow leads por empreendimento (formulários preenchidos no mês)
+    const baserowLeadsMap = new Map<string, number>();
+    for (const row of baserowLeadsRes) {
+      const emp = row.nome_empreendimento;
+      if (!emp) continue;
+      baserowLeadsMap.set(emp, (baserowLeadsMap.get(emp) || 0) + 1);
+    }
+
+    // Agregar deals pagos (rd_source contendo "pag") por empreendimento
+    const paidCountsMap = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
+    for (const d of paidDealsRes) {
+      const emp = d.empreendimento;
+      if (!emp) continue;
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      if (!paidCountsMap.has(emp)) paidCountsMap.set(emp, { mql: 0, sql: 0, opp: 0, won: 0 });
+      const cur = paidCountsMap.get(emp)!;
+      cur.mql++;
+      if (d.max_stage_order >= 5) cur.sql++;
+      if (d.max_stage_order >= 9) cur.opp++;
+      if (d.status === "won") cur.won++;
+    }
+
     // Agregar eventos por stage — deals fechados no mês (mesma coorte)
     // OPP = max_stage_order >= 9, Reserva = >= 13, Contrato = >= 14, WON = status won
     // Exclui Duplicado/Erro em JS (neq no Supabase exclui NULLs, removendo WONs)
@@ -222,12 +272,16 @@ export async function GET(req: NextRequest) {
         let eventos: EventoCoorte;
 
         if (paidOnly) {
-          leads = meta.leads;
-          mql = Math.min(counts.mql, meta.leads);
-          const ratio = counts.mql > 0 ? mql / counts.mql : 0;
-          sql = Math.round(counts.sql * ratio);
-          opp = Math.round(counts.opp * ratio);
-          won = Math.round(counts.won * ratio);
+          // Leads = formulários Baserow, MQL/SQL/OPP/WON = deals com rd_source "pag"
+          const baserowLeads = baserowLeadsMap.get(emp) || 0;
+          const paid = paidCountsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
+          leads = baserowLeads > 0 ? baserowLeads : meta.leads;
+          mql = paid.mql;
+          sql = paid.sql;
+          opp = paid.opp;
+          won = paid.won;
+          // Reserva/contrato: proporção baseada na fração de deals pagos
+          const ratio = counts.mql > 0 ? paid.mql / counts.mql : 0;
           reserva = Math.round(snapshot.reserva * ratio);
           contrato = Math.round(snapshot.contrato * ratio);
           eventos = {
@@ -237,8 +291,9 @@ export async function GET(req: NextRequest) {
             wonEvento: Math.round(ev.wonEvento * ratio),
           };
         } else {
-          const mqiNaoPago = Math.max(counts.mql - meta.leads, 0);
-          leads = meta.leads + mqiNaoPago;
+          // Leads = formulários preenchidos (Baserow) — fonte real de leads
+          const baserowLeads = baserowLeadsMap.get(emp) || 0;
+          leads = baserowLeads > 0 ? baserowLeads : counts.mql;
           mql = counts.mql;
           sql = counts.sql;
           opp = counts.opp;
