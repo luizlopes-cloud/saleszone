@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@supabase/supabase-js'
 import { getPipeline } from '@/lib/squad/config'
 import { getSquadsFromDB } from '@/lib/squad/config-db'
 import { pipedriveGet, matchOwnerName } from '@/lib/squad/pipedrive'
@@ -125,15 +126,71 @@ export async function GET(request: NextRequest) {
       if (user) pvUserIds.set(pv.name, user.id)
     }
 
-    // Busca atividades de cada pré-vendedor em paralelo
+    // HÍBRIDO: busca do Supabase (nekt_pipedrive_activities) + Pipedrive (só hoje)
     const userIds = Array.from(pvUserIds.values())
-    const activitiesPerUser = await Promise.all(
-      userIds.map(uid => fetchUserActivities(uid, startDate, endDate))
+    const todayStr = fmtDate(nowSP)
+    const yesterdayDate = new Date(nowSP)
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+    const yesterdayStr = fmtDate(yesterdayDate)
+
+    // 1. Supabase: atividades do período (exceto hoje) — dados do Nekt, rápido
+    const admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
+    const supabaseActivities: PipedriveActivity[] = []
+    const PAGE = 1000
+    for (const uid of userIds) {
+      let offset = 0
+      while (true) {
+        const { data } = await admin
+          .from('nekt_pipedrive_activities')
+          .select('id, user_id, type, due_date, due_time, marked_as_done_time, done')
+          .eq('user_id', uid)
+          .eq('done', true)
+          .gte('due_date', startDate)
+          .lt('due_date', todayStr)
+          .range(offset, offset + PAGE - 1)
+        if (!data || data.length === 0) break
+        supabaseActivities.push(...(data as PipedriveActivity[]))
+        if (data.length < PAGE) break
+        offset += PAGE
+      }
+    }
+
+    // 2. Pipedrive: só atividades de hoje e ontem (complementa o que Nekt ainda não tem)
+    const todayActivities = await Promise.all(
+      userIds.map(uid => fetchUserActivities(uid, yesterdayStr, todayStr))
+    )
+
+    // 3. Combina — Supabase (histórico) + Pipedrive (hoje/ontem), dedup por id
+    const seenIds = new Set<number>()
+    const allActivities: PipedriveActivity[] = []
+
+    // Pipedrive hoje tem prioridade (mais atualizado)
+    for (const acts of todayActivities) {
+      for (const act of acts) {
+        if (!seenIds.has(act.id)) {
+          seenIds.add(act.id)
+          allActivities.push(act)
+        }
+      }
+    }
+    // Supabase para o resto do período
+    for (const act of supabaseActivities) {
+      if (!seenIds.has(act.id)) {
+        seenIds.add(act.id)
+        allActivities.push(act)
+      }
+    }
 
     // Indexa atividades por user_id
     const actByUser = new Map<number, PipedriveActivity[]>()
-    userIds.forEach((uid, i) => actByUser.set(uid, activitiesPerUser[i]))
+    for (const uid of userIds) actByUser.set(uid, [])
+    for (const act of allActivities) {
+      const list = actByUser.get(act.user_id)
+      if (list) list.push(act)
+    }
 
     // Processa lookups: por tipo, por dia, por hora — filtrando por ALLOWED_TYPES
     const byUserType = new Map<number, Map<string, number>>()
