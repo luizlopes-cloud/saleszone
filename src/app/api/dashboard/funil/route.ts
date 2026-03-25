@@ -114,7 +114,10 @@ export async function GET(req: NextRequest) {
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
     const [yearStr, monthStr] = month.split("-");
-    const mesFim = `${yearStr}-${String(Number(monthStr) + 1).padStart(2, "0")}-01`;
+    const mesNum = Number(monthStr);
+    const mesFim = mesNum === 12
+      ? `${Number(yearStr) + 1}-01-01`
+      : `${yearStr}-${String(mesNum + 1).padStart(2, "0")}-01`;
 
     // Queries paralelas
     const [metaRes, countsRes, stageSnapshotRes, dealsRes, baserowLeadsRes, paidDealsRes] = await Promise.all([

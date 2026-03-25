@@ -70,7 +70,11 @@ export async function GET(req: NextRequest) {
       // Baserow leads — formulários preenchidos no mês (fonte real de Leads)
       (() => {
         const admin = createSquadSupabaseAdmin();
-        const mesFim = `${String(Number(monthPrefix.split("-")[0])).padStart(4, "0")}-${String(Number(monthPrefix.split("-")[1]) + 1).padStart(2, "0")}-01`;
+        const [anoStr, mesStr] = monthPrefix.split("-");
+        const mesNum = Number(mesStr);
+        const mesFim = mesNum === 12
+          ? `${Number(anoStr) + 1}-01-01`
+          : `${anoStr}-${String(mesNum + 1).padStart(2, "0")}-01`;
         return paginate((o, ps) =>
           admin
             .from("baserow_leads")
