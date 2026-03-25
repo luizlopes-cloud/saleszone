@@ -5,7 +5,7 @@ export const SQUADS = [
     name: "Squad 1",
     marketing: "Mari",
     preVenda: "Luciana Patrício",
-    venda: "Laura",
+    venda: "Priscila Pestana Perrone",
     empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
   },
   {
@@ -13,7 +13,7 @@ export const SQUADS = [
     name: "Squad 2",
     marketing: "Jean",
     preVenda: "Natália Saramago",
-    venda: "Camila Santos",
+    venda: "Filipe Padoveze",
     empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
   },
   {
@@ -28,13 +28,13 @@ export const SQUADS = [
 
 // Pre-venda and Venda people for alignment view
 export const PV_COLS = ["Luciana Patrício", "Natália Saramago", "Hellen Dias"];
-export const V_COLS = ["Laura", "Camila Santos", "Filipe Padoveze", "Luana Schaikoski", "Priscila Pestana Perrone"];
+export const V_COLS = ["Priscila Pestana Perrone", "Filipe Padoveze", "Luana Schaikoski"];
 
 // Squad → índices em V_COLS (quais closers pertencem a cada squad)
 export const SQUAD_V_MAP: Record<number, number[]> = {
-  1: [0],    // Laura
-  2: [1, 2], // Camila Santos, Filipe Padoveze
-  3: [3, 4], // Luana Schaikoski, Priscila Pestana Perrone
+  1: [0],    // Priscila Pestana Perrone
+  2: [1],    // Filipe Padoveze
+  3: [2],    // Luana Schaikoski
 };
 
 // UI Tokens

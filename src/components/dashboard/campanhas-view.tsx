@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { CampanhasData, MetaAdRow, MediaFilter } from "@/lib/types";
 import { MediaFilterToggle, DataSourceFooter } from "./ui";
@@ -206,9 +206,8 @@ export function CampanhasView({ data, loading, mediaFilter, setMediaFilter, last
                     const hasAds = emp.adsDetail && emp.adsDetail.length > 0;
 
                     return (
-                      <>
+                      <React.Fragment key={key}>
                         <tr
-                          key={emp.emp}
                           onClick={() => hasAds && toggleExpand(sq.id, emp.emp)}
                           style={{ cursor: hasAds ? "pointer" : "default" }}
                           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = T.cinza50)}
@@ -249,7 +248,7 @@ export function CampanhasView({ data, loading, mediaFilter, setMediaFilter, last
                           <td style={{ ...tdStyle, textAlign: "right", fontWeight: emp.cpw > 0 ? 600 : 400 }}>{emp.cpw > 0 ? formatBRL(emp.cpw) : "-"}</td>
                         </tr>
                         {isOpen && hasAds && <AdRows ads={emp.adsDetail} />}
-                      </>
+                      </React.Fragment>
                     );
                   })}
                 </tbody>

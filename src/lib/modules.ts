@@ -32,7 +32,7 @@ const SZI_SQUADS: readonly SquadDef[] = [
     name: "Squad 1",
     marketing: "Mari",
     preVenda: "Luciana Patrício",
-    venda: "Laura",
+    venda: "Priscila Pestana Perrone",
     empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
   },
   {
@@ -40,7 +40,7 @@ const SZI_SQUADS: readonly SquadDef[] = [
     name: "Squad 2",
     marketing: "Jean",
     preVenda: "Natália Saramago",
-    venda: "Camila Santos",
+    venda: "Filipe Padoveze",
     empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
   },
   {
@@ -60,12 +60,12 @@ const SZI_CONFIG: ModuleConfig = {
   pipelineId: 28,
   metaAdsAccountId: "act_205286032338340",
   squads: SZI_SQUADS,
-  closers: ["Laura", "Camila Santos", "Filipe Padoveze", "Luana Schaikoski", "Priscila Pestana Perrone"],
+  closers: ["Priscila Pestana Perrone", "Filipe Padoveze", "Luana Schaikoski"],
   presellers: ["Luciana Patrício", "Natália Saramago", "Hellen Dias"],
   squadCloserMap: {
-    1: [0],    // Laura
-    2: [1, 2], // Camila Santos, Filipe Padoveze
-    3: [3, 4], // Luana Schaikoski, Priscila Pestana Perrone
+    1: [0],    // Priscila Pestana Perrone
+    2: [1],    // Filipe Padoveze
+    3: [2],    // Luana Schaikoski
   },
   tablePrefix: "squad",
   apiBase: "/api/dashboard",
@@ -108,7 +108,7 @@ const SZS_SQUADS: readonly SquadDef[] = [
   {
     id: 1,
     name: "Serviços",
-    marketing: "Laura",
+    marketing: "Priscila",
     preVenda: "Larissa Marques",
     venda: "Maria Vitória",
     empreendimentos: [], // SZS groups by cidade — discovered dynamically from DB data

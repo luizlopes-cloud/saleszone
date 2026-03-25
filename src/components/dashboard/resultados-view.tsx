@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, ArrowUp, ArrowDown } from "lucide-react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
-import type { FunilData, FunilEmpreendimento, FunilCidade, FunilBairro } from "@/lib/types";
-import { StatPill, TH, cellRightStyle, cellStyle, DataSourceFooter } from "./ui";
+import type { FunilData, FunilEmpreendimento, FunilCidade, FunilBairro, MediaFilter } from "@/lib/types";
+import { StatPill, TH, cellRightStyle, cellStyle, DataSourceFooter, MediaFilterToggle } from "./ui";
 
 interface ResultadosViewProps {
   data: FunilData | null;
   loading: boolean;
+  mediaFilter: MediaFilter;
+  setMediaFilter: (f: MediaFilter) => void;
   lastUpdated?: Date | null;
   moduleId?: string;
 }
@@ -377,7 +379,7 @@ function CidadeDetailTable({ cidades, isSZS = false }: { cidades: FunilCidade[];
   );
 }
 
-export function ResultadosView({ data, loading, lastUpdated, moduleId }: ResultadosViewProps) {
+export function ResultadosView({ data, loading, mediaFilter, setMediaFilter, lastUpdated, moduleId }: ResultadosViewProps) {
   const [expandedSquads, setExpandedSquads] = useState<Set<number>>(new Set([1, 2, 3]));
 
   const isSZS = moduleId === "szs";
@@ -413,6 +415,10 @@ export function ResultadosView({ data, loading, lastUpdated, moduleId }: Resulta
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+      {/* Filter toggle */}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <MediaFilterToggle value={mediaFilter} onChange={setMediaFilter} />
+      </div>
       {/* Summary cards */}
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
         {getStages(isSZS).map((s) => {
