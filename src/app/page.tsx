@@ -428,6 +428,9 @@ export default function Dashboard() {
       fetchCamp(mediaFilter);
     } else if (mainView === "diagnostico-mkt") {
       fetchCamp(mediaFilter);
+    } else if (mainView === "resultados") {
+      setFunilData(null);
+      fetchFunil(mediaFilter);
     }
   }, [mediaFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -450,7 +453,7 @@ export default function Dashboard() {
     } else if (mainView === "presales" && !presalesData) {
       fetchPresales();
     } else if (mainView === "resultados" && !funilData) {
-      fetchFunil("all");
+      fetchFunil(mediaFilter);
     } else if (mainView === "planejamento" && !planejData) {
       fetchPlanej(planejDays);
     } else if (mainView === "orcamento" && !orcData) {
@@ -511,7 +514,7 @@ export default function Dashboard() {
     else if (mainView === "campanhas") await fetchCamp(mediaFilter);
     else if (mainView === "diagnostico-mkt") await fetchCamp(mediaFilter);
     else if (mainView === "presales") await fetchPresales();
-    else if (mainView === "resultados") await fetchFunil("all");
+    else if (mainView === "resultados") await fetchFunil(mediaFilter);
     else if (mainView === "planejamento") await fetchPlanej(planejDays);
     else if (mainView === "orcamento") await fetchOrc();
     else if (mainView === "perf-prevendas" || mainView === "perf-vendas") await fetchPerformance(perfDays);
@@ -632,7 +635,7 @@ export default function Dashboard() {
         {mainView === "balanceamento" && <BalanceamentoView data={balancData} ocioData={ocioData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "campanhas" && <CampanhasView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} lastUpdated={lastUpdated} moduleId={activeModule} />}
         {mainView === "presales" && <PresalesView data={presalesData} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
-        {mainView === "resultados" && <ResultadosView data={funilData} loading={loading} lastUpdated={lastUpdated} moduleId={activeModule} />}
+        {mainView === "resultados" && <ResultadosView data={funilData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} lastUpdated={lastUpdated} moduleId={activeModule} />}
         {mainView === "diagnostico-mkt" && <DiagnosticoMktView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "planejamento" && <PlanejamentoView data={planejData} loading={loading} daysBack={planejDays} onDaysChange={(d) => { setPlanejDays(d); setPlanejData(null); fetchPlanej(d); }} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "orcamento" && <OrcamentoView data={orcData} loading={loading} onBudgetSave={handleBudgetSave} lastUpdated={lastUpdated} moduleId={activeModule} />}
