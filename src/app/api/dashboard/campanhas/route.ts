@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS } from "@/lib/constants";
 import type { CampanhasData, CampanhasSquadSummary, CampanhasEmpSummary, MetaAdRow } from "@/lib/types";
 
@@ -33,8 +34,25 @@ export async function GET(req: NextRequest) {
     const monthPrefix = snapshotDate!.substring(0, 7);
     const startDate = `${monthPrefix}-01`;
 
-    // Queries paralelas: Meta Ads (último snapshot + todos do mês para max spend) + Contagens + WON
-    const [metaRes, metaAllRes, countsRes, crossWonRes] = await Promise.all([
+    // Paginate helper (Supabase 1000-row limit)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
+      const rows: any[] = [];
+      let offset = 0;
+      const PS = 1000;
+      while (true) {
+        const { data, error } = await buildQuery(offset, PS);
+        if (error) throw new Error(`Supabase: ${error.message}`);
+        if (!data || data.length === 0) break;
+        rows.push(...data);
+        if (data.length < PS) break;
+        offset += PS;
+      }
+      return rows;
+    }
+
+    // Queries paralelas: Meta Ads (último snapshot + todos do mês para max spend) + Contagens + WON + Baserow leads
+    const [metaRes, metaAllRes, countsRes, crossWonRes, baserowLeadsRes, paidDealsRes] = await Promise.all([
       supabase
         .from("squad_meta_ads")
         .select("*")
@@ -49,6 +67,37 @@ export async function GET(req: NextRequest) {
         .limit(10000),
       supabase.rpc("get_emp_counts_summary", { p_start_date: startDate }),
       supabase.rpc("get_ad_won_cross_emp"),
+      // Baserow leads — formulários preenchidos no mês (fonte real de Leads)
+      (() => {
+        const admin = createSquadSupabaseAdmin();
+        const [anoStr, mesStr] = monthPrefix.split("-");
+        const mesNum = Number(mesStr);
+        const mesFim = mesNum === 12
+          ? `${Number(anoStr) + 1}-01-01`
+          : `${anoStr}-${String(mesNum + 1).padStart(2, "0")}-01`;
+        return paginate((o, ps) =>
+          admin
+            .from("baserow_leads")
+            .select("nome_empreendimento")
+            .gte("data_criacao_ads", startDate)
+            .lt("data_criacao_ads", mesFim)
+            .range(o, o + ps - 1),
+        );
+      })(),
+      // Deals de mídia paga no mês (rd_source contendo "pag") — para modo Mídia Paga
+      (() => {
+        const admin = createSquadSupabaseAdmin();
+        return paginate((o, ps) =>
+          admin
+            .from("squad_deals")
+            .select("empreendimento, max_stage_order, status, lost_reason")
+            .eq("is_marketing", true)
+            .not("empreendimento", "is", null)
+            .ilike("rd_source", "%pag%")
+            .gte("add_time", startDate)
+            .range(o, o + ps - 1),
+        );
+      })(),
     ]);
 
     if (metaRes.error) throw new Error(`Supabase error: ${metaRes.error.message}`);
@@ -108,6 +157,28 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // Agregar deals pagos (rd_source contendo "pag") por empreendimento
+    const paidCountsMap = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
+    for (const d of paidDealsRes) {
+      const emp = d.empreendimento;
+      if (!emp) continue;
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      if (!paidCountsMap.has(emp)) paidCountsMap.set(emp, { mql: 0, sql: 0, opp: 0, won: 0 });
+      const cur = paidCountsMap.get(emp)!;
+      cur.mql++;
+      if (d.max_stage_order >= 5) cur.sql++;
+      if (d.max_stage_order >= 9) cur.opp++;
+      if (d.status === "won") cur.won++;
+    }
+
+    // Agregar Baserow leads por empreendimento (formulários preenchidos no mês)
+    const baserowLeadsMap = new Map<string, number>();
+    for (const row of baserowLeadsRes) {
+      const emp = row.nome_empreendimento;
+      if (!emp) continue;
+      baserowLeadsMap.set(emp, (baserowLeadsMap.get(emp) || 0) + 1);
+    }
+
     // Map<ad_id, won_other> — WONs de ads que foram ganhos em outro empreendimento
     const crossWonMap = new Map<string, number>();
     for (const row of crossWonRes.data || []) {
@@ -149,16 +220,22 @@ export async function GET(req: NextRequest) {
         const counts = countsMapMonth.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
         let empMql = counts.mql, empSql = counts.sql, empOpp = counts.opp, empWon = counts.won;
         if (paidOnly) {
-          empMql = Math.min(counts.mql, metaLeads);
-          const ratio = counts.mql > 0 ? empMql / counts.mql : 0;
-          empSql = Math.round(counts.sql * ratio);
-          empOpp = Math.round(counts.opp * ratio);
-          empWon = Math.round(counts.won * ratio);
+          // MQL/SQL/OPP/WON reais de deals com rd_source "pag"
+          const paid = paidCountsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
+          empMql = paid.mql;
+          empSql = paid.sql;
+          empOpp = paid.opp;
+          empWon = paid.won;
         }
 
-        // Leads = mesma lógica da aba Resultados: Meta Ads + MQLs de outros canais
-        const nonPaidMql = paidOnly ? 0 : Math.max(counts.mql - metaLeads, 0);
-        const leads = metaLeads + nonPaidMql;
+        // Leads = formulários preenchidos (Baserow) — fonte real de leads
+        const baserowLeads = baserowLeadsMap.get(emp) || 0;
+        let leads: number;
+        if (paidOnly) {
+          leads = baserowLeads > 0 ? baserowLeads : metaLeads;
+        } else {
+          leads = baserowLeads > 0 ? baserowLeads : counts.mql;
+        }
 
         // Funil por ad: distribuição proporcional por spend share dentro do empreendimento
         // (não existe link direto ad_id → deal no Pipedrive, atribuição via empreendimento)

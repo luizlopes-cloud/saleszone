@@ -973,22 +973,6 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
     });
   }, [filteredRows, recent90Data, activeFilter]);
 
-  if (loading && !data) {
-    return (
-      <div style={{ textAlign: "center", padding: "60px 20px", color: T.mutedFg }}>
-        <p style={{ fontSize: "14px" }}>Carregando planejamento...</p>
-      </div>
-    );
-  }
-
-  if (!data) {
-    return (
-      <div style={{ textAlign: "center", padding: "60px 20px", color: T.mutedFg }}>
-        <p style={{ fontSize: "14px" }}>Nenhum dado disponível</p>
-      </div>
-    );
-  }
-
   const tc = filteredTotals.current;
   const th = filteredTotals.historical;
   // Combined: full selected period (current month + historical)
@@ -1007,6 +991,22 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
       mqlToSql: r(sql, mql), sqlToOpp: r(opp, sql), oppToWon: r(won, opp),
     };
   }, [tc, th]);
+
+  if (loading && !data) {
+    return (
+      <div style={{ textAlign: "center", padding: "60px 20px", color: T.mutedFg }}>
+        <p style={{ fontSize: "14px" }}>Carregando planejamento...</p>
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div style={{ textAlign: "center", padding: "60px 20px", color: T.mutedFg }}>
+        <p style={{ fontSize: "14px" }}>Nenhum dado disponível</p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
