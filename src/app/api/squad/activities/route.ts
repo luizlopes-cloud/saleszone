@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { getPipeline } from '@/lib/squad/config'
 import { getSquadsFromDB } from '@/lib/squad/config-db'
-import { pipedriveGet, matchOwnerName } from '@/lib/squad/pipedrive'
+import { matchOwnerName } from '@/lib/squad/pipedrive'
 import { getDiasUteis } from '@/lib/squad/metas-2026'
 
 export const dynamic = 'force-dynamic'
@@ -49,8 +49,9 @@ interface PipedriveActivity {
   [key: string]: unknown
 }
 
-// Busca atividades de um user_id com paginação
+// Busca atividades de um user_id com paginação (usa apiToken direto)
 async function fetchUserActivities(
+  apiToken: string,
   userId: number,
   startDate: string,
   endDate: string
@@ -59,22 +60,32 @@ async function fetchUserActivities(
   let start = 0
   const limit = 500
   let hasMore = true
+  const domain = process.env.PIPEDRIVE_COMPANY_DOMAIN || 'seazone-fd92b9'
 
   while (hasMore) {
-    const res = await pipedriveGet<PipedriveActivity[]>('activities', {
-      user_id: userId,
-      start_date: startDate,
-      end_date: endDate,
-      done: 1,
-      start,
-      limit,
-    })
-    if (res.data) all.push(...res.data)
-    hasMore = res.additional_data?.pagination?.more_items_in_collection ?? false
-    start = res.additional_data?.pagination?.next_start ?? start + limit
+    const url = `https://${domain}.pipedrive.com/api/v1/activities?api_token=${apiToken}&user_id=${userId}&done=1&start_date=${startDate}&end_date=${endDate}&limit=${limit}&start=${start}`
+    const res = await fetch(url, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`Pipedrive activities: ${res.status}`)
+    const data = await res.json()
+    if (data.data) all.push(...data.data)
+    hasMore = data.additional_data?.pagination?.more_items_in_collection ?? false
+    start = data.additional_data?.pagination?.next_start ?? start + limit
   }
 
   return all
+}
+
+// Resolve API token: env var ou Vault
+async function getPipedriveToken(): Promise<string> {
+  if (process.env.PIPEDRIVE_API_TOKEN) return process.env.PIPEDRIVE_API_TOKEN
+  // Fallback: ler do Vault via service role
+  const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (srvKey) {
+    const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, srvKey)
+    const { data } = await client.rpc('vault_read_secret', { secret_name: 'PIPEDRIVE_API_TOKEN' })
+    if (data) return data as string
+  }
+  throw new Error('PIPEDRIVE_API_TOKEN not found in env or vault')
 }
 
 export async function GET(request: NextRequest) {
@@ -115,9 +126,16 @@ export async function GET(request: NextRequest) {
     const startDate = dateFrom || `${nowSP.getFullYear()}-${String(nowSP.getMonth() + 1).padStart(2, '0')}-01`
     const endDate = dateTo || fmtDate(nowSP)
 
+    // Resolver API token (env var ou Vault)
+    const apiToken = await getPipedriveToken()
+    const domain = process.env.PIPEDRIVE_COMPANY_DOMAIN || 'seazone-fd92b9'
+
     // Buscar usuários ativos do Pipedrive
-    const usersRes = await pipedriveGet<{ id: number; name: string; active_flag: boolean }[]>('users')
-    const allUsers = (usersRes.data ?? []).filter(u => u.active_flag)
+    const usersUrl = `https://${domain}.pipedrive.com/api/v1/users?api_token=${apiToken}`
+    const usersResp = await fetch(usersUrl, { cache: 'no-store' })
+    if (!usersResp.ok) throw new Error(`Pipedrive users: ${usersResp.status}`)
+    const usersJson = await usersResp.json()
+    const allUsers = ((usersJson.data ?? []) as { id: number; name: string; active_flag: boolean }[]).filter(u => u.active_flag)
 
     // Mapeia preseller name → user_id
     const pvUserIds = new Map<string, number>()
@@ -160,7 +178,7 @@ export async function GET(request: NextRequest) {
 
     // 2. Pipedrive: só atividades de hoje e ontem (complementa o que Nekt ainda não tem)
     const todayActivities = await Promise.all(
-      userIds.map(uid => fetchUserActivities(uid, yesterdayStr, todayStr))
+      userIds.map(uid => fetchUserActivities(apiToken, uid, yesterdayStr, todayStr))
     )
 
     // 3. Combina — Supabase (histórico) + Pipedrive (hoje/ontem), dedup por id
