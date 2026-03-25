@@ -33,7 +33,7 @@ class ViewErrorBoundary extends React.Component<
   }
 }
 import { getModuleConfig, DEFAULT_MODULE } from "@/lib/modules";
-import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, LostsData, RatioHistoryData, UserRole } from "@/lib/types";
+import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, LostsData, RatioHistoryData, UserRole, NoShowData } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { Header } from "@/components/dashboard/header";
 import { AcompanhamentoView } from "@/components/dashboard/acompanhamento-view";
@@ -60,6 +60,7 @@ import { ExploradorView } from "@/components/dashboard/explorador-view";
 import { OtimizacaoView } from "@/components/dashboard/otimizacao-view";
 import SquadAtividadesView from "@/components/dashboard/squad-atividades-view";
 import { MensalView } from "@/components/dashboard/mensal-view";
+import { NoShowView } from "@/components/dashboard/noshow-view";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -114,6 +115,8 @@ export default function Dashboard() {
     d.setDate(d.getDate() - 1);
     return d.toISOString().split("T")[0];
   });
+  const [noShowData, setNoShowData] = useState<NoShowData | null>(null);
+  const [noShowDays, setNoShowDays] = useState(30);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [mensalData, setMensalData] = useState<any>(null);
   const [ratioData, setRatioData] = useState<RatioHistoryData | null>(null);
@@ -381,6 +384,19 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchNoShow = useCallback(async (days: number = 30) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/dashboard/noshow?days=${days}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setNoShowData(await res.json());
+    } catch (err) {
+      console.error("Fetch noshow error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const fetchMensal = useCallback(async () => {
     setLoading(true);
     try {
@@ -472,6 +488,8 @@ export default function Dashboard() {
       fetchAvaliacoes(avaliacoesDays);
     } else if ((mainView === "losts-prevendas" || mainView === "losts-vendas") && !lostsData) {
       fetchLosts(lostsPeriod, lostsCustomDate);
+    } else if (mainView === "noshow" && !noShowData) {
+      fetchNoShow(noShowDays);
     } else if (mainView === "mensal" && !mensalData) {
       fetchMensal();
     }
@@ -502,6 +520,7 @@ export default function Dashboard() {
     setLeadtimeData(null);
     setAvaliacoesData(null);
     setLostsData(null);
+    setNoShowData(null);
     setMensalData(null);
     setRatioData(null);
   };
@@ -524,6 +543,7 @@ export default function Dashboard() {
     else if (mainView === "leadtime") await fetchLeadtime(leadtimeDays);
     else if (mainView === "avaliacoes") await fetchAvaliacoes(avaliacoesDays);
     else if (mainView === "losts-prevendas" || mainView === "losts-vendas") await fetchLosts(lostsPeriod, lostsCustomDate);
+    else if (mainView === "noshow") await fetchNoShow(noShowDays);
     else if (mainView === "mensal") await fetchMensal();
   };
 
@@ -658,6 +678,15 @@ export default function Dashboard() {
             onPeriodChange={(p, d) => { setLostsPeriod(p); if (d) setLostsCustomDate(d); setLostsData(null); fetchLosts(p, d); }}
             mode={mainView === "losts-prevendas" ? "pre_vendas" : "vendas"}
             moduleConfig={moduleConfig}
+          />
+        )}
+        {mainView === "noshow" && (
+          <NoShowView
+            data={noShowData}
+            loading={loading}
+            lastUpdated={lastUpdated}
+            days={noShowDays}
+            onDaysChange={(d) => { setNoShowDays(d); setNoShowData(null); fetchNoShow(d); }}
           />
         )}
         {mainView === "backlog" && <BacklogView />}
