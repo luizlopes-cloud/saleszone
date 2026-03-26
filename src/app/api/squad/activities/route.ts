@@ -166,8 +166,9 @@ export async function GET(request: NextRequest) {
           .select('id, user_id, type, due_date, due_time, marked_as_done_time, done')
           .eq('user_id', uid)
           .eq('done', true)
-          .gte('due_date', startDate)
-          .lt('due_date', todayStr)
+          .not('marked_as_done_time', 'is', null)
+          .gte('marked_as_done_time', startDate)
+          .lte('marked_as_done_time', endDate + 'T23:59:59')
           .range(offset, offset + PAGE - 1)
         if (!data || data.length === 0) break
         supabaseActivities.push(...(data as PipedriveActivity[]))
@@ -227,20 +228,22 @@ export async function GET(request: NextRequest) {
         // Por tipo
         typeMap.set(tipo, (typeMap.get(tipo) || 0) + 1)
 
-        // Por dia (due_date = "YYYY-MM-DD")
-        if (act.due_date) {
-          const day = act.due_date.split(' ')[0] // caso venha com hora
+        // Por dia (marked_as_done_time = "YYYY-MM-DD HH:MM:SS")
+        if (act.marked_as_done_time) {
+          const day = act.marked_as_done_time.split(' ')[0].split('T')[0] // extrai YYYY-MM-DD
           dayMap.set(day, (dayMap.get(day) || 0) + 1)
         }
 
-        // Por hora (marked_as_done_time = "YYYY-MM-DD HH:MM:SS")
+        // Por hora (marked_as_done_time = "YYYY-MM-DDTHH:MM:SS" ou "YYYY-MM-DD HH:MM:SS")
         if (act.marked_as_done_time) {
-          const timePart = act.marked_as_done_time.split(' ')[1]
-          if (timePart) {
-            const hour = parseInt(timePart.split(':')[0], 10)
-            if (!isNaN(hour)) {
-              hourMap.set(hour, (hourMap.get(hour) || 0) + 1)
-            }
+          const ts = String(act.marked_as_done_time)
+          // Extrair hora — funciona com ISO (T separador) e Pipedrive (espaço)
+          const match = ts.match(/[T ](\d{2}):/)
+          if (match) {
+            const hourUTC = parseInt(match[1], 10)
+            // Converter UTC → BRT (UTC-3)
+            const hourBRT = (hourUTC - 3 + 24) % 24
+            hourMap.set(hourBRT, (hourMap.get(hourBRT) || 0) + 1)
           }
         }
       }

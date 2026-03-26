@@ -779,8 +779,20 @@ function PeopleHeatmaps({ preVendedores, heatmap, periodStart, periodEnd }: {
 
   const days = useMemo(() => {
     const result: string[] = []
-    const d = new Date(periodStart + 'T12:00:00')
-    const end = new Date(periodEnd + 'T12:00:00')
+    let startStr = periodStart
+    let endStr = periodEnd
+    // Fallback: se periodStart/periodEnd estão vazios, derivar do mês atual
+    if (!startStr || !endStr) {
+      const now = new Date()
+      const y = now.getFullYear()
+      const m = String(now.getMonth() + 1).padStart(2, '0')
+      const dd = String(now.getDate()).padStart(2, '0')
+      startStr = startStr || `${y}-${m}-01`
+      endStr = endStr || `${y}-${m}-${dd}`
+    }
+    const d = new Date(startStr + 'T12:00:00')
+    const end = new Date(endStr + 'T12:00:00')
+    if (isNaN(d.getTime()) || isNaN(end.getTime())) return result
     while (d <= end) {
       result.push(d.toISOString().split('T')[0])
       d.setDate(d.getDate() + 1)
