@@ -30,6 +30,8 @@ function rowMinMax(daily: number[]): { min: number; max: number } {
   return { min: Math.min(...nonZero), max: Math.max(...nonZero) };
 }
 
+type AcompFilter = "all" | "marketing" | "paid";
+
 interface Props {
   data: AcompanhamentoData | null;
   activeTab: TabKey;
@@ -37,6 +39,8 @@ interface Props {
   loading: boolean;
   lastUpdated?: Date | null;
   moduleId?: string;
+  acompFilter: AcompFilter;
+  setAcompFilter: (f: AcompFilter) => void;
 }
 
 // ─── Gráfico de Barras Empilhadas ─────────────────────────────────────────
@@ -148,7 +152,7 @@ function StackedBarChart({ bars, maxValue }: { bars: BarChartData[]; maxValue: n
   );
 }
 
-export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, lastUpdated, moduleId }: Props) {
+export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, lastUpdated, moduleId, acompFilter, setAcompFilter }: Props) {
   const isSZS = moduleId === "szs";
   const [expanded, setExpanded] = useState<Record<number, boolean>>({ 1: true, 2: true, 3: true });
   const [showTeamCols, setShowTeamCols] = useState(false);
@@ -270,6 +274,41 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
                 }}
               >
                 {tab.label}
+              </button>
+            ))}
+          </div>
+          {/* Filtro Geral / Marketing / Mídia Paga */}
+          <div
+            style={{
+              display: "flex",
+              gap: "2px",
+              backgroundColor: T.bg,
+              borderRadius: "8px",
+              padding: "2px",
+              border: `1px solid ${T.border}`,
+            }}
+          >
+            {([
+              { key: "all" as AcompFilter, label: "Geral" },
+              { key: "marketing" as AcompFilter, label: "Marketing" },
+              { key: "paid" as AcompFilter, label: "Mídia Paga" },
+            ]).map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => setAcompFilter(opt.key)}
+                style={{
+                  padding: "5px 12px",
+                  borderRadius: "6px",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: 500,
+                  transition: "all 0.15s",
+                  backgroundColor: acompFilter === opt.key ? T.primary : "transparent",
+                  color: acompFilter === opt.key ? "#FFF" : T.mutedFg,
+                }}
+              >
+                {opt.label}
               </button>
             ))}
           </div>
