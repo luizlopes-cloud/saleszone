@@ -38,7 +38,7 @@ PIPEDRIVE_BASE = "https://seazone-fd92b9.pipedrive.com/v1"
 
 def log(msg: str) -> None:
     ts = datetime.now(BRT).strftime("%H:%M:%S")
-    print(f"[{ts}] {msg}")
+    print(f"[{ts}] {msg}", file=sys.stderr)
 
 
 def fetch_won_deals_yesterday() -> list[dict]:
@@ -178,7 +178,7 @@ def main() -> None:
     if DRY_RUN:
         log("\nDRY_RUN — Mensagem que seria enviada:")
         log("-" * 40)
-        print(message)
+        print(message, file=sys.stderr)
         log("-" * 40)
     else:
         send_slack_dm(message)
