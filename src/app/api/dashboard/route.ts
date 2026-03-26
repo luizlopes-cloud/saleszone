@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS, SQUAD_V_MAP, NUM_DAYS } from "@/lib/constants";
 import { generateDates } from "@/lib/dates";
 import type { TabKey, AcompanhamentoData, SquadData, MetaInfo } from "@/lib/types";
@@ -11,12 +12,39 @@ for (const [sqId, indices] of Object.entries(SQUAD_V_MAP)) {
 const TOTAL_CLOSERS = Object.values(SQUAD_CLOSERS).reduce((a, b) => a + b, 0);
 const TABS: TabKey[] = ["mql", "sql", "opp", "won"];
 
+// stage thresholds for squad_deals.max_stage_order
+const STAGE_THRESHOLDS: Record<TabKey, number> = { mql: 2, sql: 5, opp: 9, won: 14 };
+
+// Canais excluídos do modo Geral (parceiros/spots internos)
+const EXCLUDED_CANAIS = ["582", "583", "2876", "3189"];
+// 582 = Indicação de Corretor, 583 = Indicação de Franquia
+// 2876 = Indicação de outros Parceiros, 3189 = Spot Seazone
+// NOTA: Indicação de Clientes (10) NÃO é excluído — fica no Geral
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
+  const rows: any[] = [];
+  let offset = 0;
+  const PS = 1000;
+  while (true) {
+    const { data, error } = await buildQuery(offset, PS);
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PS) break;
+    offset += PS;
+  }
+  return rows;
+}
+
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const tab = (req.nextUrl.searchParams.get("tab") as TabKey) || "mql";
   const filterParam = req.nextUrl.searchParams.get("filter");
+  // filter: "paid" = mídia paga (rd_source pag), "marketing" = canal Marketing, null = geral
   const paidOnly = filterParam === "paid";
+  const marketingOnly = filterParam === "marketing";
 
   try {
     const dates = generateDates();
@@ -115,25 +143,58 @@ export async function GET(req: NextRequest) {
 
     // Build counts per empreendimento
     const empCounts = new Map<string, number[]>();
-    for (const row of rows) {
-      const idx = dateIndex.get(row.date);
-      if (idx === undefined) continue;
-      if (!empCounts.has(row.empreendimento)) {
-        empCounts.set(row.empreendimento, new Array(NUM_DAYS).fill(0));
+
+    {
+      // Todos os modos usam squad_deals pra poder filtrar por canal/rd_source
+      const admin = createSquadSupabaseAdmin();
+      const isWon = tab === "won";
+      const dateCol = tab === "won" ? "won_time" : tab === "opp" ? "reuniao_date" : tab === "sql" ? "qualificacao_date" : "add_time";
+
+      const deals = await paginate((o, ps) => {
+        let q = admin
+          .from("squad_deals")
+          .select(`empreendimento, canal, ${dateCol}, max_stage_order, status, lost_reason`)
+          .not("empreendimento", "is", null)
+          .gte(dateCol, startDate);
+
+        if (isWon) {
+          q = q.eq("status", "won");
+        }
+
+        if (paidOnly) {
+          // Mídia Paga: canal Marketing + rd_source "pag"
+          q = q.eq("is_marketing", true).ilike("rd_source", "%pag%");
+        } else if (marketingOnly) {
+          // Marketing: canal = Marketing (12)
+          q = q.eq("is_marketing", true);
+        }
+        // Geral: sem filtro de canal na query, mas exclui canais depois
+
+        return q.range(o, o + ps - 1);
+      });
+
+      for (const d of deals) {
+        if (d.lost_reason === "Duplicado/Erro") continue;
+
+        // Geral: excluir canais de parceiros/indicações/spots
+        if (!marketingOnly && !paidOnly) {
+          const canal = String(d.canal || "");
+          if (EXCLUDED_CANAIS.includes(canal)) continue;
+        }
+
+        const emp = d.empreendimento;
+        const dateStr = (d[dateCol] || "").substring(0, 10);
+        const idx = dateIndex.get(dateStr);
+        if (idx === undefined) continue;
+        if (!empCounts.has(emp)) empCounts.set(emp, new Array(NUM_DAYS).fill(0));
+        empCounts.get(emp)![idx] += 1;
       }
-      empCounts.get(row.empreendimento)![idx] += row.count;
     }
 
     // Map to squads
     const squads: SquadData[] = SQUADS.map((sq) => {
       const sqRows = sq.empreendimentos.map((emp) => {
-        let daily = empCounts.get(emp) || new Array(NUM_DAYS).fill(0);
-
-        // Aplicar ratio paid se necessário
-        if (paidRatios) {
-          const ratio = paidRatios.get(emp) ?? 0;
-          daily = daily.map((v) => Math.round(v * ratio));
-        }
+        const daily = empCounts.get(emp) || new Array(NUM_DAYS).fill(0);
 
         // totalMes = sum of days in current month only
         let totalMes = 0;
