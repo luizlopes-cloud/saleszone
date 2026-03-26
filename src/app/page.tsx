@@ -99,6 +99,7 @@ export default function Dashboard() {
   const [planejData, setPlanejData] = useState<PlanejamentoData | null>(null);
   const [orcData, setOrcData] = useState<OrcamentoData | null>(null);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("paid");
+  const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid">("all");
   const [perfData, setPerfData] = useState<PerformanceData | null>(null);
   const [perfDays, setPerfDays] = useState(90);
   const [baselineData, setBaselineData] = useState<BaselineData | null>(null);
@@ -164,10 +165,10 @@ export default function Dashboard() {
     router.push("/login");
   };
 
-  const fetchAcomp = useCallback(async (tab: TabKey, filter: MediaFilter = "all") => {
+  const fetchAcomp = useCallback(async (tab: TabKey, filter: string = "all") => {
     setLoading(true);
     try {
-      const params = filter === "paid" ? `?tab=${tab}&filter=paid` : `?tab=${tab}`;
+      const params = filter !== "all" ? `?tab=${tab}&filter=${filter}` : `?tab=${tab}`;
       const res = await fetch(`${moduleConfig.apiBase}${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -450,10 +451,19 @@ export default function Dashboard() {
     }
   }, [mediaFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-fetch when acompFilter changes
   useEffect(() => {
     if (!hydrated) return;
     if (mainView === "acompanhamento") {
-      if (!acompData[activeTab]) fetchAcomp(activeTab, "all");
+      setAcompData({});
+      fetchAcomp(activeTab, acompFilter);
+    }
+  }, [acompFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (mainView === "acompanhamento") {
+      if (!acompData[activeTab]) fetchAcomp(activeTab, acompFilter);
       if (!ratioData) fetchRatios(ratioDays);
     } else if (mainView === "alinhamento" && !alinhData) {
       fetchAlinh();
@@ -526,7 +536,7 @@ export default function Dashboard() {
   };
 
   const fetchCurrentView = async () => {
-    if (mainView === "acompanhamento") await fetchAcomp(activeTab, "all");
+    if (mainView === "acompanhamento") await fetchAcomp(activeTab, acompFilter);
     else if (mainView === "alinhamento") await fetchAlinh();
     else if (mainView === "ociosidade") await fetchOcio();
     else if (mainView === "balanceamento") { await fetchBalanc(); await fetchOcio(); }
@@ -640,6 +650,8 @@ export default function Dashboard() {
               loading={loading}
               lastUpdated={lastUpdated}
               moduleId={activeModule}
+              acompFilter={acompFilter}
+              setAcompFilter={setAcompFilter}
             />
             <ConversoesView
               data={ratioData}

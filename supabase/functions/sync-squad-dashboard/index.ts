@@ -288,7 +288,7 @@ async function syncAlignment(nektApiKey: string, supabase: any) {
 
   const sql = `
     SELECT d.id, d.pipeline_id, d.canal, d.empreendimento, d.owner_id,
-           d.title, u.name AS owner_name
+           d.titulo, u.name AS owner_name
     FROM nekt_silver.pipedrive_deals_readable d
     LEFT JOIN nekt_silver.pipedrive_v2_users_scd2 u ON d.owner_id = u.id
     WHERE d.pipeline_id = ${PIPELINE_ID} AND d.status = 'open'
@@ -306,7 +306,7 @@ async function syncAlignment(nektApiKey: string, supabase: any) {
     counts.set(key, (counts.get(key) || 0) + 1);
     dealRows.push({
       deal_id: parseInt(deal.id || "0"),
-      title: deal.title || `Deal #${deal.id}`,
+      title: deal.titulo || `Deal #${deal.id}`,
       empreendimento: emp,
       owner_name: ownerName,
       synced_at: new Date().toISOString(),
