@@ -297,15 +297,19 @@ async function syncAlignment(nektApiKey: string, supabase: any) {
 
   const counts = new Map<string, number>();
   const dealRows: Array<{deal_id: number; title: string; empreendimento: string; owner_name: string; synced_at: string}> = [];
+  const seenDealIds = new Set<number>();
 
   for (const deal of deals) {
     const emp = getEmpreendimento(deal);
     if (!emp) continue;
+    const dealId = parseInt(deal.id || "0");
+    if (seenDealIds.has(dealId)) continue; // SCD2 join can produce duplicates
+    seenDealIds.add(dealId);
     const ownerName = deal.owner_name || deal.owner_id || "Unknown";
     const key = `${emp}|${ownerName}`;
     counts.set(key, (counts.get(key) || 0) + 1);
     dealRows.push({
-      deal_id: parseInt(deal.id || "0"),
+      deal_id: dealId,
       title: deal.titulo || `Deal #${deal.id}`,
       empreendimento: emp,
       owner_name: ownerName,

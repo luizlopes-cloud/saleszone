@@ -44,10 +44,18 @@ export async function GET() {
 
     const squadMap = buildSquadMap();
 
+    // Dedup by deal_id (SCD2 join in Edge Function can produce duplicates)
+    const seenIds = new Set<number>();
+    const uniqueDeals = (deals || []).filter((d: { deal_id: number }) => {
+      if (seenIds.has(d.deal_id)) return false;
+      seenIds.add(d.deal_id);
+      return true;
+    });
+
     // Group misaligned deals by person (PV or V column name)
     const byPerson = new Map<string, { role: "pv" | "v"; deals: MisalignedDeal[] }>();
 
-    for (const deal of deals || []) {
+    for (const deal of uniqueDeals) {
       const info = squadMap.get(deal.empreendimento);
       if (!info) continue;
 
