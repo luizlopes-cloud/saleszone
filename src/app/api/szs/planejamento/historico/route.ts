@@ -27,7 +27,7 @@ export async function GET() {
 
     // Buscar funil + snapshot mais recente em paralelo
     const [funnelRes, latestSnapshotRes] = await Promise.all([
-      supabase.rpc("get_szs_planejamento_counts", { months_back: 0, days_back: -1 }),
+      supabase.rpc("get_szs_planejamento_counts", { p_months_back: 0, p_days_back: -1 }),
       supabase
         .from("szs_meta_ads")
         .select("snapshot_date")

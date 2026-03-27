@@ -1,6 +1,7 @@
 // SZS (Serviços) module — funil with canal_group > cidade hierarchy
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,15 @@ const SZS_METAS_WON: Record<string, Record<string, number>> = {
   "2026-12": { Marketing: 75, Parceiros: 139, Expansão: 139, Spots: 31, Outros: 31 },
 };
 const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Mônica", "Expansão", "Spots", "Outros"];
+
+// Agrupar cidades em 4 grupos
+function getCidadeGroup(cidade: string): string {
+  const lower = cidade.toLowerCase();
+  if (lower.includes("são paulo") || lower.includes("sao paulo")) return "São Paulo";
+  if (lower.includes("salvador")) return "Salvador";
+  if (lower.includes("florianópolis") || lower.includes("florianopolis")) return "Florianópolis";
+  return "Outros";
+}
 
 function rate(num: number, den: number): number {
   return den > 0 ? Math.round((num / den) * 10000) / 10000 : 0;
@@ -121,7 +131,11 @@ export async function GET(req: NextRequest) {
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
 
-    const [metaData, countsData, stageData] = await Promise.all([
+    const [yearStr, monthStr] = month.split("-");
+    const mesFim = `${yearStr}-${String(Number(monthStr) + 1).padStart(2, "0")}-01`;
+    const admin = createSquadSupabaseAdmin();
+
+    const [metaData, countsData, stageData, baserowLeadsRes, paidDealsRes] = await Promise.all([
       fetchAll(
         supabase
           .from("szs_meta_ads")
@@ -142,6 +156,24 @@ export async function GET(req: NextRequest) {
           .select("tab, empreendimento, canal_group, count")
           .in("tab", ["reserva", "contrato"])
       ),
+      // Baserow leads — formulários preenchidos no mês (campo "cidade")
+      fetchAll(
+        admin
+          .from("baserow_szs_leads")
+          .select("cidade")
+          .gte("data_criacao_ads", startDate)
+          .lt("data_criacao_ads", mesFim)
+      ),
+      // Deals de mídia paga no mês (rd_source contendo "pag")
+      fetchAll(
+        admin
+          .from("szs_deals")
+          .select("empreendimento, max_stage_order, status, lost_reason")
+          .eq("canal", "12")
+          .ilike("rd_source", "%pag%")
+          .not("empreendimento", "is", null)
+          .gte("add_time", startDate)
+      ),
     ]);
 
     // Agregar Meta Ads: max spend_month/leads_month por ad (city-level only)
@@ -158,15 +190,39 @@ export async function GET(req: NextRequest) {
         });
       }
     }
-    // Meta Ads aggregated by city (Meta Ads doesn't have canal_group)
+    // Meta Ads aggregated by cidade group
     const metaMap = new Map<string, { impressions: number; clicks: number; leads: number; spend: number }>();
     for (const ad of adMax.values()) {
-      const cur = metaMap.get(ad.empreendimento) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
+      const group = getCidadeGroup(ad.empreendimento);
+      const cur = metaMap.get(group) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
       cur.impressions += ad.impressions;
       cur.clicks += ad.clicks;
       cur.leads += ad.leads_month;
       cur.spend += ad.spend_month;
-      metaMap.set(ad.empreendimento, cur);
+      metaMap.set(group, cur);
+    }
+
+    // Agregar Baserow leads por cidade group
+    const baserowLeadsMap = new Map<string, number>();
+    for (const row of baserowLeadsRes) {
+      const cidade = row.cidade;
+      if (!cidade) continue;
+      const group = getCidadeGroup(cidade);
+      baserowLeadsMap.set(group, (baserowLeadsMap.get(group) || 0) + 1);
+    }
+
+    // Agregar deals pagos (rd_source "pag") por cidade group
+    const paidCountsMap = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
+    for (const d of paidDealsRes) {
+      const cidade = getCidadeGroup(d.empreendimento);
+      if (!cidade) continue;
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      if (!paidCountsMap.has(cidade)) paidCountsMap.set(cidade, { mql: 0, sql: 0, opp: 0, won: 0 });
+      const cur = paidCountsMap.get(cidade)!;
+      cur.mql++;
+      if (d.max_stage_order >= 4) cur.sql++;
+      if (d.max_stage_order >= 9) cur.opp++;
+      if (d.status === "won") cur.won++;
     }
 
     // Build counts by canal_group|cidade
@@ -174,7 +230,7 @@ export async function GET(req: NextRequest) {
 
     for (const row of countsData) {
       const canalGroup = row.canal_group || "Outros";
-      const cidade = row.empreendimento;
+      const cidade = getCidadeGroup(row.empreendimento);
       const gKey = `${canalGroup}|${cidade}`;
       if (!groupCidadeCountsMap.has(gKey)) groupCidadeCountsMap.set(gKey, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
       groupCidadeCountsMap.get(gKey)![row.tab] = (groupCidadeCountsMap.get(gKey)![row.tab] || 0) + (row.count || 0);
@@ -182,7 +238,7 @@ export async function GET(req: NextRequest) {
 
     for (const row of stageData) {
       const canalGroup = row.canal_group || "Outros";
-      const cidade = row.empreendimento;
+      const cidade = getCidadeGroup(row.empreendimento);
       const gKey = `${canalGroup}|${cidade}`;
       if (!groupCidadeCountsMap.has(gKey)) groupCidadeCountsMap.set(gKey, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
       groupCidadeCountsMap.get(gKey)![row.tab] = (groupCidadeCountsMap.get(gKey)![row.tab] || 0) + (row.count || 0);
@@ -230,17 +286,20 @@ export async function GET(req: NextRequest) {
         let leads: number, mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
 
         if (paidOnly && isMarketing) {
-          leads = cidadeMetaLeads;
-          mql = Math.min(counts.mql || 0, cidadeMetaLeads);
-          const ratio = (counts.mql || 0) > 0 ? mql / (counts.mql || 0) : 0;
-          sql = Math.round((counts.sql || 0) * ratio);
-          opp = Math.round((counts.opp || 0) * ratio);
-          won = Math.round((counts.won || 0) * ratio);
-          reserva = Math.round((counts.reserva || 0) * ratio);
-          contrato = Math.round((counts.contrato || 0) * ratio);
+          // Mídia Paga: leads do Baserow, MQL/SQL/OPP/WON de deals com rd_source "pag"
+          const baserowLeads = baserowLeadsMap.get(cidade) || 0;
+          const paid = paidCountsMap.get(cidade) || { mql: 0, sql: 0, opp: 0, won: 0 };
+          leads = baserowLeads > 0 ? baserowLeads : cidadeMetaLeads;
+          mql = paid.mql;
+          sql = paid.sql;
+          opp = paid.opp;
+          won = paid.won;
+          reserva = 0;
+          contrato = 0;
         } else {
-          const mqiNaoPago = isMarketing ? Math.max((counts.mql || 0) - cidadeMetaLeads, 0) : (counts.mql || 0);
-          leads = cidadeMetaLeads + mqiNaoPago;
+          // Geral: leads do Baserow (formulários), MQL de todos os canais
+          const baserowLeads = isMarketing ? (baserowLeadsMap.get(cidade) || 0) : 0;
+          leads = baserowLeads > 0 ? baserowLeads : (counts.mql || 0);
           mql = counts.mql || 0;
           sql = counts.sql || 0;
           opp = counts.opp || 0;

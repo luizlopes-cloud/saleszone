@@ -35,17 +35,17 @@ export interface PipelineConfig {
 const SZI_SQUADS: Squad[] = [
   {
     id: 1, name: 'Squad 1', color: '#2563EB',
-    marketing: 'Mari', preVenda: ['Luciana Patrício'], venda: ['Laura'],
+    marketing: 'Mari', preVenda: ['Luciana Patrício'], venda: ['Priscila Pestana Perrone'],
     empreendimentos: ['Ponta das Canas Spot II', 'Itacaré Spot', 'Marista 144 Spot'],
   },
   {
     id: 2, name: 'Squad 2', color: '#F97316',
-    marketing: 'Jean', preVenda: ['Natália Saramago'], venda: ['Camila Santos', 'Filipe Padoveze'],
+    marketing: 'Jean', preVenda: ['Natália Saramago'], venda: ['Filipe Padoveze'],
     empreendimentos: ['Natal Spot', 'Novo Campeche Spot II', 'Caraguá Spot', 'Bonito Spot II'],
   },
   {
     id: 3, name: 'Squad 3', color: '#A855F7',
-    marketing: 'Jean', preVenda: ['Hellen Dias'], venda: ['Luana Schaikoski', 'Priscila Pestana Perrone'],
+    marketing: 'Jean', preVenda: ['Hellen Dias'], venda: ['Luana Schaikoski'],
     empreendimentos: ['Jurerê Spot II', 'Jurerê Spot III', 'Barra Grande Spot', 'Vistas de Anitá II'],
   },
 ]

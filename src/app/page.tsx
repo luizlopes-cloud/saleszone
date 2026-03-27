@@ -98,7 +98,7 @@ export default function Dashboard() {
   const [planejData, setPlanejData] = useState<PlanejamentoData | null>(null);
   const [orcData, setOrcData] = useState<OrcamentoData | null>(null);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("paid");
-  const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid">("all");
+  const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao">("all");
   const [perfData, setPerfData] = useState<PerformanceData | null>(null);
   const [perfDays, setPerfDays] = useState(90);
   const [baselineData, setBaselineData] = useState<BaselineData | null>(null);
@@ -658,8 +658,8 @@ export default function Dashboard() {
         {mainView === "forecast" && <ForecastView data={forecastData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "leadtime" && <LeadtimeView data={leadtimeData} loading={loading} daysBack={leadtimeDays} onDaysChange={(d) => { setLeadtimeDays(d); setLeadtimeData(null); fetchLeadtime(d); }} lastUpdated={lastUpdated} />}
         {mainView === "avaliacoes" && <AvaliacoesView data={avaliacoesData} loading={loading} daysBack={avaliacoesDays} onDaysChange={(d) => { setAvaliacoesDays(d); setAvaliacoesData(null); fetchAvaliacoes(d); }} lastUpdated={lastUpdated} />}
-        {mainView === "otimizacao" && <OtimizacaoView />}
-        {mainView === "explorador" && <ExploradorView />}
+        {mainView === "otimizacao" && <OtimizacaoView moduleId={activeModule} />}
+        {mainView === "explorador" && <ExploradorView moduleId={activeModule} />}
         {(mainView === "losts-prevendas" || mainView === "losts-vendas") && (
           <LostsView
             data={lostsData}

@@ -175,8 +175,10 @@ function SearchableSelect({ options, value, onChange, placeholder }: {
   )
 }
 
-export function ExploradorView() {
-  const [vertical, setVertical] = useState("")
+const MODULE_VERTICAL: Record<string, string> = { szi: "Investimentos", mktp: "Marketplace", szs: "SZS" }
+
+export function ExploradorView({ moduleId = "szi" }: { moduleId?: string }) {
+  const [vertical, setVertical] = useState(MODULE_VERTICAL[moduleId] || "")
   const [campaignName, setCampaignName] = useState("")
   const [status, setStatus] = useState("")
   const [dateFrom, setDateFrom] = useState("")

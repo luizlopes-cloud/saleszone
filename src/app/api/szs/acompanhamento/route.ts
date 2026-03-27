@@ -1,12 +1,10 @@
-// SZS (Serviços) module — acompanhamento heatmap with canal_group > cidade hierarchy
+// SZS (Serviços) module — acompanhamento heatmap with canal-based filters
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { getModuleConfig } from "@/lib/modules";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { NUM_DAYS } from "@/lib/constants";
 import { generateDates } from "@/lib/dates";
 import type { TabKey, AcompanhamentoData, SquadData } from "@/lib/types";
-
-const mc = getModuleConfig("szs");
 
 const SZS_METAS_WON: Record<string, Record<string, number>> = {
   "2026-01": { Marketing: 66, Parceiros: 67, Expansão: 72, Spots: 48, Outros: 27 },
@@ -22,11 +20,57 @@ const SZS_METAS_WON: Record<string, Record<string, number>> = {
   "2026-11": { Marketing: 73, Parceiros: 128, Expansão: 141, Spots: 0, Outros: 29 },
   "2026-12": { Marketing: 75, Parceiros: 139, Expansão: 139, Spots: 31, Outros: 31 },
 };
+
+// Canal IDs (Pipedrive)
+// 12 = Marketing, 582 = Ind. Corretor, 583 = Ind. Franquia, 1748 = Expansão
+// 543 = Ind. Colaborador, 10 = Ind. Clientes, 4551 = Mônica, 3189 = Spot Seazone
+// 2876 = Ind. Outros Parceiros, 276 = Prospecção Ativa, 623 = Cliente SZN
+
+// Canais excluídos do VD (Vendas Diretas)
+const VD_EXCLUDED = ["582", "583", "2876", "1748"]; // Corretor, Franquia, Outros Parceiros, Expansão
+
+// Agrupar cidades em 4 grupos
+function getCidadeGroup(cidade: string): string {
+  const lower = cidade.toLowerCase();
+  if (lower.includes("são paulo") || lower.includes("sao paulo")) return "São Paulo";
+  if (lower.includes("salvador")) return "Salvador";
+  if (lower.includes("florianópolis") || lower.includes("florianopolis")) return "Florianópolis";
+  return "Outros";
+}
+
+// Canal groups for display
+const CANAL_GROUP_MAP: Record<string, string> = {
+  "12": "Marketing", "582": "Parceiros", "583": "Parceiros", "2876": "Parceiros",
+  "1748": "Expansão", "4551": "Mônica", "3189": "Spots",
+  "543": "Outros", "10": "Outros", "276": "Outros", "623": "Outros", "830": "Outros", "622": "Outros",
+};
+
 const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Mônica", "Expansão", "Spots", "Outros"];
+
+// Stage thresholds for szs_deals.max_stage_order
+const STAGE_DATE_COL: Record<TabKey, string> = {
+  mql: "add_time", sql: "qualificacao_date", opp: "reuniao_date", won: "won_time",
+};
 
 export const dynamic = "force-dynamic";
 
-// Paginated fetch helper (Supabase 1000-row limit)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
+  const rows: any[] = [];
+  let offset = 0;
+  const PS = 1000;
+  while (true) {
+    const { data, error } = await buildQuery(offset, PS);
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PS) break;
+    offset += PS;
+  }
+  return rows;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchAllPaginated(query: any): Promise<any[]> {
   const all: any[] = [];
   let offset = 0;
@@ -42,23 +86,19 @@ async function fetchAllPaginated(query: any): Promise<any[]> {
   return all;
 }
 
+function getCanalGroup(canal: string): string {
+  return CANAL_GROUP_MAP[canal] || "Outros";
+}
+
 export async function GET(req: NextRequest) {
   const tab = (req.nextUrl.searchParams.get("tab") as TabKey) || "mql";
+  const filterParam = req.nextUrl.searchParams.get("filter");
+  // filter: "vd" = vendas diretas, "expansao" = só expansão, "marketing" = canal marketing, "paid" = mídia paga
 
   try {
     const dates = generateDates();
     const startDate = dates[dates.length - 1].date;
     const endDate = dates[0].date;
-
-    const rows = await fetchAllPaginated(
-      supabase
-        .from("szs_daily_counts")
-        .select("date, empreendimento, canal_group, count")
-        .eq("tab", tab)
-        .gte("date", startDate)
-        .lte("date", endDate)
-    );
-
     const dateIndex = new Map(dates.map((d, i) => [d.date, i]));
 
     const now = new Date();
@@ -71,21 +111,75 @@ export async function GET(req: NextRequest) {
 
     // Build counts per canal_group|cidade
     const groupCidadeCounts = new Map<string, number[]>();
-    for (const row of rows) {
-      const idx = dateIndex.get(row.date);
-      if (idx === undefined) continue;
-      const canalGroup = row.canal_group || "Outros";
-      const cidade = row.empreendimento;
-      const gKey = `${canalGroup}|${cidade}`;
-      if (!groupCidadeCounts.has(gKey)) {
-        groupCidadeCounts.set(gKey, new Array(NUM_DAYS).fill(0));
+
+    if (filterParam) {
+      // Filtered modes: use szs_deals directly
+      const admin = createSquadSupabaseAdmin();
+      const dateCol = STAGE_DATE_COL[tab] || "add_time";
+      const isWon = tab === "won";
+
+      const deals = await paginate((o, ps) => {
+        let q = admin
+          .from("szs_deals")
+          .select(`empreendimento, canal, ${dateCol}, max_stage_order, status, lost_reason, rd_source`)
+          .not("empreendimento", "is", null)
+          .gte(dateCol, startDate);
+
+        if (isWon) q = q.eq("status", "won");
+
+        if (filterParam === "paid") {
+          q = q.eq("canal", "12").ilike("rd_source", "%pag%");
+        } else if (filterParam === "marketing") {
+          q = q.eq("canal", "12");
+        } else if (filterParam === "expansao") {
+          q = q.eq("canal", "1748");
+        }
+        // "vd": no canal filter in query, exclude in code
+
+        return q.range(o, o + ps - 1);
+      });
+
+      for (const d of deals) {
+        if (d.lost_reason === "Duplicado/Erro") continue;
+        const canal = String(d.canal || "");
+
+        // VD: excluir Corretor, Franquia, Outros Parceiros, Expansão
+        if (filterParam === "vd" && VD_EXCLUDED.includes(canal)) continue;
+
+        const canalGroup = getCanalGroup(canal);
+        const cidade = getCidadeGroup(d.empreendimento);
+        const dateStr = (d[dateCol] || "").substring(0, 10);
+        const idx = dateIndex.get(dateStr);
+        if (idx === undefined) continue;
+
+        const gKey = `${canalGroup}|${cidade}`;
+        if (!groupCidadeCounts.has(gKey)) groupCidadeCounts.set(gKey, new Array(NUM_DAYS).fill(0));
+        groupCidadeCounts.get(gKey)![idx] += 1;
       }
-      groupCidadeCounts.get(gKey)![idx] += row.count;
+    } else {
+      // Default (no filter): use szs_daily_counts (all canals)
+      const rows = await fetchAllPaginated(
+        supabase
+          .from("szs_daily_counts")
+          .select("date, empreendimento, canal_group, count")
+          .eq("tab", tab)
+          .gte("date", startDate)
+          .lte("date", endDate)
+      );
+
+      for (const row of rows) {
+        const idx = dateIndex.get(row.date);
+        if (idx === undefined) continue;
+        const canalGroup = row.canal_group || "Outros";
+        const cidade = getCidadeGroup(row.empreendimento);
+        const gKey = `${canalGroup}|${cidade}`;
+        if (!groupCidadeCounts.has(gKey)) groupCidadeCounts.set(gKey, new Array(NUM_DAYS).fill(0));
+        groupCidadeCounts.get(gKey)![idx] += row.count;
+      }
     }
 
     // Build squads: each canal_group = one squad, cidades = empreendimento rows
     const squads: SquadData[] = CANAL_GROUP_ORDER.map((canalGroup, idx) => {
-      // Find all cidades for this canal group
       const cidadeKeys: string[] = [];
       for (const gKey of groupCidadeCounts.keys()) {
         if (gKey.startsWith(canalGroup + "|")) cidadeKeys.push(gKey);
@@ -101,10 +195,8 @@ export async function GET(req: NextRequest) {
         return { emp: cidade, daily, totalMes };
       });
 
-      // Sort cidades by totalMes desc
       sqRows.sort((a, b) => b.totalMes - a.totalMes);
 
-      // Meta from hardcoded SZS_METAS_WON (proportional to day for "won" tab)
       const monthMetas = SZS_METAS_WON[curMonthKey] || {};
       const metaWon = monthMetas[canalGroup] || 0;
       const metaToDate = tab === "won" ? (day / totalDaysInMonth) * metaWon : 0;

@@ -30,7 +30,7 @@ function rowMinMax(daily: number[]): { min: number; max: number } {
   return { min: Math.min(...nonZero), max: Math.max(...nonZero) };
 }
 
-type AcompFilter = "all" | "marketing" | "paid";
+export type AcompFilter = "all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao";
 
 interface Props {
   data: AcompanhamentoData | null;
@@ -288,10 +288,17 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
               border: `1px solid ${T.border}`,
             }}
           >
-            {([
+            {(isSZS ? [
+              { key: "all" as AcompFilter, label: "Geral" },
+              { key: "vd" as AcompFilter, label: "VD" },
+              { key: "expansao" as AcompFilter, label: "Expansão" },
+              { key: "marketing" as AcompFilter, label: "Marketing" },
+              { key: "paid" as AcompFilter, label: "Mídia Paga" },
+            ] : [
               { key: "all" as AcompFilter, label: "Geral" },
               { key: "marketing" as AcompFilter, label: "Marketing" },
               { key: "paid" as AcompFilter, label: "Mídia Paga" },
+              { key: "ctwa" as AcompFilter, label: "CTWA" },
             ]).map((opt) => (
               <button
                 key={opt.key}

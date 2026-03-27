@@ -7,9 +7,21 @@ export interface NektQueryResult {
  * Executa uma query SQL na Nekt Data API e retorna os dados parseados.
  * Tabela: nekt_silver.ads_unificado
  */
+async function getNektApiKey(): Promise<string> {
+  if (process.env.NEKT_API_KEY) return process.env.NEKT_API_KEY
+  // Fallback: ler do Vault via service role (Vercel não tem env var)
+  const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (srvKey) {
+    const { createClient } = await import("@supabase/supabase-js")
+    const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, srvKey)
+    const { data } = await client.rpc("vault_read_secret", { secret_name: "NEKT_API_KEY" })
+    if (data) return data as string
+  }
+  throw new Error("NEKT_API_KEY não configurada (env nem vault)")
+}
+
 export async function queryNekt(sql: string): Promise<NektQueryResult> {
-  const apiKey = process.env.NEKT_API_KEY
-  if (!apiKey) throw new Error("NEKT_API_KEY não configurada")
+  const apiKey = await getNektApiKey()
 
   const queryRes = await fetch("https://api.nekt.ai/api/v1/sql-query/", {
     method: "POST",
