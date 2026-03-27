@@ -1,12 +1,36 @@
 // SZS (Serviços) module — canal_group > cidade hierarchy
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import { NUM_DAYS } from "@/lib/constants";
 import { generateDates } from "@/lib/dates";
 import type { TabKey, AcompanhamentoData, SquadData, MetaInfo } from "@/lib/types";
 
 const mc = getModuleConfig("szs");
+
+// Canais excluídos do VD (Vendas Diretas)
+const VD_EXCLUDED = ["582", "583", "2876", "1748"]; // Corretor, Franquia, Outros Parceiros, Expansão
+
+// Canal groups for display
+const CANAL_GROUP_FROM_ID: Record<string, string> = {
+  "12": "Marketing", "582": "Parceiros", "583": "Parceiros", "2876": "Parceiros",
+  "1748": "Expansão", "4551": "Mônica", "3189": "Spots",
+};
+
+// Stage date columns
+const STAGE_DATE_COL: Record<TabKey, string> = {
+  mql: "add_time", sql: "qualificacao_date", opp: "reuniao_date", won: "won_time",
+};
+
+// Agrupar cidades em 4 grupos
+function getCidadeGroup(cidade: string): string {
+  const lower = cidade.toLowerCase();
+  if (lower.includes("são paulo") || lower.includes("sao paulo")) return "São Paulo";
+  if (lower.includes("salvador")) return "Salvador";
+  if (lower.includes("florianópolis") || lower.includes("florianopolis")) return "Florianópolis";
+  return "Outros";
+}
 
 const SZS_METAS_WON: Record<string, Record<string, number>> = {
   "2026-01": { Marketing: 66, Parceiros: 67, Expansão: 72, Spots: 48, Outros: 27 },
@@ -44,10 +68,28 @@ async function fetchAllPaginated(query: any): Promise<any[]> {
   return all;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function paginateQuery(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
+  const rows: any[] = [];
+  let offset = 0;
+  const PS = 1000;
+  while (true) {
+    const { data, error } = await buildQuery(offset, PS);
+    if (error) throw new Error(`Supabase: ${error.message}`);
+    if (!data || data.length === 0) break;
+    rows.push(...data);
+    if (data.length < PS) break;
+    offset += PS;
+  }
+  return rows;
+}
+
 export async function GET(req: NextRequest) {
   const tab = (req.nextUrl.searchParams.get("tab") as TabKey) || "mql";
   const filterParam = req.nextUrl.searchParams.get("filter");
+  // filter: "vd" | "expansao" | "marketing" | "paid" | null (geral)
   const paidOnly = filterParam === "paid";
+  const useDealsFilter = filterParam === "vd" || filterParam === "expansao" || filterParam === "marketing" || filterParam === "paid";
 
   try {
     const dates = generateDates();
@@ -76,95 +118,76 @@ export async function GET(req: NextRequest) {
       return all;
     }
 
-    // Se paidOnly, buscar também MQL counts + Meta Ads leads para calcular ratio
     const now = new Date();
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
-    const countsPromise = fetchPaginatedCounts("szs_daily_counts", tab, startDate, endDate);
-
-    const mqlPromise = paidOnly && tab !== "mql"
-      ? fetchPaginatedCounts("szs_daily_counts", "mql", monthStart, endDate)
-      : null;
-
-    const metaPromise = paidOnly
-      ? supabase
-          .from("szs_meta_ads")
-          .select("ad_id, empreendimento, leads_month")
-          .gte("snapshot_date", monthStart)
-      : null;
-
-    const [rows, mqlData, metaRes] = await Promise.all([
-      countsPromise,
-      mqlPromise,
-      metaPromise,
-    ]);
-
-    // Calcular ratios paid por cidade (Meta Ads is city-level, only for Marketing canal)
-    let paidRatiosByCity: Map<string, number> | null = null;
-    if (paidOnly) {
-      const adMaxLeads = new Map<string, { empreendimento: string; leads: number }>();
-      if (metaRes?.data) {
-        for (const row of metaRes.data) {
-          const cur = adMaxLeads.get(row.ad_id);
-          const leads = row.leads_month || 0;
-          if (!cur || leads > cur.leads) {
-            adMaxLeads.set(row.ad_id, { empreendimento: row.empreendimento, leads });
-          }
-        }
-      }
-      const metaLeads = new Map<string, number>();
-      for (const ad of adMaxLeads.values()) {
-        const cur = metaLeads.get(ad.empreendimento) || 0;
-        metaLeads.set(ad.empreendimento, cur + ad.leads);
-      }
-      // MQL totais do mês por cidade (only Marketing canal)
-      const mqlTotals = new Map<string, number>();
-      if (tab === "mql") {
-        for (const row of rows) {
-          if (row.date >= monthStart && (row.canal_group === "Marketing" || !row.canal_group)) {
-            const cidade = row.empreendimento;
-            const cur = mqlTotals.get(cidade) || 0;
-            mqlTotals.set(cidade, cur + (row.count || 0));
-          }
-        }
-      } else if (mqlData) {
-        for (const row of mqlData) {
-          if (row.canal_group === "Marketing" || !row.canal_group) {
-            const cidade = row.empreendimento;
-            const cur = mqlTotals.get(cidade) || 0;
-            mqlTotals.set(cidade, cur + (row.count || 0));
-          }
-        }
-      }
-
-      paidRatiosByCity = new Map();
-      const allCidadesPaid = new Set([...mqlTotals.keys(), ...metaLeads.keys()]);
-      for (const cidade of allCidadesPaid) {
-        const mql = mqlTotals.get(cidade) || 0;
-        const meta = metaLeads.get(cidade) || 0;
-        if (mql > 0) {
-          paidRatiosByCity.set(cidade, Math.min(meta, mql) / mql);
-        } else {
-          paidRatiosByCity.set(cidade, meta > 0 ? 1 : 0);
-        }
-      }
-    }
+    // Geral mode: fetch from szs_daily_counts
+    const rows = !useDealsFilter
+      ? await fetchPaginatedCounts("szs_daily_counts", tab, startDate, endDate)
+      : [];
 
     // Build date index
     const dateIndex = new Map(dates.map((d, i) => [d.date, i]));
 
     // Build counts per canal_group|cidade
     const groupCidadeCounts = new Map<string, number[]>();
-    for (const row of rows) {
-      const idx = dateIndex.get(row.date);
-      if (idx === undefined) continue;
-      const canalGroup = row.canal_group || "Outros";
-      const cidade = row.empreendimento;
-      const gKey = `${canalGroup}|${cidade}`;
-      if (!groupCidadeCounts.has(gKey)) {
-        groupCidadeCounts.set(gKey, new Array(NUM_DAYS).fill(0));
+
+    if (useDealsFilter) {
+      // Filtered modes: use szs_deals directly
+      const admin = createSquadSupabaseAdmin();
+      const dateCol = STAGE_DATE_COL[tab] || "add_time";
+      const isWon = tab === "won";
+
+      const deals = await paginateQuery((o, ps) => {
+        let q = admin
+          .from("szs_deals")
+          .select(`empreendimento, canal, ${dateCol}, max_stage_order, status, lost_reason, rd_source`)
+          .not("empreendimento", "is", null)
+          .gte(dateCol, startDate);
+
+        if (isWon) q = q.eq("status", "won");
+
+        if (filterParam === "paid") {
+          q = q.eq("canal", "12").ilike("rd_source", "%pag%");
+        } else if (filterParam === "marketing") {
+          q = q.eq("canal", "12");
+        } else if (filterParam === "expansao") {
+          q = q.eq("canal", "1748");
+        }
+        // "vd": no canal filter in query, exclude in code
+
+        return q.range(o, o + ps - 1);
+      });
+
+      for (const d of deals) {
+        if (d.lost_reason === "Duplicado/Erro") continue;
+        const canal = String(d.canal || "");
+
+        if (filterParam === "vd" && VD_EXCLUDED.includes(canal)) continue;
+
+        const canalGroup = CANAL_GROUP_FROM_ID[canal] || "Outros";
+        const cidade = getCidadeGroup(d.empreendimento);
+        const dateStr = (d[dateCol] || "").substring(0, 10);
+        const idx = dateIndex.get(dateStr);
+        if (idx === undefined) continue;
+
+        const gKey = `${canalGroup}|${cidade}`;
+        if (!groupCidadeCounts.has(gKey)) groupCidadeCounts.set(gKey, new Array(NUM_DAYS).fill(0));
+        groupCidadeCounts.get(gKey)![idx] += 1;
       }
-      groupCidadeCounts.get(gKey)![idx] += row.count;
+    } else {
+      // Default (geral): use szs_daily_counts
+      for (const row of rows) {
+        const idx = dateIndex.get(row.date);
+        if (idx === undefined) continue;
+        const canalGroup = row.canal_group || "Outros";
+        const cidade = getCidadeGroup(row.empreendimento);
+        const gKey = `${canalGroup}|${cidade}`;
+        if (!groupCidadeCounts.has(gKey)) {
+          groupCidadeCounts.set(gKey, new Array(NUM_DAYS).fill(0));
+        }
+        groupCidadeCounts.get(gKey)![idx] += row.count;
+      }
     }
 
     // Build squads: each canal_group = one squad, cidades = empreendimento rows
@@ -183,16 +206,7 @@ export async function GET(req: NextRequest) {
 
       const sqRows = cidadeKeys.map((gKey) => {
         const cidade = gKey.split("|")[1];
-        let daily = groupCidadeCounts.get(gKey) || new Array(NUM_DAYS).fill(0);
-
-        // Aplicar ratio paid se necessário (only for Marketing canal)
-        if (paidRatiosByCity && canalGroup === "Marketing") {
-          const ratio = paidRatiosByCity.get(cidade) ?? 0;
-          daily = daily.map((v) => Math.round(v * ratio));
-        } else if (paidOnly && canalGroup !== "Marketing") {
-          // Non-Marketing canals have no paid data — zero out in paid mode
-          daily = new Array(NUM_DAYS).fill(0);
-        }
+        const daily = groupCidadeCounts.get(gKey) || new Array(NUM_DAYS).fill(0);
 
         let totalMes = 0;
         daily.forEach((v, i) => {

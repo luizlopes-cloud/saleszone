@@ -50,7 +50,7 @@ export async function GET() {
   try {
     // 1. Get SZS closers
     const { data: rules, error: closerErr } = await supabase
-      .from("szs_closer_rules")
+      .from("squad_closer_rules")
       .select("email")
       .eq("setor", "SZS");
 
