@@ -420,8 +420,8 @@ function EmpRow({ emp }: { emp: RegrasMqlEmp }) {
           </td>
         </tr>
       )}
-      {expanded && !hasSingleFonte && emp.fontes.map((fonte) => (
-        <FonteDetailRow key={fonte.campaignName} fonte={fonte} />
+      {expanded && !hasSingleFonte && emp.fontes.map((fonte, i) => (
+        <FonteDetailRow key={`${fonte.campaignName}-${i}`} fonte={fonte} />
       ))}
     </>
   );

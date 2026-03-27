@@ -42,9 +42,10 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const tab = (req.nextUrl.searchParams.get("tab") as TabKey) || "mql";
   const filterParam = req.nextUrl.searchParams.get("filter");
-  // filter: "paid" = mídia paga (rd_source pag), "marketing" = canal Marketing, null = geral
+  // filter: "paid" = mídia paga (rd_source pag), "marketing" = canal Marketing, "ctwa" = Click To WhatsApp, null = geral
   const paidOnly = filterParam === "paid";
   const marketingOnly = filterParam === "marketing";
+  const ctwaOnly = filterParam === "ctwa";
 
   try {
     const dates = generateDates();
@@ -153,7 +154,7 @@ export async function GET(req: NextRequest) {
       const deals = await paginate((o, ps) => {
         let q = admin
           .from("squad_deals")
-          .select(`empreendimento, canal, ${dateCol}, max_stage_order, status, lost_reason`)
+          .select(`empreendimento, canal, rd_source, ${dateCol}, max_stage_order, status, lost_reason`)
           .not("empreendimento", "is", null)
           .gte(dateCol, startDate);
 
@@ -161,7 +162,10 @@ export async function GET(req: NextRequest) {
           q = q.eq("status", "won");
         }
 
-        if (paidOnly) {
+        if (ctwaOnly) {
+          // Click To WhatsApp: rd_source exato
+          q = q.eq("is_marketing", true).eq("rd_source", "Click To WhatsApp");
+        } else if (paidOnly) {
           // Mídia Paga: canal Marketing + rd_source "pag"
           q = q.eq("is_marketing", true).ilike("rd_source", "%pag%");
         } else if (marketingOnly) {
@@ -233,7 +237,10 @@ export async function GET(req: NextRequest) {
     let metaInfo: MetaInfo | undefined;
     const nektData = nektRes.data as { won_szi_meta_pago: number; won_szi_meta_direto: number } | null;
     if (nektData) {
-      const wonMetaTotal = (Number(nektData.won_szi_meta_pago) || 0) + (Number(nektData.won_szi_meta_direto) || 0);
+      const metaPago = Number(nektData.won_szi_meta_pago) || 0;
+      const metaDireto = Number(nektData.won_szi_meta_direto) || 0;
+      // Filtro paid/marketing/ctwa usa só meta pago; geral usa ambos
+      const wonMetaTotal = (paidOnly || marketingOnly || ctwaOnly) ? metaPago : metaPago + metaDireto;
       const wonPerCloser = wonMetaTotal / TOTAL_CLOSERS;
 
       // Build per-squad 90d counts

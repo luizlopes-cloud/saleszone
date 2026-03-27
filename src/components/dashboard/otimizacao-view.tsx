@@ -203,11 +203,13 @@ function CampaignDropdown({ campaigns, selected, onChange }: {
   )
 }
 
-export function OtimizacaoView() {
+const MODULE_VERTICAL: Record<string, string> = { szi: "Investimentos", mktp: "Marketplace", szs: "SZS" }
+
+export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
   const [allAds, setAllAds] = useState<AdPerformance[]>([])
-  const tab: string = "Investimentos"
+  const tab: string = MODULE_VERTICAL[moduleId] || "Investimentos"
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showSettings, setShowSettings] = useState(false)
   const [showAbout, setShowAbout] = useState(false)

@@ -8,6 +8,14 @@ const mc = getModuleConfig("szs");
 
 export const dynamic = "force-dynamic";
 
+function getCidadeGroup(cidade: string): string {
+  const lower = cidade.toLowerCase();
+  if (lower.includes("são paulo") || lower.includes("sao paulo")) return "São Paulo";
+  if (lower.includes("salvador")) return "Salvador";
+  if (lower.includes("florianópolis") || lower.includes("florianopolis")) return "Florianópolis";
+  return "Outros";
+}
+
 function rate(num: number, den: number): number {
   return den > 0 ? Math.round((num / den) * 10000) / 10000 : 0;
 }
@@ -61,8 +69,8 @@ export async function GET(request: Request) {
       : null;
 
     const rpcParams = daysBack !== 0
-      ? { months_back: 12, days_back: daysBack }
-      : { months_back: 12 };
+      ? { p_months_back: 12, p_days_back: daysBack }
+      : { p_months_back: 12, p_days_back: 0 };
 
     const histMetaQuery = supabase
       .from("szs_meta_ads")
@@ -85,32 +93,24 @@ export async function GET(request: Request) {
     if (histMetaRes.error) throw new Error(`Historical Meta Ads: ${histMetaRes.error.message}`);
 
     const curCounts = new Map<string, Record<string, number>>();
-    const histByEmpMonth = new Map<string, Map<string, Record<string, number>>>();
-    for (const row of countsRes.data || []) {
-      if (row.month === curMonth) {
-        curCounts.set(row.empreendimento, {
-          mql: Number(row.mql) || 0,
-          sql: Number(row.sql) || 0,
-          opp: Number(row.opp) || 0,
-          won: Number(row.won) || 0,
-        });
-      } else {
-        if (!histByEmpMonth.has(row.empreendimento)) histByEmpMonth.set(row.empreendimento, new Map());
-        histByEmpMonth.get(row.empreendimento)!.set(row.month, {
-          mql: Number(row.mql) || 0,
-          sql: Number(row.sql) || 0,
-          opp: Number(row.opp) || 0,
-          won: Number(row.won) || 0,
-        });
-      }
-    }
     const histCounts = new Map<string, Record<string, number>>();
-    for (const [emp, monthMap] of histByEmpMonth) {
-      const total: Record<string, number> = { mql: 0, sql: 0, opp: 0, won: 0 };
-      for (const counts of monthMap.values()) {
-        for (const tab of ["mql", "sql", "opp", "won"]) total[tab] += counts[tab] || 0;
+    for (const row of countsRes.data || []) {
+      const group = getCidadeGroup(row.empreendimento);
+      if (row.month === curMonth) {
+        if (!curCounts.has(group)) curCounts.set(group, { mql: 0, sql: 0, opp: 0, won: 0 });
+        const c = curCounts.get(group)!;
+        c.mql += Number(row.mql) || 0;
+        c.sql += Number(row.sql) || 0;
+        c.opp += Number(row.opp) || 0;
+        c.won += Number(row.won) || 0;
+      } else {
+        if (!histCounts.has(group)) histCounts.set(group, { mql: 0, sql: 0, opp: 0, won: 0 });
+        const c = histCounts.get(group)!;
+        c.mql += Number(row.mql) || 0;
+        c.sql += Number(row.sql) || 0;
+        c.opp += Number(row.opp) || 0;
+        c.won += Number(row.won) || 0;
       }
-      histCounts.set(emp, total);
     }
 
     const curAdMax = new Map<string, { empreendimento: string; leads_month: number; spend_month: number }>();
@@ -126,10 +126,11 @@ export async function GET(request: Request) {
     }
     const curMeta = new Map<string, { leads: number; spend: number }>();
     for (const ad of curAdMax.values()) {
-      const cur = curMeta.get(ad.empreendimento) || { leads: 0, spend: 0 };
+      const group = getCidadeGroup(ad.empreendimento);
+      const cur = curMeta.get(group) || { leads: 0, spend: 0 };
       cur.leads += ad.leads_month;
       cur.spend += ad.spend_month;
-      curMeta.set(ad.empreendimento, cur);
+      curMeta.set(group, cur);
     }
 
     const histMetaEmpMonth = new Map<string, Map<string, { leads: number; spend: number }>>();
@@ -150,10 +151,11 @@ export async function GET(request: Request) {
     const histMetaByEmp = new Map<string, { leads: number; spend: number }>();
     for (const [, empMap] of histMetaEmpMonth) {
       for (const [emp, vals] of empMap) {
-        if (!histMetaByEmp.has(emp)) {
-          histMetaByEmp.set(emp, { leads: 0, spend: 0 });
+        const group = getCidadeGroup(emp);
+        if (!histMetaByEmp.has(group)) {
+          histMetaByEmp.set(group, { leads: 0, spend: 0 });
         }
-        const agg = histMetaByEmp.get(emp)!;
+        const agg = histMetaByEmp.get(group)!;
         agg.leads += vals.leads;
         agg.spend += vals.spend;
       }
