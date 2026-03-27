@@ -61,8 +61,9 @@ export async function GET() {
     }
 
     // Filter to closers only, exclude Agendado (7) and No Show/Reagendamento (8)
+    // Also exclude deals without last_activity_date — these are stale (Nekt lag: marked open but actually lost in Pipedrive)
     const closerSet = new Set(V_COLS);
-    const closerDeals = allRows.filter((d) => closerSet.has(d.owner_name) && d.stage_order !== 7 && d.stage_order !== 8);
+    const closerDeals = allRows.filter((d) => closerSet.has(d.owner_name) && d.stage_order !== 7 && d.stage_order !== 8 && d.last_activity_date);
 
     // Calculate leadtime and activity status for each deal
     const todayStr = now.toISOString().substring(0, 10);
