@@ -70,8 +70,10 @@ export async function GET() {
       const refDate = d.last_activity_date || d.add_time;
       let leadtimeHours = 0;
       if (refDate) {
-        // last_activity_date is DATE (no time), treat as midnight UTC
-        const ref = new Date(refDate);
+        // last_activity_date is DATE only (no time). Use BRT noon (15:00 UTC) to avoid
+        // timezone inflation (midnight UTC = 21h BRT yesterday → inflates by ~19h)
+        const dateOnly = refDate.substring(0, 10);
+        const ref = new Date(`${dateOnly}T15:00:00Z`);
         leadtimeHours = Math.max(0, (now.getTime() - ref.getTime()) / (1000 * 60 * 60));
       }
       const severidade = getSeveridade(leadtimeHours);
