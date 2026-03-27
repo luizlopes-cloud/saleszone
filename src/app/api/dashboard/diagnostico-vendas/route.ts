@@ -23,8 +23,9 @@ const STAGE_NAMES: Record<number, string> = {
 };
 
 function getSeveridade(hours: number): VendasSeveridade {
-  if (hours >= 24) return "CRITICO";
-  if (hours >= 12) return "ALERTA";
+  // Calendar-day precision: 48h+ = 2+ dias sem atividade, 24h = 1 dia
+  if (hours >= 48) return "CRITICO";
+  if (hours >= 24) return "ALERTA";
   return "OK";
 }
 
@@ -70,11 +71,12 @@ export async function GET() {
       const refDate = d.last_activity_date || d.add_time;
       let leadtimeHours = 0;
       if (refDate) {
-        // last_activity_date is DATE only (no time). Use BRT noon (15:00 UTC) to avoid
-        // timezone inflation (midnight UTC = 21h BRT yesterday → inflates by ~19h)
+        // last_activity_date is DATE only (no time) — count calendar days in BRT
         const dateOnly = refDate.substring(0, 10);
-        const ref = new Date(`${dateOnly}T15:00:00Z`);
-        leadtimeHours = Math.max(0, (now.getTime() - ref.getTime()) / (1000 * 60 * 60));
+        const todayBRT = new Date(now.getTime() - 3 * 3600000); // UTC-3
+        const todayDate = todayBRT.toISOString().substring(0, 10);
+        const diffDays = Math.floor((new Date(todayDate + "T12:00:00Z").getTime() - new Date(dateOnly + "T12:00:00Z").getTime()) / 86400000);
+        leadtimeHours = Math.max(0, diffDays * 24);
       }
       const severidade = getSeveridade(leadtimeHours);
       const semAtividadeFutura = !d.next_activity_date;
