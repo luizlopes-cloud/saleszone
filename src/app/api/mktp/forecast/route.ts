@@ -222,6 +222,11 @@ export async function GET() {
       };
     });
 
+    // Collect all empreendimentos from deal data for dynamic discovery
+    const allDealEmps = new Set<string>();
+    for (const d of openDeals) { if (d.empreendimento) allDealEmps.add(d.empreendimento); }
+    for (const d of wonThisMonth) { if (d.empreendimento) allDealEmps.add(d.empreendimento); }
+
     // --- Squad rows ---
     const squadsResult: ForecastSquadRow[] = mc.squads.map((sq) => {
       const sqClosers = closerRows.filter((c) => c.squadId === sq.id);
@@ -230,7 +235,9 @@ export async function GET() {
       const total = sqClosers.reduce((s, c) => s + c.total, 0);
       const meta = metaBySquad[sq.id] || 0;
 
-      const sqEmps = new Set(sq.empreendimentos as readonly string[]);
+      const sqEmps = sq.empreendimentos.length > 0
+        ? new Set(sq.empreendimentos as readonly string[])
+        : allDealEmps;
       const sqOpenByStage: Record<number, number> = {};
       for (const d of openDeals) {
         if (sqEmps.has(d.empreendimento)) {

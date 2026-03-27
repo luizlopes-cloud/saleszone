@@ -39,14 +39,6 @@ function sumMetrics(rows: PlanejamentoMetrics[]): PlanejamentoMetrics {
   return buildMetrics(leads, mql, sql, opp, won, spend);
 }
 
-// Map empreendimento → squad id
-const EMP_TO_SQUAD = new Map<string, number>();
-for (const sq of mc.squads) {
-  for (const emp of sq.empreendimentos) {
-    EMP_TO_SQUAD.set(emp, sq.id);
-  }
-}
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -173,9 +165,18 @@ export async function GET(request: Request) {
     for (const emp of curMeta.keys()) allEmps.add(emp);
     for (const emp of histMeta.keys()) allEmps.add(emp);
 
+    // Build empreendimento → squad id map dynamically
+    const empToSquad = new Map<string, number>();
+    for (const sq of mc.squads) {
+      const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...allEmps];
+      for (const emp of emps) {
+        empToSquad.set(emp, sq.id);
+      }
+    }
+
     const empRows: PlanejamentoEmpRow[] = [];
     for (const emp of allEmps) {
-      const squadId = EMP_TO_SQUAD.get(emp) || 0;
+      const squadId = empToSquad.get(emp) || 0;
       const cc = curCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
       const cm = curMeta.get(emp) || { leads: 0, spend: 0 };
       const hc = histCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };

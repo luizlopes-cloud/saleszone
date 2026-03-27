@@ -128,9 +128,10 @@ export async function GET(req: NextRequest) {
       empCounts.get(row.empreendimento)![idx] += row.count;
     }
 
-    // Map to squads
+    // Map to squads — MKTP discovers empreendimentos from DB (60+ dynamic)
     const squads: SquadData[] = mc.squads.map((sq) => {
-      const sqRows = sq.empreendimentos.map((emp) => {
+      const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...empCounts.keys()].sort();
+      const sqRows = emps.map((emp) => {
         let daily = empCounts.get(emp) || new Array(NUM_DAYS).fill(0);
 
         // Aplicar ratio paid se necessário
@@ -184,7 +185,8 @@ export async function GET(req: NextRequest) {
       // Build per-squad 90d counts
       const squadEmpSets = new Map<number, Set<string>>();
       for (const sq of mc.squads) {
-        squadEmpSets.set(sq.id, new Set(sq.empreendimentos as unknown as string[]));
+        const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...empCounts.keys()].sort();
+        squadEmpSets.set(sq.id, new Set(emps));
       }
 
       const squadCounts = new Map<number, Record<string, number>>();

@@ -38,8 +38,9 @@ export async function GET() {
     const V_COLS = mc.closers;
 
     // Build flat rows
-    const rows = mc.squads.flatMap((sq) =>
-      sq.empreendimentos.map((emp) => {
+    const rows = mc.squads.flatMap((sq) => {
+      const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...ownerCounts.keys()].sort();
+      return emps.map((emp) => {
         const counts = ownerCounts.get(emp) || new Map<string, number>();
         const pv: Record<string, number> = {};
         const v: Record<string, number> = {};
@@ -68,8 +69,8 @@ export async function GET() {
           correctV: sq.venda,
           cells: { pv, v },
         };
-      })
-    );
+      });
+    });
 
     // Stats
     let total = 0;
