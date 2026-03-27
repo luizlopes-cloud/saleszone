@@ -52,7 +52,7 @@ export async function GET() {
     const deals = await paginate((o, ps) =>
       admin
         .from("szs_deals")
-        .select("empreendimento, owner_name, preseller_name")
+        .select("empreendimento, owner_name, preseller_name, lost_reason")
         .eq("status", "open")
         .not("empreendimento", "is", null)
         .range(o, o + ps - 1)
@@ -61,6 +61,7 @@ export async function GET() {
     // Agrupar deals por grupo de cidade × owner
     const groupOwner = new Map<string, Map<string, number>>();
     for (const d of deals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const cidade = d.empreendimento;
       if (!cidade) continue;
       const group = getCidadeGroup(cidade);

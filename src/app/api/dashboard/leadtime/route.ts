@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
       paginate((o, ps) =>
         supabase
           .from("squad_deals")
-          .select("deal_id, title, owner_name, add_time, won_time, stage_order, max_stage_order, empreendimento")
+          .select("deal_id, title, owner_name, add_time, won_time, stage_order, max_stage_order, empreendimento, lost_reason")
           .eq("status", "won")
           .eq("is_marketing", true)
           .not("empreendimento", "is", null)
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
       paginate((o, ps) =>
         supabase
           .from("squad_deals")
-          .select("deal_id, title, owner_name, add_time, stage_order, empreendimento")
+          .select("deal_id, title, owner_name, add_time, stage_order, empreendimento, lost_reason")
           .eq("status", "open")
           .eq("is_marketing", true)
           .not("empreendimento", "is", null)
@@ -95,6 +95,7 @@ export async function GET(request: NextRequest) {
     // --- Global cycle time (creation → won) ---
     const cycleDaysArr: number[] = [];
     for (const d of wonDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       if (!d.add_time || !d.won_time) continue;
       const days = (new Date(d.won_time).getTime() - new Date(d.add_time).getTime()) / (1000 * 60 * 60 * 24);
       if (days > 0) cycleDaysArr.push(days);
@@ -107,6 +108,7 @@ export async function GET(request: NextRequest) {
     for (const so of ALL_STAGES) stageSamples[so] = [];
 
     for (const d of wonDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       if (!d.add_time || !d.won_time) continue;
       const cycleDays = (new Date(d.won_time).getTime() - new Date(d.add_time).getTime()) / (1000 * 60 * 60 * 24);
       if (cycleDays <= 0) continue;
@@ -127,6 +129,7 @@ export async function GET(request: NextRequest) {
     // --- Open deals by stage + oldest per stage ---
     const openByStage: Record<number, typeof openDeals> = {};
     for (const d of openDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const so = d.stage_order || 1;
       if (!openByStage[so]) openByStage[so] = [];
       openByStage[so].push(d);
@@ -176,6 +179,7 @@ export async function GET(request: NextRequest) {
     const closerDeals: Record<string, LeadtimeDealRow[]> = {};
 
     for (const d of wonDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const owner = d.owner_name || "Sem dono";
       if (!closerWonCycles[owner]) closerWonCycles[owner] = [];
       if (!closerDeals[owner]) closerDeals[owner] = [];
@@ -200,6 +204,7 @@ export async function GET(request: NextRequest) {
     }
 
     for (const d of openDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const owner = d.owner_name || "Sem dono";
       if (!closerDeals[owner]) closerDeals[owner] = [];
       const ageDays = d.add_time

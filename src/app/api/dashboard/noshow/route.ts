@@ -111,6 +111,7 @@ export async function GET(request: NextRequest) {
     const seen = new Set<number>();
     const deduped: Record<string, unknown>[] = [];
     for (const d of allRaw) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const id = d.deal_id as number;
       if (!seen.has(id)) {
         seen.add(id);
