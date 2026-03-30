@@ -142,12 +142,7 @@ function evaluateStatus(
     return "MONITORAR"
   }
 
-  if (r.mql > 0) {
-    const costOk = cost_per_mql <= s.mql_meta
-    if (costOk) return "MONITORAR"
-    return "PAUSAR"
-  }
-
+  // Day OPP+ sem OPP → PAUSAR (checkpoint expirou)
   return "PAUSAR"
 }
 
@@ -262,11 +257,11 @@ export function computePerformanceRolling(rows: NektRow[]): AdPerformance[] {
     // Fase pós-OPP: se rolling MQL/SQL continua caro, PAUSAR
     if (!pausedBySpendCap && ad_status !== "PAUSAR" && base.dias_ativos >= cfg.checkpoints.opp) {
       const sql_7d = sumKey(rows7d, "sql")
-      const opp_7d = sumKey(rows7d, "opp")
       const costMql7d = mql_7d > 0 ? spend_7d / mql_7d : Infinity
       const costSql7d = sql_7d > 0 ? spend_7d / sql_7d : Infinity
-      if (opp_7d === 0 && isFinite(costMql7d) && costMql7d > cfg.scoring.mql_teto) ad_status = "PAUSAR"
-      if (opp_7d === 0 && isFinite(costSql7d) && costSql7d > cfg.scoring.sql_teto) ad_status = "PAUSAR"
+      const mqlRollingBad = isFinite(costMql7d) && costMql7d > cfg.scoring.mql_meta
+      const sqlRollingBad = isFinite(costSql7d) && costSql7d > cfg.scoring.sql_meta
+      if (mqlRollingBad || sqlRollingBad) ad_status = "PAUSAR"
     }
 
     return {
