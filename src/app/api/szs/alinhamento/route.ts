@@ -77,12 +77,13 @@ export async function GET() {
         v[col] = total;
       });
 
+      const sq = mc.squads.find((s) => s.id === sqId);
       rows.push({
         sqId,
         sqName,
         emp: canalGroup,
-        correctPV: "",
-        correctV: "",
+        correctPV: sq?.preVenda || "",
+        correctV: sq?.venda || "",
         cells: { pv, v },
       });
     }
@@ -90,16 +91,26 @@ export async function GET() {
     // Sort by squad then canal name
     rows.sort((a, b) => a.sqId - b.sqId || a.emp.localeCompare(b.emp));
 
-    // Stats
+    // Stats: calculate misaligned deals
     let total = 0;
+    let mis = 0;
     rows.forEach((row) => {
-      PV_COLS.forEach((p) => { total += row.cells.pv[p] || 0; });
-      V_COLS.forEach((p) => { total += row.cells.v[p] || 0; });
+      PV_COLS.forEach((p) => {
+        const val = row.cells.pv[p] || 0;
+        total += val;
+        if (val > 0 && row.correctPV && !matchOwner(row.correctPV, p)) mis += val;
+      });
+      const sqVIndices = mc.squadCloserMap[row.sqId] || [];
+      V_COLS.forEach((p, idx) => {
+        const val = row.cells.v[p] || 0;
+        total += val;
+        if (val > 0 && !sqVIndices.includes(idx)) mis += val;
+      });
     });
 
     const result: AlinhamentoData = {
       rows,
-      stats: { total, ok: total, mis: 0 },
+      stats: { total, ok: total - mis, mis },
     };
 
     return NextResponse.json(result);

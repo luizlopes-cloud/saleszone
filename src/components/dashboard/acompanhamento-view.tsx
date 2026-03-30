@@ -542,7 +542,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
                 })()}
               </tr>
               <tr style={{ backgroundColor: T.cinza50 }}>
-                <TH w={120}>{"Squad"}</TH>
+                <TH w={120}>Squad</TH>
                 {showTeamCols ? (
                   <>
                     <TH w={90}>
@@ -760,7 +760,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
           {Object.entries(SQUAD_COLORS).map(([n, cc]) => (
             <div key={n} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
               <span style={{ width: "7px", height: "7px", borderRadius: "9999px", backgroundColor: cc }} />
-              <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>{"Squad"} {n}</span>
+              <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>Squad {n}</span>
             </div>
           ))}
         </div>
