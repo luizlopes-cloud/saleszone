@@ -61,6 +61,7 @@ interface ChannelResult {
   lastMonthWon: number;
   snapshots: { aguardandoDados: number; emContrato: number };
   ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number };
+  noShow: { canceladas: number; total: number; percent: number };
   dealsHistory: { date: string; total: number; byStage: Record<string, number> }[];
 }
 
@@ -252,6 +253,24 @@ export async function GET() {
     const totalAgendadas = calendarEvents.length;
     const agendaPct = totalCapacity > 0 ? Math.round((totalAgendadas / totalCapacity) * 1000) / 10 : 0;
 
+    /* ── 5c. No-show (últimos 7 dias de mktp_calendar_events) ── */
+    const past7 = new Date(now);
+    past7.setDate(past7.getDate() - 6);
+    const past7Str = past7.toISOString().substring(0, 10);
+
+    const noShowRows = await paginate((o, ps) =>
+      admin
+        .from("mktp_calendar_events")
+        .select("cancelou")
+        .gte("dia", past7Str)
+        .lte("dia", today)
+        .range(o, o + ps - 1)
+    );
+
+    let noShowTotal = noShowRows.length;
+    let noShowCanceladas = noShowRows.filter((e: any) => e.cancelou).length;
+    const noShowPct = noShowTotal > 0 ? Math.round((noShowCanceladas / noShowTotal) * 1000) / 10 : 0;
+
     /* ── 6. History — cumulative open deals from mktp_deals ── */
     // Fetch ALL open deals with max_stage_order to build both charts.
     // Stage thresholds (same as sync-mktp-deals): MQL>=1, SQL>=5, OPP>=9, WON=won
@@ -353,6 +372,7 @@ export async function GET() {
         lastMonthWon: prevWon[name] || 0,
         snapshots: { aguardandoDados: snap.reserva, emContrato: snap.contrato },
         ocupacaoAgenda: { agendadas: totalAgendadas, capacidade: totalCapacity, percent: agendaPct },
+        noShow: { canceladas: noShowCanceladas, total: noShowTotal, percent: noShowPct },
         dealsHistory,
       };
     });
