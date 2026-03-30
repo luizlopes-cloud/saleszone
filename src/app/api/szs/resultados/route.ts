@@ -196,44 +196,19 @@ export async function GET() {
       }
     }
 
-    // Pipedrive activities: count meeting activities scheduled for next 7 days
-    // Join with szs_deals to get owner_name and map to channel
+    // Google Calendar: count meetings scheduled in next 7 days per closer
     const today = now.toISOString().substring(0, 10);
     const next7 = new Date(now);
     next7.setDate(next7.getDate() + 6);
     const next7Str = next7.toISOString().substring(0, 10);
-    const MEETING_TYPES = ["reuniao", "meeting", "reuniao_apresentacao_contr", "reuniao_avaliacao", "no_show"];
-    const meetingActivities = await paginate((o, ps) =>
-      admin.from("nekt_pipedrive_activities").select("deal_id, type")
-        .eq("done", false)
-        .gte("due_date", today)
-        .lte("due_date", next7Str)
-        .in("type", MEETING_TYPES)
-        .range(o, o + ps - 1)
+    const calendarRows = await paginate((o, ps) =>
+      admin.from("szs_calendar_events").select("closer_email").gte("dia", today).lte("dia", next7Str).eq("cancelou", false).range(o, o + ps - 1)
     );
-    // Build set of deal_ids with meetings
-    const meetingDealIds = [...new Set(meetingActivities.map((a: { deal_id: number }) => a.deal_id).filter(Boolean))];
-    // Fetch owner_name for these deals from szs_deals
-    // Map closer → specific channel (not Geral, which accumulates from specifics)
-    const CLOSER_NAME_CHANNEL: Record<string, string> = {};
-    for (const [ch, closers] of Object.entries(CHANNEL_CLOSERS)) {
-      if (ch === "Geral") continue;
-      for (const c of closers) CLOSER_NAME_CHANNEL[c] = ch;
-    }
-    if (meetingDealIds.length > 0) {
-      const ownerRows = await paginate((o, ps) =>
-        admin.from("szs_deals").select("deal_id, owner_name").in("deal_id", meetingDealIds).range(o, o + ps - 1)
-      );
-      const dealOwner = new Map<number, string>();
-      for (const r of ownerRows) dealOwner.set(r.deal_id, r.owner_name || "");
-      for (const act of meetingActivities) {
-        const owner = dealOwner.get(act.deal_id) || "";
-        const macro = CLOSER_NAME_CHANNEL[owner];
-        if (macro) {
-          snapshots[macro].agendado++;
-          snapshots["Geral"].agendado++;
-        }
-      }
+    for (const ev of calendarRows) {
+      const macro = CLOSER_EMAIL_CHANNEL[ev.closer_email];
+      if (macro) snapshots[macro].agendado++;
+      // All calendar events from SZS closers count toward Geral
+      snapshots["Geral"].agendado++;
     }
 
     // History from szs_daily_counts (for funnel metrics, not charts)
