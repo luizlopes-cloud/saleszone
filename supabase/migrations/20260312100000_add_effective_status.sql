@@ -1,0 +1,1 @@
+ALTER TABLE squad_meta_ads ADD COLUMN IF NOT EXISTS effective_status TEXT DEFAULT 'ACTIVE';
