@@ -293,6 +293,12 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
           <ProgressBar label="MQL" real={metrics.mql.real} meta={metrics.mql.meta} />
           <ProgressBar label="SQL" real={metrics.sql.real} meta={metrics.sql.meta} />
           <ProgressBar label="OPP" real={metrics.opp.real} meta={metrics.opp.meta} />
+          {snapshots.isAccumulated && snapshots.agDadosMeta != null && (
+            <ProgressBar label="Ag. Dados" real={snapshots.aguardandoDados} meta={snapshots.agDadosMeta} />
+          )}
+          {snapshots.isAccumulated && snapshots.contratoMeta != null && (
+            <ProgressBar label="Contrato" real={snapshots.emContrato} meta={snapshots.contratoMeta} />
+          )}
           <ProgressBar label="Ganhos (WON)" real={metrics.won.real} meta={metrics.won.meta} />
         </div>
 
@@ -325,23 +331,21 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
-        <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
-          <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Aguardando Dados</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: "#fbbf24" }}>
-            {fmtNum(snapshots.aguardandoDados)}
-            {snapshots.agDadosMeta != null && <span style={{ fontSize: 12, fontWeight: 400, color: T.cinza400 }}> / {fmtNum(snapshots.agDadosMeta)}</span>}
-          </div>
-          <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>{snapshots.isAccumulated ? "acumulado no mês" : "deals na etapa"}</div>
-        </div>
-        <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
-          <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Em Contrato</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: "#22c55e" }}>
-            {fmtNum(snapshots.emContrato)}
-            {snapshots.contratoMeta != null && <span style={{ fontSize: 12, fontWeight: 400, color: T.cinza400 }}> / {fmtNum(snapshots.contratoMeta)}</span>}
-          </div>
-          <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>{snapshots.isAccumulated ? "acumulado no mês" : "deals na etapa"}</div>
-        </div>
+      <div style={{ display: "grid", gridTemplateColumns: snapshots.isAccumulated ? "1fr 1fr" : "1fr 1fr 1fr 1fr", gap: 10 }}>
+        {!snapshots.isAccumulated && (
+          <>
+            <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Aguardando Dados</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: "#fbbf24" }}>{fmtNum(snapshots.aguardandoDados)}</div>
+              <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>deals na etapa</div>
+            </div>
+            <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Em Contrato</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: "#22c55e" }}>{fmtNum(snapshots.emContrato)}</div>
+              <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>deals na etapa</div>
+            </div>
+          </>
+        )}
         <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center", position: "relative" }}>
           <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
             Ocupação Agenda
