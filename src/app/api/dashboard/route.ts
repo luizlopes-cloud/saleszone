@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS, SQUAD_V_MAP, NUM_DAYS } from "@/lib/constants";
 import { generateDates } from "@/lib/dates";
+import { paginate } from "@/lib/paginate";
 import type { TabKey, AcompanhamentoData, SquadData, MetaInfo } from "@/lib/types";
 
 const SQUAD_CLOSERS: Record<number, number> = {};
@@ -20,22 +21,6 @@ const EXCLUDED_CANAIS = ["582", "583", "2876", "3189"];
 // 582 = Indicação de Corretor, 583 = Indicação de Franquia
 // 2876 = Indicação de outros Parceiros, 3189 = Spot Seazone
 // NOTA: Indicação de Clientes (10) NÃO é excluído — fica no Geral
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
-  const rows: any[] = [];
-  let offset = 0;
-  const PS = 1000;
-  while (true) {
-    const { data, error } = await buildQuery(offset, PS);
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PS) break;
-    offset += PS;
-  }
-  return rows;
-}
 
 export const dynamic = "force-dynamic";
 
@@ -229,9 +214,34 @@ export async function GET(req: NextRequest) {
     start90.setDate(start90.getDate() - 90);
     const startDate90 = start90.toISOString().substring(0, 10);
 
-    const [nektRes, counts90Res] = await Promise.all([
+    const hasFilter = paidOnly || marketingOnly || ctwaOnly;
+
+    // Quando filtro ativo, buscar deals 90d filtrados de squad_deals para ratios precisos
+    const filteredRatioPromise = hasFilter
+      ? (() => {
+          const admin = createSquadSupabaseAdmin();
+          return paginate((o, ps) => {
+            let q = admin
+              .from("squad_deals")
+              .select("empreendimento, max_stage_order, status, lost_reason")
+              .not("empreendimento", "is", null)
+              .gte("add_time", startDate90);
+            if (ctwaOnly) {
+              q = q.eq("is_marketing", true).eq("rd_source", "Click To WhatsApp");
+            } else if (paidOnly) {
+              q = q.eq("is_marketing", true).ilike("rd_source", "%pag%");
+            } else if (marketingOnly) {
+              q = q.eq("is_marketing", true);
+            }
+            return q.range(o, o + ps - 1);
+          });
+        })()
+      : null;
+
+    const [nektRes, counts90Res, filteredDeals90] = await Promise.all([
       supabase.rpc("get_szi_meta", { meta_date: metaDateStr }).single(),
       supabase.from("squad_daily_counts").select("tab, empreendimento, count").gte("date", startDate90).lte("date", endDate),
+      filteredRatioPromise,
     ]);
 
     let metaInfo: MetaInfo | undefined;
@@ -240,7 +250,7 @@ export async function GET(req: NextRequest) {
       const metaPago = Number(nektData.won_szi_meta_pago) || 0;
       const metaDireto = Number(nektData.won_szi_meta_direto) || 0;
       // Filtro paid/marketing/ctwa usa só meta pago; geral usa ambos
-      const wonMetaTotal = (paidOnly || marketingOnly || ctwaOnly) ? metaPago : metaPago + metaDireto;
+      const wonMetaTotal = hasFilter ? metaPago : metaPago + metaDireto;
       const wonPerCloser = wonMetaTotal / TOTAL_CLOSERS;
 
       // Build per-squad 90d counts
@@ -253,11 +263,31 @@ export async function GET(req: NextRequest) {
       for (const sq of SQUADS) {
         squadCounts.set(sq.id, { mql: 0, sql: 0, opp: 0, won: 0 });
       }
-      for (const r of counts90Res.data || []) {
-        for (const sq of SQUADS) {
-          if (squadEmpSets.get(sq.id)!.has(r.empreendimento)) {
-            const c = squadCounts.get(sq.id)!;
-            if (r.tab in c) c[r.tab] += r.count || 0;
+
+      if (hasFilter && filteredDeals90) {
+        // Ratios filtrados: contar MQL/SQL/OPP/WON a partir de squad_deals (max_stage_order)
+        for (const d of filteredDeals90) {
+          if (d.lost_reason === "Duplicado/Erro") continue;
+          const emp = d.empreendimento;
+          const mso = d.max_stage_order || 0;
+          for (const sq of SQUADS) {
+            if (squadEmpSets.get(sq.id)!.has(emp)) {
+              const c = squadCounts.get(sq.id)!;
+              if (mso >= STAGE_THRESHOLDS.mql) c.mql++;
+              if (mso >= STAGE_THRESHOLDS.sql) c.sql++;
+              if (mso >= STAGE_THRESHOLDS.opp) c.opp++;
+              if (d.status === "won") c.won++;
+            }
+          }
+        }
+      } else {
+        // Geral: ratios de squad_daily_counts (todos os canais)
+        for (const r of counts90Res.data || []) {
+          for (const sq of SQUADS) {
+            if (squadEmpSets.get(sq.id)!.has(r.empreendimento)) {
+              const c = squadCounts.get(sq.id)!;
+              if (r.tab in c) c[r.tab] += r.count || 0;
+            }
           }
         }
       }

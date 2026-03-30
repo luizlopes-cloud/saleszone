@@ -144,8 +144,12 @@ export async function GET(req: NextRequest) {
       cur[row.tab] = (cur[row.tab] || 0) + (row.count || 0);
     }
 
+    // Collect all known empreendimentos from DB data
+    const allDbEmps = new Set([...countsMap.keys(), ...metaMap.keys()]);
+
     const squads: FunilSquad[] = mc.squads.map((sq) => {
-      const empRows: FunilEmpreendimento[] = sq.empreendimentos.map((emp) => {
+      const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...allDbEmps].sort();
+      const empRows: FunilEmpreendimento[] = emps.map((emp) => {
         const meta = metaMap.get(emp) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
         const counts = countsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 };
 

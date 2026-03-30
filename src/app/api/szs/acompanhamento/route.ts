@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { NUM_DAYS } from "@/lib/constants";
 import { generateDates } from "@/lib/dates";
+import { paginate } from "@/lib/paginate";
 import type { TabKey, AcompanhamentoData, SquadData } from "@/lib/types";
 
 const SZS_METAS_WON: Record<string, Record<string, number>> = {
@@ -53,22 +54,6 @@ const STAGE_DATE_COL: Record<TabKey, string> = {
 };
 
 export const dynamic = "force-dynamic";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
-  const rows: any[] = [];
-  let offset = 0;
-  const PS = 1000;
-  while (true) {
-    const { data, error } = await buildQuery(offset, PS);
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PS) break;
-    offset += PS;
-  }
-  return rows;
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchAllPaginated(query: any): Promise<any[]> {

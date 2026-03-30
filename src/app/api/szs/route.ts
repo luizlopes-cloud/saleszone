@@ -1,6 +1,7 @@
 // SZS (Serviços) module — canal_group > cidade hierarchy
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { paginate } from "@/lib/paginate";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import { NUM_DAYS } from "@/lib/constants";
@@ -68,21 +69,6 @@ async function fetchAllPaginated(query: any): Promise<any[]> {
   return all;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function paginateQuery(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
-  const rows: any[] = [];
-  let offset = 0;
-  const PS = 1000;
-  while (true) {
-    const { data, error } = await buildQuery(offset, PS);
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PS) break;
-    offset += PS;
-  }
-  return rows;
-}
 
 export async function GET(req: NextRequest) {
   const tab = (req.nextUrl.searchParams.get("tab") as TabKey) || "mql";
@@ -138,7 +124,7 @@ export async function GET(req: NextRequest) {
       const dateCol = STAGE_DATE_COL[tab] || "add_time";
       const isWon = tab === "won";
 
-      const deals = await paginateQuery((o, ps) => {
+      const deals = await paginate((o, ps) => {
         let q = admin
           .from("szs_deals")
           .select(`empreendimento, canal, ${dateCol}, max_stage_order, status, lost_reason, rd_source`)
