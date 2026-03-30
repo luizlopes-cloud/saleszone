@@ -19,7 +19,7 @@ interface ChannelResult {
   };
   lastMonthWon: number;
   snapshots: { aguardandoDados: number; emContrato: number };
-  ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number };
+  ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers?: string[]; meetingsPerDay?: number; workDays?: number };
   dealsHistory: { date: string; total: number; byStage: Record<string, number> }[];
 }
 
@@ -302,8 +302,24 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
           <div style={{ fontSize: 28, fontWeight: 700, color: "#22c55e" }}>{fmtNum(snapshots.emContrato)}</div>
           <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>deals na etapa</div>
         </div>
-        <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
-          <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Ocupação Agenda</div>
+        <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center", position: "relative" }}>
+          <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>
+            Ocupação Agenda
+            <span
+              style={{ marginLeft: 4, cursor: "pointer", color: T.cinza400, position: "relative", display: "inline-block" }}
+              onMouseEnter={(e) => { const el = e.currentTarget.querySelector("div"); if (el) el.style.display = "block"; }}
+              onMouseLeave={(e) => { const el = e.currentTarget.querySelector("div"); if (el) el.style.display = "none"; }}
+            >
+              <Info size={10} />
+              <div style={{
+                display: "none", position: "absolute", bottom: 18, left: "50%", transform: "translateX(-50%)",
+                zIndex: 10, background: T.fg, color: "#fff", padding: "8px 12px", borderRadius: 6,
+                fontSize: 10, width: 220, lineHeight: 1.5, boxShadow: T.elevSm, whiteSpace: "pre-line", textAlign: "left", textTransform: "none",
+              }}>
+                {`Deals abertos na etapa "Agendado"\n\nClosers: ${(ocupacaoAgenda.closers || []).join(", ") || "—"}\nCapacidade: ${ocupacaoAgenda.closers?.length || 0} closers × ${ocupacaoAgenda.meetingsPerDay || 0} reuniões/dia × ${ocupacaoAgenda.workDays || 0} dias = ${ocupacaoAgenda.capacidade} slots`}
+              </div>
+            </span>
+          </div>
           <div style={{ fontSize: 28, fontWeight: 700, color: "#60a5fa" }}>
             {ocupacaoAgenda.percent}<span style={{ fontSize: 14 }}>%</span>
           </div>
