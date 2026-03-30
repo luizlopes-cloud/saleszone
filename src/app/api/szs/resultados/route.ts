@@ -91,7 +91,11 @@ interface ChannelResult {
     won: MetricPair;
   };
   lastMonthWon: number;
-  snapshots: { aguardandoDados: number; emContrato: number; totalOpen: number; agDadosMeta?: number; contratoMeta?: number; isAccumulated?: boolean };
+  snapshots: {
+    aguardandoDados: number; emContrato: number; totalOpen: number;
+    agDadosAccum?: number; contratoAccum?: number;
+    agDadosMeta?: number; contratoMeta?: number;
+  };
   ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers: string[]; meetingsPerDay: number; workDays: number };
   noShow: { canceladas: number; total: number; percent: number };
   dealsHistory: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[];
@@ -282,13 +286,13 @@ export async function GET() {
         lastMonthWon: prevWon[name] || 0,
         snapshots: name === "Geral"
           ? {
-              // Geral: use accumulated counts from szs_daily_counts (not snapshot)
-              aguardandoDados: counts.reserva || 0,
-              emContrato: counts.contrato || 0,
+              aguardandoDados: snap.agDados,
+              emContrato: snap.contrato,
               totalOpen: snap.totalOpen,
+              agDadosAccum: counts.reserva || 0,
+              contratoAccum: counts.contrato || 0,
               agDadosMeta: meta.agDados,
               contratoMeta: meta.contrato,
-              isAccumulated: true,
             }
           : { aguardandoDados: snap.agDados, emContrato: snap.contrato, totalOpen: snap.totalOpen },
         ocupacaoAgenda: {
