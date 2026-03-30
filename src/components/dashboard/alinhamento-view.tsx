@@ -108,7 +108,7 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, 
                 </th>
               </tr>
               <tr style={{ backgroundColor: T.cinza50 }}>
-                <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 50 }}>{isSZS ? "Canal" : "Squad"}</th>
+                <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 50 }}>{"Squad"}</th>
                 <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 180 }}>{isSZS ? "Cidade" : "Empreendimento"}</th>
                 {moduleConfig.presellers.map((p, i) => (
                   <th
@@ -253,7 +253,7 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, 
         return (
           <div style={{ marginTop: "24px" }}>
             <h3 style={{ fontSize: "14px", fontWeight: 600, color: T.fg, marginBottom: "12px" }}>
-              Deals Desalinhados por {isSZS ? "Canal" : "Squad"}
+              Deals Desalinhados por {"Squad"}
             </h3>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {squadIds.map((sqId) => {

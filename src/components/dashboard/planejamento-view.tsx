@@ -1093,10 +1093,10 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
                 outline: "none",
               }}
             >
-              <option value={0}>{isSZS ? "Todos os Canais" : "Todas as Squads"}</option>
-              <option value={1}>{isSZS ? "Canal" : "Squad"} 1</option>
-              <option value={2}>{isSZS ? "Canal" : "Squad"} 2</option>
-              <option value={3}>{isSZS ? "Canal" : "Squad"} 3</option>
+              <option value={0}>{"Todas as Squads"}</option>
+              <option value={1}>{"Squad"} 1</option>
+              <option value={2}>{"Squad"} 2</option>
+              <option value={3}>{"Squad"} 3</option>
             </select>
             <span style={{ fontSize: "10px", color: T.cinza400 }}>
               Total acumulado ({DAYS_OPTIONS.find((o) => o.value === daysBack)?.label.toLowerCase() || "últimos 12 meses"})
@@ -1108,7 +1108,7 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
             <thead>
               <tr>
                 <SortableTH label={isSZS ? "Cidade" : "Empreendimento"} sortKey="emp" currentSort={sort} onSort={handleSort} />
-                <SortableTH label={isSZS ? "Canal" : "Squad"} sortKey="squad" currentSort={sort} onSort={handleSort} center />
+                <SortableTH label={"Squad"} sortKey="squad" currentSort={sort} onSort={handleSort} center />
                 <SortableTH label="Ativo" sortKey="active" currentSort={sort} onSort={handleSort} center />
                 <SortableTH label="MQL" sortKey="mql" currentSort={sort} onSort={handleSort} right />
                 <SortableTH label="SQL" sortKey="sql" currentSort={sort} onSort={handleSort} right />
@@ -1145,7 +1145,7 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
         }}
       >
         <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, margin: "0 0 12px 0" }}>
-          Resultados por {isSZS ? "Canal" : "Squad"}
+          Resultados por {"Squad"}
         </h3>
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           {squadSummaries.map((sq) => {
@@ -1176,7 +1176,7 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
                 }}
               >
                 <div style={{ backgroundColor: color, padding: "8px 14px", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#FFF" }}>{isSZS ? "Canal" : "Squad"} {sq.id}</span>
+                  <span style={{ fontSize: "13px", fontWeight: 700, color: "#FFF" }}>{"Squad"} {sq.id}</span>
                   <span style={{ fontSize: "10px", color: "rgba(255,255,255,0.8)" }}>
                     {sq.empreendimentos.length} emp.
                   </span>

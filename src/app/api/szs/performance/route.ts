@@ -30,6 +30,7 @@ interface DealRow {
   owner_name: string;
   preseller_name: string | null;
   empreendimento: string | null;
+  canal: string | null;
   status: string;
   max_stage_order: number;
   lost_reason: string | null;
@@ -54,7 +55,7 @@ async function fetchDeals(cutoff: string | null): Promise<DealRow[]> {
   while (true) {
     let query = supabase
       .from("szs_deals")
-      .select("deal_id, owner_name, preseller_name, empreendimento, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time");
+      .select("deal_id, owner_name, preseller_name, empreendimento, canal, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time");
     if (cutoff) {
       query = query.or(`status.eq.open,won_time.gte.${cutoff},lost_time.gte.${cutoff},add_time.gte.${cutoff}`);
     }
@@ -357,10 +358,14 @@ export async function GET(request: Request) {
         .map((d) => d.response_time_minutes)
         .filter((m): m is number => m != null && m >= 0);
 
+      // Map preseller to squad via preVenda match (fallback: squad 1)
+      const pvSquad = mc.squads.find((s) => norm(s.preVenda) === pvNorm);
+      const pvSquadId = pvSquad?.id ?? 1;
+
       allPresellers.push({
         name: pvName,
         role: "preseller",
-        squadId: 1, // SZS has a single squad
+        squadId: pvSquadId,
         ...funnel,
         mqlToSql: rate(funnel.sql, funnel.mql),
         sqlToOpp: rate(funnel.opp, funnel.sql),
@@ -414,8 +419,16 @@ export async function GET(request: Request) {
       const sqPreseller = allPresellers.find((p) => p.squadId === sq.id && p.role === "preseller")!;
       const sqMia = allPresellers.find((p) => p.squadId === sq.id && p.role === "marketing")!;
 
-      const sqEmpDeals = deals.filter((d) => (sq.empreendimentos as readonly string[]).includes(d.empreendimento!));
-      const sqFunnel = countFunnel(sqEmpDeals);
+      // SZS: filter deals by canal IDs (squads are canal-based)
+      const canalIds = sq.canalIds || [];
+      const sqDeals = canalIds.length > 0
+        ? deals.filter((d) => canalIds.includes(Number(d.canal)))
+        : deals.filter((d) => {
+            // Fallback squad: deals not in any other squad's canal list
+            const allIds = mc.squads.flatMap((s) => s.canalIds || []);
+            return !allIds.includes(Number(d.canal));
+          });
+      const sqFunnel = countFunnel(sqDeals);
 
       return {
         id: sq.id,

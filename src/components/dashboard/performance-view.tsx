@@ -318,7 +318,7 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
             <tr>
               <th style={{ ...thStyle, textAlign: "left", minWidth: 160 }}>Nome</th>
               <th style={{ ...thStyle, textAlign: "center", minWidth: 50 }}>Papel</th>
-              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>{isSZS ? "Canal" : "Squad"}</th>
+              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>{"Squad"}</th>
               <th style={{ ...thStyle, textAlign: "center" }}>Recebidos</th>
               <th style={{ ...thStyle, textAlign: "center" }}>→SQL</th>
               <th style={{ ...thStyle, textAlign: "center" }}>→OPP</th>
@@ -383,7 +383,7 @@ export function PerformancePreVendasView({ data, loading, daysBack, onDaysChange
 
       {/* VISÃO POR SQUAD — PV + MIA */}
       <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-        Visão por {isSZS ? "Canal" : "Squad"}
+        Visão por {"Squad"}
       </h3>
       <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
         {squads.map((sq) => {
@@ -753,7 +753,7 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, m
           <thead>
             <tr>
               <SortTh label="Nome" col="name" align="left" minW={160} sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
-              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>{isSZS ? "Canal" : "Squad"}</th>
+              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>{"Squad"}</th>
               <SortTh label="OPP" col="opp" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
               <SortTh label="WON" col="won" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
               <SortTh label="OPP→WON" col="oppToWon" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
@@ -805,7 +805,7 @@ export function PerformanceVendasView({ data, loading, daysBack, onDaysChange, m
 
       {/* VISÃO POR SQUAD — Closers */}
       <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.cinza600, marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-        Visão por {isSZS ? "Canal" : "Squad"}
+        Visão por {"Squad"}
       </h3>
       <div style={{ display: "flex", gap: "16px", flexWrap: "wrap" }}>
         {squads.map((sq) => {
@@ -969,7 +969,7 @@ function EmpPerformanceSection({ emps, squads, daysBack, consolidatedTimeSeries,
           <thead>
             <tr>
               <SortTh label={isSZS ? "Cidade" : "Empreendimento"} col="emp" align="left" minW={200} sortKey={empSort} sortDir={empDir} onSort={toggleEmpSort} />
-              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>{isSZS ? "Canal" : "Squad"}</th>
+              <th style={{ ...thStyle, textAlign: "center", minWidth: 60 }}>{"Squad"}</th>
               <SortTh label="OPP" col="opp" sortKey={empSort} sortDir={empDir} onSort={toggleEmpSort} />
               <SortTh label="WON" col="won" sortKey={empSort} sortDir={empDir} onSort={toggleEmpSort} />
               <SortTh label="OPP→WON" col="oppToWon" sortKey={empSort} sortDir={empDir} onSort={toggleEmpSort} />

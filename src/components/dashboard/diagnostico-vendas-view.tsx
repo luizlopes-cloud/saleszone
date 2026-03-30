@@ -169,7 +169,7 @@ export function DiagnosticoVendasView({ data, loading, moduleConfig, lastUpdated
             <thead>
               <tr>
                 <SortTh label="Closer" col="name" align="left" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
-                <SortTh label={isSZS ? "Canal" : "Squad"} col="squadId" align="center" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
+                <SortTh label={"Squad"} col="squadId" align="center" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
                 <SortTh label="Deals" col="totalDeals" align="right" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
                 <SortTh label="Leadtime Médio" col="avgLeadtimeHours" align="right" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
                 <SortTh label="Leadtime Máx" col="maxLeadtimeHours" align="right" sortKey={closerSort} sortDir={closerDir} onSort={toggleCloserSort} />
@@ -223,7 +223,7 @@ export function DiagnosticoVendasView({ data, loading, moduleConfig, lastUpdated
       {/* Filtros + Tabela de Deals */}
       <Section title="Deals Abertos">
         <div style={{ display: "flex", gap: "12px", marginBottom: "12px", flexWrap: "wrap", padding: "12px 16px 0" }}>
-          <FilterSelect label={isSZS ? "Canal" : "Squad"} value={filtroSquad} onChange={setFiltroSquad}
+          <FilterSelect label={"Squad"} value={filtroSquad} onChange={setFiltroSquad}
             options={[{ value: "todos", label: "Todos" }, ...moduleConfig.squads.map((s) => ({ value: String(s.id), label: s.name }))]} />
           <FilterSelect label="Closer" value={filtroCloser} onChange={setFiltroCloser}
             options={[{ value: "todos", label: "Todos" }, ...closerOptions.map((n) => ({ value: n, label: n }))]} />
