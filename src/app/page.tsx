@@ -99,7 +99,7 @@ export default function Dashboard() {
   const [planejData, setPlanejData] = useState<PlanejamentoData | null>(null);
   const [orcData, setOrcData] = useState<OrcamentoData | null>(null);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("paid");
-  const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao" | "sao-paulo" | "salvador" | "florianopolis" | "outros-city">("all");
+  const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao" | "sao-paulo" | "salvador" | "florianopolis" | "outros">("all");
   const [perfData, setPerfData] = useState<PerformanceData | null>(null);
   const [perfDays, setPerfDays] = useState(90);
   const [baselineData, setBaselineData] = useState<BaselineData | null>(null);
@@ -169,7 +169,7 @@ export default function Dashboard() {
     setLoading(true);
     try {
       const isSZS = moduleConfig.id === "szs";
-      const cityFilters = ["sao-paulo", "salvador", "florianopolis", "outros-city"];
+      const cityFilters = ["sao-paulo", "salvador", "florianopolis", "outros"];
       const paramKey = isSZS && cityFilters.includes(filter) ? "city" : "filter";
       const params = filter !== "all" ? `?tab=${tab}&${paramKey}=${filter}` : `?tab=${tab}`;
       const res = await fetch(`${moduleConfig.apiBase}${params}`);

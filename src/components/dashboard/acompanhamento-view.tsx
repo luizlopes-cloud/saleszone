@@ -30,7 +30,7 @@ function rowMinMax(daily: number[]): { min: number; max: number } {
   return { min: Math.min(...nonZero), max: Math.max(...nonZero) };
 }
 
-export type AcompFilter = "all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao" | "sao-paulo" | "salvador" | "florianopolis" | "outros-city";
+export type AcompFilter = "all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao" | "sao-paulo" | "salvador" | "florianopolis" | "outros";
 
 interface Props {
   data: AcompanhamentoData | null;
@@ -293,7 +293,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
               { key: "sao-paulo" as AcompFilter, label: "São Paulo" },
               { key: "salvador" as AcompFilter, label: "Salvador" },
               { key: "florianopolis" as AcompFilter, label: "Florianópolis" },
-              { key: "outros-city" as AcompFilter, label: "Outros" },
+              { key: "outros" as AcompFilter, label: "Outros" },
             ] : [
               { key: "all" as AcompFilter, label: "Geral" },
               { key: "marketing" as AcompFilter, label: "Marketing" },
