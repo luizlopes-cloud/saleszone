@@ -35,12 +35,14 @@ interface Props {
 }
 
 const CHANNEL_ICONS: Record<string, string> = {
+  Geral: "📊",
   "Vendas Diretas": "🎯",
   Parceiros: "🤝",
   "Expansão": "🚀",
 };
 
 const CHANNEL_ACCENT: Record<string, string> = {
+  Geral: "rgba(34,197,94,0.04)",
   "Vendas Diretas": "rgba(59,130,246,0.04)",
   Parceiros: "rgba(168,85,247,0.04)",
   "Expansão": "rgba(234,179,8,0.04)",

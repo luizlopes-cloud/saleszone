@@ -28,9 +28,10 @@ function getCanalGroup(canalId: string): string {
   return CANAL_ID_TO_GROUP[canalId] || "Outros";
 }
 
-const CHANNEL_ORDER = ["Vendas Diretas", "Parceiros", "Expansão"] as const;
+const CHANNEL_ORDER = ["Geral", "Vendas Diretas", "Parceiros", "Expansão"] as const;
 
 const CHANNEL_FILTERS: Record<string, string> = {
+  Geral: "Todos os canais\nExclui: Duplicado/Erro",
   "Vendas Diretas": "Inclui: Marketing, Mônica, Spots, Ind. Colaborador, Eventos, Ind. Clientes, Outros\nExclui: Expansão, Ind. Corretor, Ind. Franquia, Duplicado/Erro",
   Parceiros: "Inclui: Ind. Corretor, Ind. Franquia, Ind. Outros Parceiros\nExclui: Duplicado/Erro",
   "Expansão": "Inclui: Expansão\nExclui: Duplicado/Erro",
@@ -47,6 +48,7 @@ interface ChannelMetas {
 
 const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
   "2026-03": {
+    Geral: { orcamento: 76500, leads: 2500, mql: 3720, sql: 1394, opp: 684, won: 266 },
     "Vendas Diretas": { orcamento: 76500, leads: 2500, mql: 1639, sql: 674, opp: 328, won: 98 },
     Parceiros: { mql: 249, sql: 154, opp: 140, won: 73 },
     "Expansão": { mql: 1832, sql: 566, opp: 216, won: 95 },
@@ -54,6 +56,7 @@ const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
 };
 
 const CHANNEL_CLOSERS: Record<string, string[]> = {
+  Geral: ["Gabriela Lemos", "Gabriela Branco", "Giovanna de Araujo Zanchetta"],
   "Vendas Diretas": ["Gabriela Lemos"],
   Parceiros: ["Gabriela Branco"],
   "Expansão": ["Giovanna de Araujo Zanchetta"],
@@ -124,6 +127,8 @@ export async function GET() {
       const macro = MACRO_CHANNELS[r.canal_group] || "Vendas Diretas";
       const key = r.tab as string;
       channelCounts[macro][key] = (channelCounts[macro][key] || 0) + (r.count || 0);
+      // Also accumulate into Geral
+      channelCounts["Geral"][key] = (channelCounts["Geral"][key] || 0) + (r.count || 0);
     }
 
     const prevRows = await paginate((o, ps) =>
@@ -133,6 +138,7 @@ export async function GET() {
     for (const r of prevRows) {
       const macro = MACRO_CHANNELS[r.canal_group] || "Vendas Diretas";
       prevWon[macro] = (prevWon[macro] || 0) + (r.count || 0);
+      prevWon["Geral"] = (prevWon["Geral"] || 0) + (r.count || 0);
     }
 
     const metaRows = await paginate((o, ps) =>
@@ -160,6 +166,9 @@ export async function GET() {
       snapshots[macro].totalOpen += s.total_open || 0;
       snapshots[macro].agDados += s.ag_dados || 0;
       snapshots[macro].contrato += s.contrato || 0;
+      snapshots["Geral"].totalOpen += s.total_open || 0;
+      snapshots["Geral"].agDados += s.ag_dados || 0;
+      snapshots["Geral"].contrato += s.contrato || 0;
     }
 
     // Fetch snapshot history for charts (last 30 days)
@@ -174,15 +183,17 @@ export async function GET() {
     for (const ch of CHANNEL_ORDER) snapHistMap[ch] = new Map();
     for (const s of snapshotHistory) {
       const macro = MACRO_CHANNELS[s.canal_group] || "Vendas Diretas";
-      const map = snapHistMap[macro];
-      if (!map.has(s.date)) map.set(s.date, { totalOpen: 0, byStage: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 } });
-      const entry = map.get(s.date)!;
-      entry.totalOpen += s.total_open || 0;
-      entry.byStage.mql += s.mql || 0;
-      entry.byStage.sql += s.sql_count || 0;
-      entry.byStage.opp += s.opp || 0;
-      entry.byStage.reserva += s.ag_dados || 0;
-      entry.byStage.contrato += s.contrato || 0;
+      for (const ch of [macro, "Geral"]) {
+        const map = snapHistMap[ch];
+        if (!map.has(s.date)) map.set(s.date, { totalOpen: 0, byStage: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 } });
+        const entry = map.get(s.date)!;
+        entry.totalOpen += s.total_open || 0;
+        entry.byStage.mql += s.mql || 0;
+        entry.byStage.sql += s.sql_count || 0;
+        entry.byStage.opp += s.opp || 0;
+        entry.byStage.reserva += s.ag_dados || 0;
+        entry.byStage.contrato += s.contrato || 0;
+      }
     }
 
     // Pipedrive activities: count meeting activities scheduled for next 7 days
@@ -203,8 +214,10 @@ export async function GET() {
     // Build set of deal_ids with meetings
     const meetingDealIds = [...new Set(meetingActivities.map((a: { deal_id: number }) => a.deal_id).filter(Boolean))];
     // Fetch owner_name for these deals from szs_deals
+    // Map closer → specific channel (not Geral, which accumulates from specifics)
     const CLOSER_NAME_CHANNEL: Record<string, string> = {};
     for (const [ch, closers] of Object.entries(CHANNEL_CLOSERS)) {
+      if (ch === "Geral") continue;
       for (const c of closers) CLOSER_NAME_CHANNEL[c] = ch;
     }
     if (meetingDealIds.length > 0) {
@@ -216,7 +229,10 @@ export async function GET() {
       for (const act of meetingActivities) {
         const owner = dealOwner.get(act.deal_id) || "";
         const macro = CLOSER_NAME_CHANNEL[owner];
-        if (macro) snapshots[macro].agendado++;
+        if (macro) {
+          snapshots[macro].agendado++;
+          snapshots["Geral"].agendado++;
+        }
       }
     }
 
