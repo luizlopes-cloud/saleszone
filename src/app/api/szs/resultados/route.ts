@@ -28,9 +28,9 @@ function getCanalGroup(canalId: string): string {
 const CHANNEL_ORDER = ["Vendas Diretas", "Parceiros", "Expansão"] as const;
 
 const CHANNEL_FILTERS: Record<string, string> = {
-  "Vendas Diretas": "canal_group NOT IN ('Parceiros', 'Expansão') — inclui Marketing, Mônica, Spots, Outros",
-  Parceiros: "canal_group = 'Parceiros' (IDs 582, 583 — indicação corretor/franqueado)",
-  "Expansão": "canal_group = 'Expansão' (ID 1748)",
+  "Vendas Diretas": "canal_group NOT IN ('Parceiros', 'Expansão') · Exclui Duplicado/Erro",
+  Parceiros: "canal_group = 'Parceiros' · Exclui Duplicado/Erro",
+  "Expansão": "canal_group = 'Expansão' · Exclui Duplicado/Erro",
 };
 
 interface ChannelMetas {
@@ -127,10 +127,17 @@ export async function GET() {
     }
 
     const metaRows = await paginate((o, ps) =>
-      admin.from("szs_meta_ads").select("spend_month").range(o, o + ps - 1)
+      admin.from("szs_meta_ads").select("ad_id, spend_month").gte("snapshot_date", startDate).range(o, o + ps - 1)
     );
+    // Dedup: max spend_month per ad_id (multiple snapshots in the month)
+    const adSpend = new Map<string, number>();
+    for (const r of metaRows) {
+      const spend = Number(r.spend_month) || 0;
+      const cur = adSpend.get(r.ad_id) || 0;
+      if (spend > cur) adSpend.set(r.ad_id, spend);
+    }
     let totalSpend = 0;
-    for (const r of metaRows) totalSpend += r.spend_month || 0;
+    for (const v of adSpend.values()) totalSpend += v;
 
     const snapshotDeals = await paginate((o, ps) =>
       admin.from("szs_deals").select("stage_order, canal, status").eq("status", "open").in("stage_order", [STAGE_AG_DADOS, STAGE_CONTRATO, STAGE_AGENDADO]).range(o, o + ps - 1)

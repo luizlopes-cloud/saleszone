@@ -488,6 +488,7 @@ function countDeals(
   for (const deal of deals) {
     // Filter to SZS pipeline only (/deals endpoint returns ALL pipelines)
     if (deal.pipeline_id !== PIPELINE_ID) continue;
+    if (deal.lost_reason === "Duplicado/Erro") continue;
     mkt++;
     const canalGroup = getCanalGroup(deal);
     const emp = getCidade(deal);
@@ -892,6 +893,7 @@ async function getMaxStageReached(apiToken: string, dealId: number, currentOrder
 
 // Count deal into monthly map based on max stage reached
 function countDealByStage(deal: any, maxOrder: number, monthly: Map<string, number>, startDate: string, endDate: string) {
+  if (deal.lost_reason === "Duplicado/Erro") return;
   const addTime = deal.add_time;
   if (!addTime) return;
   const day = addTime.substring(0, 10);
@@ -1077,6 +1079,7 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
 
   function countDeal(deal: any) {
     if (deal.pipeline_id !== PIPELINE_ID) return;
+    if (deal.lost_reason === "Duplicado/Erro") return;
     const canalGroup = getCanalGroup(deal);
     const emp = getCidade(deal);
     const bairro = getBairro(deal);
