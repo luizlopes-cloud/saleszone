@@ -289,7 +289,7 @@ export async function GET(req: NextRequest) {
           // Mídia Paga: leads do Baserow, MQL/SQL/OPP/WON de deals com rd_source "pag"
           const baserowLeads = baserowLeadsMap.get(cidade) || 0;
           const paid = paidCountsMap.get(cidade) || { mql: 0, sql: 0, opp: 0, won: 0 };
-          leads = baserowLeads > 0 ? baserowLeads : cidadeMetaLeads;
+          leads = Math.max(baserowLeads > 0 ? baserowLeads : cidadeMetaLeads, paid.mql);
           mql = paid.mql;
           sql = paid.sql;
           opp = paid.opp;
@@ -299,7 +299,7 @@ export async function GET(req: NextRequest) {
         } else {
           // Geral: leads do Baserow (formulários), MQL de todos os canais
           const baserowLeads = isMarketing ? (baserowLeadsMap.get(cidade) || 0) : 0;
-          leads = baserowLeads > 0 ? baserowLeads : (counts.mql || 0);
+          leads = Math.max(baserowLeads > 0 ? baserowLeads : 0, counts.mql || 0);
           mql = counts.mql || 0;
           sql = counts.sql || 0;
           opp = counts.opp || 0;

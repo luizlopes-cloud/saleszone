@@ -275,10 +275,11 @@ export async function GET(req: NextRequest) {
         let eventos: EventoCoorte;
 
         if (paidOnly) {
-          // Leads = formulários Baserow, MQL/SQL/OPP/WON = deals com rd_source "pag"
+          // Leads = formulários Baserow (ou Meta Ads), garantindo >= MQL
           const baserowLeads = baserowLeadsMap.get(emp) || 0;
           const paid = paidCountsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
-          leads = baserowLeads > 0 ? baserowLeads : meta.leads;
+          const leadsBase = baserowLeads > 0 ? baserowLeads : meta.leads;
+          leads = Math.max(leadsBase, paid.mql);
           mql = paid.mql;
           sql = paid.sql;
           opp = paid.opp;
@@ -294,9 +295,9 @@ export async function GET(req: NextRequest) {
             wonEvento: Math.round(ev.wonEvento * ratio),
           };
         } else {
-          // Leads = formulários preenchidos (Baserow) — fonte real de leads
+          // Leads = formulários preenchidos (Baserow), garantindo >= MQL
           const baserowLeads = baserowLeadsMap.get(emp) || 0;
-          leads = baserowLeads > 0 ? baserowLeads : counts.mql;
+          leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, counts.mql);
           mql = counts.mql;
           sql = counts.sql;
           opp = counts.opp;

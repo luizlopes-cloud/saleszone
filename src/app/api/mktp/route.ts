@@ -15,6 +15,8 @@ for (const [sqId, indices] of Object.entries(mc.squadCloserMap)) {
 }
 const TOTAL_CLOSERS = Object.values(SQUAD_CLOSERS).reduce((a, b) => a + b, 0) || 1;
 const TABS: TabKey[] = ["mql", "sql", "opp", "won"];
+// stage thresholds for mktp_deals.max_stage_order
+const STAGE_THRESHOLDS: Record<TabKey, number> = { mql: 2, sql: 5, opp: 9, won: 14 };
 
 export const dynamic = "force-dynamic";
 
@@ -107,10 +109,32 @@ export async function GET(req: NextRequest) {
     start90.setDate(start90.getDate() - 90);
     const startDate90 = start90.toISOString().substring(0, 10);
 
-    const [nektRes, counts90Res] = await Promise.all([
-      // TODO: MKTP may need a different RPC or metas table
+    // Quando filtro ativo, buscar deals 90d filtrados para ratios precisos
+    const filteredRatioPromise = hasFilter
+      ? (() => {
+          const admin2 = createSquadSupabaseAdmin();
+          return paginate((o, ps) => {
+            let q = admin2
+              .from("mktp_deals")
+              .select("empreendimento, max_stage_order, status, lost_reason")
+              .not("empreendimento", "is", null)
+              .gte("add_time", startDate90);
+            if (ctwaOnly) {
+              q = q.eq("is_marketing", true).eq("rd_source", "Click To WhatsApp");
+            } else if (paidOnly) {
+              q = q.eq("is_marketing", true).ilike("rd_source", "%pag%");
+            } else if (marketingOnly) {
+              q = q.eq("is_marketing", true);
+            }
+            return q.range(o, o + ps - 1);
+          });
+        })()
+      : null;
+
+    const [nektRes, counts90Res, filteredDeals90] = await Promise.all([
       supabase.rpc("get_mktp_meta", { meta_date: metaDateStr }).single(),
       supabase.from("mktp_daily_counts").select("tab, empreendimento, count").gte("date", startDate90).lte("date", endDate),
+      filteredRatioPromise,
     ]);
 
     let metaInfo: MetaInfo | undefined;
@@ -132,11 +156,31 @@ export async function GET(req: NextRequest) {
       for (const sq of mc.squads) {
         squadCounts.set(sq.id, { mql: 0, sql: 0, opp: 0, won: 0 });
       }
-      for (const r of counts90Res.data || []) {
-        for (const sq of mc.squads) {
-          if (squadEmpSets.get(sq.id)!.has(r.empreendimento)) {
-            const c = squadCounts.get(sq.id)!;
-            if (r.tab in c) c[r.tab] += r.count || 0;
+
+      if (hasFilter && filteredDeals90) {
+        // Ratios filtrados: contar MQL/SQL/OPP/WON a partir de mktp_deals (max_stage_order)
+        for (const d of filteredDeals90) {
+          if (d.lost_reason === "Duplicado/Erro") continue;
+          const emp = d.empreendimento;
+          const mso = d.max_stage_order || 0;
+          for (const sq of mc.squads) {
+            if (squadEmpSets.get(sq.id)!.has(emp)) {
+              const c = squadCounts.get(sq.id)!;
+              if (mso >= STAGE_THRESHOLDS.mql) c.mql++;
+              if (mso >= STAGE_THRESHOLDS.sql) c.sql++;
+              if (mso >= STAGE_THRESHOLDS.opp) c.opp++;
+              if (d.status === "won") c.won++;
+            }
+          }
+        }
+      } else {
+        // Geral: ratios de mktp_daily_counts (todos os canais)
+        for (const r of counts90Res.data || []) {
+          for (const sq of mc.squads) {
+            if (squadEmpSets.get(sq.id)!.has(r.empreendimento)) {
+              const c = squadCounts.get(sq.id)!;
+              if (r.tab in c) c[r.tab] += r.count || 0;
+            }
           }
         }
       }

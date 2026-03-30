@@ -232,9 +232,9 @@ export async function GET(req: NextRequest) {
         const baserowLeads = baserowLeadsMap.get(emp) || 0;
         let leads: number;
         if (paidOnly) {
-          leads = baserowLeads > 0 ? baserowLeads : metaLeads;
+          leads = Math.max(baserowLeads > 0 ? baserowLeads : metaLeads, empMql);
         } else {
-          leads = baserowLeads > 0 ? baserowLeads : counts.mql;
+          leads = Math.max(baserowLeads > 0 ? baserowLeads : metaLeads, counts.mql);
         }
 
         // Funil por ad: distribuição proporcional por spend share dentro do empreendimento
