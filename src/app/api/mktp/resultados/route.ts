@@ -30,14 +30,16 @@ interface ChannelMetas {
   sql: number;
   opp: number;
   won: number;
+  reserva?: number;
+  contrato?: number;
 }
 
 const MKTP_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
-  // "2026-03": {
-  //   "Vendas Diretas": { mql: 0, sql: 0, opp: 0, won: 0 },
-  //   Parcerias: { mql: 0, sql: 0, opp: 0, won: 0 },
-  //   "Funil Completo": { mql: 0, sql: 0, opp: 0, won: 0 },
-  // },
+  "2026-03": {
+    "Vendas Diretas": { leads: 3354, mql: 1677, sql: 530, opp: 126, won: 0 },
+    Parcerias: { mql: 31, sql: 23, opp: 17, won: 0 },
+    "Funil Completo": { mql: 1436, sql: 479, opp: 132, won: 0, reserva: 25, contrato: 18 },
+  },
 };
 
 /* ── Types ────────────────────────────────────────────────── */
@@ -53,6 +55,8 @@ interface ChannelResult {
     sql: MetricPair;
     opp: MetricPair;
     won: MetricPair;
+    reserva?: MetricPair;
+    contrato?: MetricPair;
   };
   lastMonthWon: number;
   snapshots: { aguardandoDados: number; emContrato: number };
@@ -226,11 +230,17 @@ export async function GET() {
         won: { real: counts.won || 0, meta: meta.won },
       };
 
-      if (name === "Vendas Diretas" && meta.orcamento != null) {
+      if (meta.orcamento != null) {
         metrics.orcamento = { real: Math.round(totalSpend), meta: meta.orcamento };
       }
       if (meta.leads != null) {
         metrics.leads = { real: counts.mql || 0, meta: meta.leads };
+      }
+      if (meta.reserva != null) {
+        metrics.reserva = { real: snap.reserva, meta: meta.reserva };
+      }
+      if (meta.contrato != null) {
+        metrics.contrato = { real: snap.contrato, meta: meta.contrato };
       }
 
       const histEntries = histMap[name];
