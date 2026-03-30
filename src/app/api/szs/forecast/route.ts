@@ -2,10 +2,10 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import type { ForecastData, ForecastStageSnapshot, ForecastSquadRow } from "@/lib/types";
+import type { ForecastData, ForecastStageSnapshot, ForecastSquadRow, ForecastCloserRow } from "@/lib/types";
 import { paginate } from "@/lib/paginate";
 import { getModuleConfig } from "@/lib/modules";
-import { getSquadIdFromCanalId, getSquadName, SZS_METAS_WON_BY_SQUAD } from "@/lib/szs-utils";
+import { getSquadIdFromCanalId, getSquadName, getCanalGroupFromId, SZS_METAS_WON_BY_SQUAD } from "@/lib/szs-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -166,15 +166,24 @@ export async function GET() {
     }
     const totalWonActual = wonThisMonth.length;
 
-    // --- Pipeline por squad ---
+    // --- Pipeline por squad + canal ---
     const pipelineBySquad: Record<number, number> = {};
     const openBySquadStage: Record<number, Record<number, number>> = {};
+    const wonByCanal: Record<string, number> = {};
+    const pipelineByCanal: Record<string, number> = {};
     for (const d of openDeals) {
       const sqId = getSquadIdFromCanalId(d.canal);
+      const canalKey = `${sqId}|${getCanalGroupFromId(d.canal)}`;
       const so = d.stage_order || 1;
       pipelineBySquad[sqId] = (pipelineBySquad[sqId] || 0) + (convRate[so] || 0);
+      pipelineByCanal[canalKey] = (pipelineByCanal[canalKey] || 0) + (convRate[so] || 0);
       if (!openBySquadStage[sqId]) openBySquadStage[sqId] = {};
       openBySquadStage[sqId][so] = (openBySquadStage[sqId][so] || 0) + 1;
+    }
+    for (const d of wonThisMonth) {
+      const sqId = getSquadIdFromCanalId(d.canal);
+      const canalKey = `${sqId}|${getCanalGroupFromId(d.canal)}`;
+      wonByCanal[canalKey] = (wonByCanal[canalKey] || 0) + 1;
     }
 
     // --- Meta WON por squad (from nekt_meta26_metas, consolidated) ---
@@ -225,10 +234,34 @@ export async function GET() {
           };
         });
 
+        // Build canal-level breakdown for this squad
+        const canalRows: ForecastCloserRow[] = [];
+        const seenCanals = new Set<string>();
+        for (const key of [...Object.keys(wonByCanal), ...Object.keys(pipelineByCanal)]) {
+          if (!key.startsWith(`${sqId}|`)) continue;
+          const canalName = key.split("|")[1];
+          if (seenCanals.has(canalName)) continue;
+          seenCanals.add(canalName);
+          const cWon = wonByCanal[key] || 0;
+          const cPipeline = pipelineByCanal[key] || 0;
+          const cTotal = cWon + cPipeline;
+          canalRows.push({
+            name: canalName,
+            squadId: sqId,
+            wonActual: cWon,
+            pipeline: Math.round(cPipeline * 10) / 10,
+            generation: 0,
+            total: Math.round(cTotal * 10) / 10,
+            meta: 0,
+            pctMeta: 0,
+          });
+        }
+        canalRows.sort((a, b) => b.total - a.total);
+
         return {
           id: sqId,
           name: getSquadName(sqId),
-          closers: [],
+          closers: canalRows,
           wonActual,
           pipeline: Math.round(pipeline * 10) / 10,
           generation: 0,
