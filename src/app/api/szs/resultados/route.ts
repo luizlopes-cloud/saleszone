@@ -59,12 +59,19 @@ const CHANNEL_CLOSERS: Record<string, string[]> = {
   "Expansão": ["Giovanna de Araujo Zanchetta"],
 };
 
+/* ── Closer email → macro channel (for calendar events) ──── */
+const CLOSER_EMAIL_CHANNEL: Record<string, string> = {
+  "maria.amaral@seazone.com.br": "Vendas Diretas",
+  "gabriela.branco@seazone.com.br": "Vendas Diretas",
+  "gabriela.lemos@seazone.com.br": "Vendas Diretas",
+  "giovanna.araujo@seazone.com.br": "Expansão",
+};
+
 const MEETINGS_PER_DAY = 16;
 const WORK_DAYS_PER_WEEK = 5;
 
 const STAGE_AG_DADOS = 11;   // stage_id 152 → stage_order 11
 const STAGE_CONTRATO = 12;   // stage_id 76  → stage_order 12
-const STAGE_AGENDADO = 6;    // stage_id 73  → stage_order 6
 
 interface MetricPair { real: number; meta: number }
 
@@ -143,7 +150,7 @@ export async function GET() {
     for (const v of adSpend.values()) totalSpend += v;
 
     const snapshotDeals = await paginate((o, ps) =>
-      admin.from("szs_deals").select("stage_order, canal, status").eq("status", "open").in("stage_order", [STAGE_AG_DADOS, STAGE_CONTRATO, STAGE_AGENDADO]).range(o, o + ps - 1)
+      admin.from("szs_deals").select("stage_order, canal, status").eq("status", "open").in("stage_order", [STAGE_AG_DADOS, STAGE_CONTRATO]).range(o, o + ps - 1)
     );
     const snapshots: Record<string, { agDados: number; contrato: number; agendado: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { agDados: 0, contrato: 0, agendado: 0 };
@@ -152,7 +159,19 @@ export async function GET() {
       const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
       if (d.stage_order === STAGE_AG_DADOS) snapshots[macro].agDados++;
       else if (d.stage_order === STAGE_CONTRATO) snapshots[macro].contrato++;
-      else if (d.stage_order === STAGE_AGENDADO) snapshots[macro].agendado++;
+    }
+
+    // Calendar: count meetings scheduled in next 7 days per closer
+    const today = now.toISOString().substring(0, 10);
+    const next7 = new Date(now);
+    next7.setDate(next7.getDate() + 6);
+    const next7Str = next7.toISOString().substring(0, 10);
+    const calendarRows = await paginate((o, ps) =>
+      admin.from("szs_calendar_events").select("closer_email, cancelou").gte("dia", today).lte("dia", next7Str).eq("cancelou", false).range(o, o + ps - 1)
+    );
+    for (const ev of calendarRows) {
+      const macro = CLOSER_EMAIL_CHANNEL[ev.closer_email];
+      if (macro) snapshots[macro].agendado++;
     }
 
     const historyRows = await paginate((o, ps) =>
