@@ -1,24 +1,17 @@
-// SZS (Serviços) module — alinhamento por cidade e analista
+// SZS (Serviços) module — alinhamento por canal e analista
 import { NextResponse } from "next/server";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { AlinhamentoData } from "@/lib/types";
 import { paginate } from "@/lib/paginate";
+import {
+  getSquadIdFromCanalGroup,
+  getCanalGroupFromId,
+} from "@/lib/szs-utils";
 
 const mc = getModuleConfig("szs");
 
 export const dynamic = "force-dynamic";
-
-// Agrupar cidades em 4 grupos
-function getCidadeGroup(cidade: string): string {
-  const lower = cidade.toLowerCase();
-  if (lower.includes("são paulo") || lower.includes("sao paulo")) return "São Paulo";
-  if (lower.includes("salvador")) return "Salvador";
-  if (lower.includes("florianópolis") || lower.includes("florianopolis")) return "Florianópolis";
-  return "Outros";
-}
-
-const CIDADE_GROUP_ORDER = ["São Paulo", "Salvador", "Florianópolis", "Outros"];
 
 function normalize(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
@@ -33,25 +26,22 @@ export async function GET() {
   try {
     const admin = createSquadSupabaseAdmin();
 
-    // Buscar deals abertos do SZS direto de szs_deals
     const deals = await paginate((o, ps) =>
       admin
         .from("szs_deals")
-        .select("empreendimento, owner_name, preseller_name, lost_reason")
+        .select("empreendimento, canal, owner_name, preseller_name, lost_reason")
         .eq("status", "open")
         .not("empreendimento", "is", null)
         .range(o, o + ps - 1)
     );
 
-    // Agrupar deals por grupo de cidade × owner
+    // Group deals by canal_group × owner
     const groupOwner = new Map<string, Map<string, number>>();
     for (const d of deals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const cidade = d.empreendimento;
-      if (!cidade) continue;
-      const group = getCidadeGroup(cidade);
-      if (!groupOwner.has(group)) groupOwner.set(group, new Map());
-      const ownerMap = groupOwner.get(group)!;
+      const canalGroup = getCanalGroupFromId(String(d.canal || ""));
+      if (!groupOwner.has(canalGroup)) groupOwner.set(canalGroup, new Map());
+      const ownerMap = groupOwner.get(canalGroup)!;
       const owner = d.owner_name || "Sem owner";
       ownerMap.set(owner, (ownerMap.get(owner) || 0) + 1);
     }
@@ -59,9 +49,15 @@ export async function GET() {
     const PV_COLS = mc.presellers;
     const V_COLS = mc.closers;
 
-    // Build rows: 4 grupos como "empreendimentos" de 1 squad
-    const rows = CIDADE_GROUP_ORDER.map((group, idx) => {
-      const owners = groupOwner.get(group) || new Map<string, number>();
+    // Build rows: canals as sub-rows, grouped by squad
+    const rows: AlinhamentoData["rows"] = [];
+    const allCanalGroups = Array.from(groupOwner.keys()).sort();
+
+    for (const canalGroup of allCanalGroups) {
+      const owners = groupOwner.get(canalGroup) || new Map<string, number>();
+      const sqId = getSquadIdFromCanalGroup(canalGroup);
+      const sqName = mc.squads.find((s) => s.id === sqId)?.name || `Squad ${sqId}`;
+
       const pv: Record<string, number> = {};
       const v: Record<string, number> = {};
 
@@ -81,15 +77,18 @@ export async function GET() {
         v[col] = total;
       });
 
-      return {
-        sqId: 1,
-        sqName: "Serviços",
-        emp: group,
+      rows.push({
+        sqId,
+        sqName,
+        emp: canalGroup,
         correctPV: "",
         correctV: "",
         cells: { pv, v },
-      };
-    });
+      });
+    }
+
+    // Sort by squad then canal name
+    rows.sort((a, b) => a.sqId - b.sqId || a.emp.localeCompare(b.emp));
 
     // Stats
     let total = 0;
