@@ -84,14 +84,14 @@ export async function GET() {
         link: `https://${PIPEDRIVE_DOMAIN}/deal/${deal.deal_id}`,
       };
 
-      // Check PV misalignment
-      if (matchedPV && !matchOwner(info.correctPV, deal.owner_name)) {
+      // Check PV misalignment — skip if single squad (all PVs belong to same squad)
+      if (mc.squads.length > 1 && matchedPV && !matchOwner(info.correctPV, deal.owner_name)) {
         if (!byPerson.has(matchedPV)) byPerson.set(matchedPV, { role: "pv", deals: [] });
         byPerson.get(matchedPV)!.deals.push(dealInfo);
       }
 
-      // Check V misalignment
-      if (matchedV) {
+      // Check V misalignment — skip if single squad
+      if (mc.squads.length > 1 && matchedV) {
         const vIdx = V_COLS.indexOf(matchedV);
         if (!info.correctVIndices.includes(vIdx)) {
           if (!byPerson.has(matchedV)) byPerson.set(matchedV, { role: "v", deals: [] });

@@ -568,6 +568,8 @@ export default function Dashboard() {
   const handleModuleChange = (modId: string) => {
     setActiveModule(modId);
     localStorage.setItem("activeModule", modId);
+    // Reset mainView to default tab for the new module
+    setMainView("acompanhamento");
     clearAllCaches();
   };
 

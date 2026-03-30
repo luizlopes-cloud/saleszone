@@ -192,27 +192,76 @@ export async function GET(request: NextRequest) {
       snapshots["Geral"].contrato += s.contrato || 0;
     }
 
-    // Build chart history from szs_daily_counts (last 28 days)
+    /* ── Chart history — cumulative open deals from szs_deals (daily snapshot) ── */
+    // Fetch ALL deals (open + won + lost in period) to build accurate daily snapshot.
+    // A deal counts as "open" on each day between its add_time and close time (won_time/lost_time).
     const cutoff28 = new Date(now);
     cutoff28.setDate(cutoff28.getDate() - 28);
     const cutoff28Str = cutoff28.toISOString().substring(0, 10);
-    const histChartRows = await paginate((o, ps) =>
-      admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count").gte("date", cutoff28Str).range(o, o + ps - 1)
+    const histDeals = await paginate((o, ps) =>
+      admin
+        .from("szs_deals")
+        .select("canal, add_time, won_time, lost_time, status, max_stage_order, empreendimento")
+        .not("add_time", "is", null)
+        .or(`status.eq.open,won_time.gte.${cutoff28Str},lost_time.gte.${cutoff28Str}`)
+        .range(o, o + ps - 1)
     );
-    const snapHistMap: Record<string, Map<string, { totalOpen: number; byStage: Record<string, number> }>> = {};
-    for (const ch of CHANNEL_ORDER) snapHistMap[ch] = new Map();
-    for (const r of histChartRows) {
-      if (cityFilter && getCidadeGroup(r.empreendimento || "") !== cityFilter) continue;
-      const macro = MACRO_CHANNELS[r.canal_group] || "Vendas Diretas";
-      const tab = r.tab as string;
-      if (!["mql", "sql", "opp", "won", "reserva", "contrato"].includes(tab)) continue;
-      for (const ch of [macro, "Geral"]) {
-        const map = snapHistMap[ch];
-        if (!map.has(r.date)) map.set(r.date, { totalOpen: 0, byStage: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 } });
-        const entry = map.get(r.date)!;
-        entry.totalOpen += r.count || 0;
-        entry.byStage[tab] = (entry.byStage[tab] || 0) + (r.count || 0);
+
+    // Stage thresholds for SZS: MQL>=1, SQL>=4, OPP>=9, agDados>=11, contrato>=12
+    const HIST_STAGES = ["mql", "sql", "opp", "agDados", "contrato"] as const;
+    const HIST_STAGE_MIN: Record<string, number> = { mql: 1, sql: 4, opp: 9, agDados: 11, contrato: 12 };
+
+    // Build date range for last 28 days
+    const allHistDates: string[] = [];
+    const hd = new Date(cutoff28Str + "T12:00:00");
+    const todayDate2 = new Date(todayStr + "T12:00:00");
+    while (hd <= todayDate2) { allHistDates.push(hd.toISOString().substring(0, 10)); hd.setDate(hd.getDate() + 1); }
+
+    // Build daily snapshots efficiently using delta approach
+    const dateIdx = new Map<string, number>();
+    allHistDates.forEach((d, i) => dateIdx.set(d, i));
+    const N = allHistDates.length;
+
+    type ChannelDeltas = { total: number[]; mql: number[]; sql: number[]; opp: number[]; agDados: number[]; contrato: number[] };
+    const makeDeltas = (): ChannelDeltas => ({ total: new Array(N).fill(0), mql: new Array(N).fill(0), sql: new Array(N).fill(0), opp: new Array(N).fill(0), agDados: new Array(N).fill(0), contrato: new Array(N).fill(0) });
+    const deltas: Record<string, ChannelDeltas> = {};
+    for (const ch of CHANNEL_ORDER) deltas[ch] = makeDeltas();
+
+    for (const deal of histDeals) {
+      if (cityFilter && getCidadeGroup(deal.empreendimento || "") !== cityFilter) continue;
+      const canalGroup = getCanalGroup(String(deal.canal || ""));
+      const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
+      const mso = deal.max_stage_order || 0;
+      const channels = [macro, "Geral"];
+
+      const addDate = (deal.add_time || "").substring(0, 10);
+      const closeDate = deal.status !== "open" ? (deal.won_time || deal.lost_time || "").substring(0, 10) : "";
+
+      let startIdx = dateIdx.get(addDate) ?? (addDate < allHistDates[0] ? 0 : -1);
+      if (startIdx < 0) continue;
+      let endIdx = closeDate ? (dateIdx.get(closeDate) ?? (closeDate > allHistDates[N - 1] ? N : -1)) : N;
+      if (endIdx < 0) endIdx = 0;
+
+      for (const ch of channels) {
+        if (ch !== "Geral" && ch !== macro) continue;
+        const d = deltas[ch];
+        d.total[startIdx]++; if (endIdx < N) d.total[endIdx]--;
+        for (const s of HIST_STAGES) {
+          if (mso >= HIST_STAGE_MIN[s]) { d[s as keyof ChannelDeltas][startIdx]++; if (endIdx < N) d[s as keyof ChannelDeltas][endIdx]--; }
+        }
       }
+    }
+
+    const cumulativeHist: Record<string, { date: string; total: number; byStage: Record<string, number> }[]> = {};
+    for (const ch of CHANNEL_ORDER) {
+      const d = deltas[ch];
+      const arr: { date: string; total: number; byStage: Record<string, number> }[] = [];
+      let ct = 0, cm = 0, cs = 0, co = 0, ca = 0, cc = 0;
+      for (let i = 0; i < N; i++) {
+        ct += d.total[i]; cm += d.mql[i]; cs += d.sql[i]; co += d.opp[i]; ca += d.agDados[i]; cc += d.contrato[i];
+        arr.push({ date: allHistDates[i], total: ct, byStage: { mql: cm, sql: cs, opp: co, agDados: ca, contrato: cc } });
+      }
+      cumulativeHist[ch] = arr;
     }
 
     // Accumulated: deals that reached Ag.Dados (>=11) and Contrato (>=12) this month
@@ -333,16 +382,13 @@ export async function GET(request: NextRequest) {
       if (meta.orcamento != null) metrics.orcamento = { real: Math.round(totalSpend), meta: meta.orcamento };
       if (meta.leads != null) metrics.leads = { real: counts.mql || 0, meta: meta.leads };
 
-      // Charts use snapshot history (szs_open_snapshots)
-      const snapHist = snapHistMap[name];
-      const dealsHistory = Array.from(snapHist.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, entry]) => ({
-          date,
-          total: 0,
-          openTotal: entry.totalOpen,
-          byStage: entry.byStage,
-        }));
+      // Charts use daily snapshot from szs_deals
+      const dealsHistory = (cumulativeHist[name] || []).map((entry) => ({
+        date: entry.date,
+        total: entry.total,
+        openTotal: entry.total,
+        byStage: entry.byStage,
+      }));
 
       return {
         name,
