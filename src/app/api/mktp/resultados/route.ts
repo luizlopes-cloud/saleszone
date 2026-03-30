@@ -36,7 +36,7 @@ interface ChannelMetas {
 
 const MKTP_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
   "2026-03": {
-    "Vendas Diretas": { orcamento: 76500, leads: 3354, mql: 1677, sql: 530, opp: 126, won: 9 },
+    "Vendas Diretas": { orcamento: 65000, leads: 3354, mql: 1677, sql: 530, opp: 126, won: 9 },
     Parcerias: { mql: 31, sql: 23, opp: 17, won: 6 },
     "Funil Completo": { leads: 3354, mql: 1677, sql: 530, opp: 126, won: 15, reserva: 25, contrato: 18 },
   },
@@ -192,12 +192,18 @@ export async function GET() {
       }
     }
 
-    /* ── 4. Meta Ads spend ─────────────────────────────────── */
+    /* ── 4. Meta Ads spend (max por ad_id, soma = gasto real do mês) ── */
     const metaRows = await paginate((o, ps) =>
-      admin.from("mktp_meta_ads").select("spend_month").range(o, o + ps - 1)
+      admin.from("mktp_meta_ads").select("ad_id, spend_month").range(o, o + ps - 1)
     );
+    const spendByAd = new Map<string, number>();
+    for (const r of metaRows) {
+      const adId = r.ad_id as string;
+      const spend = r.spend_month || 0;
+      spendByAd.set(adId, Math.max(spendByAd.get(adId) || 0, spend));
+    }
     let totalSpend = 0;
-    for (const r of metaRows) totalSpend += r.spend_month || 0;
+    for (const v of spendByAd.values()) totalSpend += v;
 
     /* ── 5. Snapshots from open deals ──────────────────────── */
     const snapshotDeals = await paginate((o, ps) =>
