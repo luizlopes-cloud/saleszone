@@ -160,24 +160,24 @@ function countDeals(
   deals: any[], startDate: string, endDate: string,
   countsPerTab: Record<Tab, Map<string, number>>,
 ) {
-  let total = 0;
+  let mkt = 0;
   for (const deal of deals) {
     // Filter to MKTP pipeline only (/deals endpoint returns ALL pipelines)
     if (deal.pipeline_id !== PIPELINE_ID) continue;
-    total++;
+    if (!isMarketingDeal(deal)) continue;
+    mkt++;
     const emp = getEmpreendimento(deal);
     if (!emp) continue;
-    const canalGroup = getCanalGroup(deal);
     for (const tab of TABS) {
       const dateStr = getDateField(deal, tab);
       if (!dateStr) continue;
       const day = dateStr.substring(0, 10);
       if (day < startDate || day > endDate) continue;
-      const key = `${day}|${canalGroup}|${emp}`;
+      const key = `${day}|${emp}`;
       countsPerTab[tab].set(key, (countsPerTab[tab].get(key) || 0) + 1);
     }
   }
-  return total;
+  return mkt;
 }
 
 // ---- Write counts to DB ----
@@ -187,8 +187,8 @@ async function writeDailyCounts(supabase: any, countsPerTab: Record<Tab, Map<str
     const final = countsPerTab[tab];
 
     const rows = Array.from(final.entries()).map(([key, count]) => {
-      const [date, canal_group, empreendimento] = key.split("|");
-      return { date, tab, canal_group, empreendimento, count, source, synced_at: new Date().toISOString() };
+      const [date, empreendimento] = key.split("|");
+      return { date, tab, empreendimento, count, source, synced_at: new Date().toISOString() };
     });
 
     // Delete only rows from THIS source (idempotent — each source replaces only itself)

@@ -3,30 +3,26 @@ import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { paginate } from "@/lib/paginate";
 
 /* ── Channel definitions ──────────────────────────────────── */
-// canal_group values in mktp_daily_counts: "Vendas Diretas" | "Parcerias"
-// "Funil Completo" is computed by summing ALL rows regardless of canal_group
-
 const CHANNEL_ORDER = ["Vendas Diretas", "Parcerias", "Funil Completo"] as const;
 type MktpChannel = (typeof CHANNEL_ORDER)[number];
 
 const CHANNEL_FILTERS: Record<MktpChannel, string> = {
-  "Vendas Diretas": "canal_group = 'Vendas Diretas' — todos os canais exceto parcerias",
-  Parcerias: "canal_group = 'Parcerias' (IDs 582, 583, 2876)",
-  "Funil Completo": "Todos os canais combinados (Vendas Diretas + Parcerias)",
+  "Vendas Diretas": "canal NOT IN (582, 583, 2876) — todos os canais exceto parcerias",
+  Parcerias: "canal IN (582, 583, 2876) — Indicação Corretor + Franquia + Outros Parceiros",
+  "Funil Completo": "Todos os canais combinados",
 };
 
-/* ── Canal ID → group (for mktp_deals which stores raw canal IDs) ── */
 const PARCERIA_CANAL_IDS = new Set(["582", "583", "2876"]);
 
-function getCanalGroup(canalId: string): MktpChannel {
+function getCanalGroup(canalId: string): "Vendas Diretas" | "Parcerias" {
   return PARCERIA_CANAL_IDS.has(canalId) ? "Parcerias" : "Vendas Diretas";
 }
 
-/* ── Stage IDs in mktp_deals ─────────────────────────────── */
-const STAGE_RESERVA = 305;   // "Reserva" (equivalent to Ag. Dados in SZS)
-const STAGE_CONTRATO = 271;  // "Contrato"
+/* ── Stage IDs (pipeline 37) ─────────────────────────────── */
+const STAGE_RESERVA = 305;
+const STAGE_CONTRATO = 271;
 
-/* ── Metas (zeros — to be filled later) ──────────────────── */
+/* ── Metas (preencher com valores reais) ─────────────────── */
 interface ChannelMetas {
   orcamento?: number;
   leads?: number;
@@ -37,20 +33,12 @@ interface ChannelMetas {
 }
 
 const MKTP_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
-  // Will be populated later
   // "2026-03": {
   //   "Vendas Diretas": { mql: 0, sql: 0, opp: 0, won: 0 },
   //   Parcerias: { mql: 0, sql: 0, opp: 0, won: 0 },
   //   "Funil Completo": { mql: 0, sql: 0, opp: 0, won: 0 },
   // },
 };
-
-/* ── Closers ──────────────────────────────────────────────── */
-// const CHANNEL_CLOSERS: Record<string, string[]> = {
-//   "Vendas Diretas": ["Nevine", "Willian Miranda"],
-//   Parcerias: [],
-//   "Funil Completo": [],
-// };
 
 /* ── Types ────────────────────────────────────────────────── */
 interface MetricPair { real: number; meta: number }
@@ -79,6 +67,16 @@ interface ResultadosMKTPData {
 
 export const dynamic = "force-dynamic";
 
+/* ── Tab → date column in mktp_deals ─────────────────────── */
+const TAB_DATE_COL: Record<string, string> = {
+  mql: "add_time",
+  sql: "qualificacao_date",
+  opp: "reuniao_date",
+  won: "won_time",
+};
+
+const TABS = ["mql", "sql", "opp", "won"] as const;
+
 export async function GET() {
   try {
     const admin = createSquadSupabaseAdmin();
@@ -97,63 +95,78 @@ export async function GET() {
     cutoff90.setDate(cutoff90.getDate() - 90);
     const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
-    /* ── 1. Current month counts from mktp_daily_counts ────── */
-    const countsRows = await paginate((o, ps) =>
+    /* ── 1. Fetch all deals from mktp_deals for current + previous month + 90d history ── */
+    const allDeals = await paginate((o, ps) =>
       admin
-        .from("mktp_daily_counts")
-        .select("date, tab, canal_group, count")
-        .gte("date", startDate)
+        .from("mktp_deals")
+        .select("canal, status, stage_id, add_time, won_time, qualificacao_date, reuniao_date")
+        .gte("add_time", cutoffDate)
         .range(o, o + ps - 1)
     );
 
-    // Accumulate per channel (Vendas Diretas / Parcerias) + Funil Completo (all)
+    // Also fetch won deals that may have add_time before cutoff but won_time in range
+    const wonDeals = await paginate((o, ps) =>
+      admin
+        .from("mktp_deals")
+        .select("canal, status, stage_id, add_time, won_time, qualificacao_date, reuniao_date")
+        .eq("status", "won")
+        .gte("won_time", prevStart)
+        .lt("add_time", cutoffDate)
+        .range(o, o + ps - 1)
+    );
+
+    // Merge, dedup by combining (won deals with old add_time but recent won_time)
+    const dealMap = new Map<string, any>();
+    for (const d of allDeals) {
+      const key = `${d.canal}|${d.add_time}|${d.status}|${d.stage_id}`;
+      dealMap.set(key, d);
+    }
+    for (const d of wonDeals) {
+      const key = `${d.canal}|${d.add_time}|${d.status}|${d.stage_id}`;
+      dealMap.set(key, d);
+    }
+    const deals = Array.from(dealMap.values());
+
+    /* ── 2. Count funnel by channel for current month ──────── */
     const channelCounts: Record<string, Record<string, number>> = {};
     for (const ch of CHANNEL_ORDER) channelCounts[ch] = {};
 
-    for (const r of countsRows) {
-      const group = (r.canal_group as string) || "Vendas Diretas";
-      const key = r.tab as string;
-      const val = r.count || 0;
-
-      // Assign to specific channel group
-      channelCounts[group][key] = (channelCounts[group][key] || 0) + val;
-
-      // Always add to Funil Completo
-      channelCounts["Funil Completo"][key] = (channelCounts["Funil Completo"][key] || 0) + val;
+    for (const deal of deals) {
+      const group = getCanalGroup(String(deal.canal || ""));
+      for (const tab of TABS) {
+        const dateCol = TAB_DATE_COL[tab];
+        const dateVal = deal[dateCol];
+        if (!dateVal) continue;
+        const day = dateVal.substring(0, 10);
+        if (day < startDate) continue; // only current month
+        channelCounts[group][tab] = (channelCounts[group][tab] || 0) + 1;
+        channelCounts["Funil Completo"][tab] = (channelCounts["Funil Completo"][tab] || 0) + 1;
+      }
     }
 
-    /* ── 2. Previous month WON ──────────────────────────────── */
-    const prevRows = await paginate((o, ps) =>
-      admin
-        .from("mktp_daily_counts")
-        .select("canal_group, count")
-        .eq("tab", "won")
-        .gte("date", prevStart)
-        .lte("date", prevEnd)
-        .range(o, o + ps - 1)
-    );
-
+    /* ── 3. Previous month WON ─────────────────────────────── */
     const prevWon: Record<string, number> = {};
-    for (const r of prevRows) {
-      const group = (r.canal_group as string) || "Vendas Diretas";
-      const val = r.count || 0;
-      prevWon[group] = (prevWon[group] || 0) + val;
-      prevWon["Funil Completo"] = (prevWon["Funil Completo"] || 0) + val;
+    for (const deal of deals) {
+      if (deal.status !== "won") continue;
+      const wonDate = deal.won_time?.substring(0, 10);
+      if (!wonDate || wonDate < prevStart || wonDate > prevEnd) continue;
+      const group = getCanalGroup(String(deal.canal || ""));
+      prevWon[group] = (prevWon[group] || 0) + 1;
+      prevWon["Funil Completo"] = (prevWon["Funil Completo"] || 0) + 1;
     }
 
-    /* ── 3. Meta Ads spend ──────────────────────────────────── */
+    /* ── 4. Meta Ads spend ─────────────────────────────────── */
     const metaRows = await paginate((o, ps) =>
       admin.from("mktp_meta_ads").select("spend_month").range(o, o + ps - 1)
     );
     let totalSpend = 0;
     for (const r of metaRows) totalSpend += r.spend_month || 0;
 
-    /* ── 4. Snapshots from mktp_deals ──────────────────────── */
-    // mktp_deals uses stage_id (not stage_order)
+    /* ── 5. Snapshots from open deals ──────────────────────── */
     const snapshotDeals = await paginate((o, ps) =>
       admin
         .from("mktp_deals")
-        .select("stage_id, canal, status")
+        .select("stage_id, canal")
         .eq("status", "open")
         .in("stage_id", [STAGE_RESERVA, STAGE_CONTRATO])
         .range(o, o + ps - 1)
@@ -173,37 +186,32 @@ export async function GET() {
       }
     }
 
-    /* ── 5. Deals history (90 days) ────────────────────────── */
-    const historyRows = await paginate((o, ps) =>
-      admin
-        .from("mktp_daily_counts")
-        .select("date, tab, canal_group, count")
-        .gte("date", cutoffDate)
-        .range(o, o + ps - 1)
-    );
-
-    // Map: channel → date → tab → count
+    /* ── 6. History (90 days) for charts ───────────────────── */
     const histMap: Record<string, Map<string, Record<string, number>>> = {};
     for (const ch of CHANNEL_ORDER) histMap[ch] = new Map();
 
-    for (const r of historyRows) {
-      const group = (r.canal_group as string) || "Vendas Diretas";
-      const val = r.count || 0;
-      const date = r.date as string;
-      const tab = r.tab as string;
+    for (const deal of deals) {
+      const group = getCanalGroup(String(deal.canal || ""));
+      for (const tab of TABS) {
+        const dateCol = TAB_DATE_COL[tab];
+        const dateVal = deal[dateCol];
+        if (!dateVal) continue;
+        const day = dateVal.substring(0, 10);
+        if (day < cutoffDate) continue;
 
-      // Add to specific channel
-      if (!histMap[group].has(date)) histMap[group].set(date, {});
-      const entry = histMap[group].get(date)!;
-      entry[tab] = (entry[tab] || 0) + val;
+        // Specific channel
+        if (!histMap[group].has(day)) histMap[group].set(day, {});
+        const entry = histMap[group].get(day)!;
+        entry[tab] = (entry[tab] || 0) + 1;
 
-      // Add to Funil Completo
-      if (!histMap["Funil Completo"].has(date)) histMap["Funil Completo"].set(date, {});
-      const fcEntry = histMap["Funil Completo"].get(date)!;
-      fcEntry[tab] = (fcEntry[tab] || 0) + val;
+        // Funil Completo
+        if (!histMap["Funil Completo"].has(day)) histMap["Funil Completo"].set(day, {});
+        const fcEntry = histMap["Funil Completo"].get(day)!;
+        fcEntry[tab] = (fcEntry[tab] || 0) + 1;
+      }
     }
 
-    /* ── 6. Build response ──────────────────────────────────── */
+    /* ── 7. Build response ─────────────────────────────────── */
     const metas = MKTP_RESULTADOS_METAS[monthKey] || {};
 
     const channels: ChannelResult[] = CHANNEL_ORDER.map((name) => {
@@ -218,7 +226,6 @@ export async function GET() {
         won: { real: counts.won || 0, meta: meta.won },
       };
 
-      // Orcamento only for Vendas Diretas (paid spend goes to that channel)
       if (name === "Vendas Diretas" && meta.orcamento != null) {
         metrics.orcamento = { real: Math.round(totalSpend), meta: meta.orcamento };
       }
@@ -241,7 +248,6 @@ export async function GET() {
         metrics,
         lastMonthWon: prevWon[name] || 0,
         snapshots: { aguardandoDados: snap.reserva, emContrato: snap.contrato },
-        // MKTP has no Agendado stage — set to 0
         ocupacaoAgenda: { agendadas: 0, capacidade: 0, percent: 0 },
         dealsHistory,
       };
