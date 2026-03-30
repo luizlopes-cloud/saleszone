@@ -138,13 +138,13 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
               }}
             >
               {([
+                ...(activeModule === "szs" ? [{ key: "resultados-szs", label: "Resultados SZS", icon: <BarChart3 size={13} /> }] : []),
                 ...(activeModule === "szi" ? [{ key: "geral", label: "Resultados SZNI", icon: <Layers size={13} /> }] : []),
+                ...(activeModule === "mktp" ? [{ key: "resultados-mktp", label: "Resultados MKTP", icon: <BarChart3 size={13} /> }] : []),
                 { key: "resultados", label: "Funil", icon: <TrendingUp size={13} /> },
                 { key: "acompanhamento", label: "Acompanhamento", icon: <BarChart3 size={13} /> },
                 { key: "forecast", label: "Forecast", icon: <Target size={13} /> },
                 { key: "mensal", label: "Mensal", icon: <Calendar size={13} /> },
-                ...(activeModule === "szs" ? [{ key: "resultados-szs", label: "Resultados SZS", icon: <BarChart3 size={13} /> }] : []),
-                ...(activeModule === "mktp" ? [{ key: "resultados-mktp", label: "Resultados MKTP", icon: <BarChart3 size={13} /> }] : []),
               ] as Array<{ key: string; label: string; icon: React.ReactNode }>).map((item) => (
                 <button
                   key={item.key}
