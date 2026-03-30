@@ -99,18 +99,34 @@ function ProgressBar({ label, real, meta, isMoney }: { label: string; real: numb
 
 function AreaChart({ data, color }: { data: { date: string; value: number }[]; color: string }) {
   const [hover, setHover] = useState<number | null>(null);
-  if (data.length < 2) return <div style={{ fontSize: 11, color: T.cinza400, padding: 20, textAlign: "center" }}>Dados insuficientes</div>;
+  if (data.length === 0) return <div style={{ fontSize: 11, color: T.cinza400, padding: 20, textAlign: "center" }}>Sem dados</div>;
   const maxVal = Math.max(...data.map((d) => d.value), 1);
   const W = 500;
   const H = 70;
+  const last = data[data.length - 1];
+  const active = hover !== null ? data[hover] : null;
+
+  if (data.length === 1) {
+    // Single point: show centered dot
+    const cy = H / 2;
+    return (
+      <div style={{ position: "relative" }}>
+        <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+          <circle cx={W / 2} cy={cy} r={4} fill={color} />
+        </svg>
+        <div style={{ position: "absolute", top: -2, right: 0, fontSize: 10, color, fontWeight: 600 }}>
+          Hoje: {last.value}
+        </div>
+      </div>
+    );
+  }
+
   const points = data.map((d, i) => ({
     x: (i / (data.length - 1)) * W,
     y: H - (d.value / maxVal) * (H - 5),
   }));
   const line = points.map((p) => `${p.x},${p.y}`).join(" L");
   const area = `M${line} L${W},${H} L0,${H} Z`;
-  const last = data[data.length - 1];
-  const active = hover !== null ? data[hover] : null;
 
   return (
     <div style={{ position: "relative" }}>
@@ -163,55 +179,67 @@ const STAGE_LABELS: Record<string, string> = {
 
 function MultiLineChart({ data }: { data: { date: string; byStage: Record<string, number> }[] }) {
   const [hover, setHover] = useState<number | null>(null);
-  if (data.length < 2) return <div style={{ fontSize: 11, color: T.cinza400, padding: 20, textAlign: "center" }}>Dados insuficientes</div>;
+  if (data.length === 0) return <div style={{ fontSize: 11, color: T.cinza400, padding: 20, textAlign: "center" }}>Sem dados</div>;
   const stages = Object.keys(STAGE_COLORS);
+  const last = data[data.length - 1];
+  const active = hover !== null ? data[hover] : null;
+  const display = active || last;
   const maxVal = Math.max(...data.flatMap((d) => stages.map((s) => d.byStage[s] || 0)), 1);
   const W = 500;
   const H = 70;
-  const active = hover !== null ? data[hover] : null;
-  const last = data[data.length - 1];
-  const display = active || last;
 
   return (
     <div style={{ position: "relative" }}>
-      <svg
-        width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
-        onMouseMove={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          const x = (e.clientX - rect.left) / rect.width;
-          const idx = Math.round(x * (data.length - 1));
-          setHover(Math.max(0, Math.min(data.length - 1, idx)));
-        }}
-        onMouseLeave={() => setHover(null)}
-        style={{ cursor: "crosshair" }}
-      >
-        {stages.map((stage) => {
-          const points = data.map((d, i) => {
-            const x = (i / (data.length - 1)) * W;
-            const y = H - ((d.byStage[stage] || 0) / maxVal) * (H - 5);
-            return `${x},${y}`;
-          });
-          const isDashed = stage === "reserva" || stage === "contrato";
-          return (
-            <path
-              key={stage}
-              d={`M${points.join(" L")}`}
-              fill="none"
-              stroke={STAGE_COLORS[stage]}
-              strokeWidth={1.5}
-              strokeDasharray={isDashed ? "4" : undefined}
-            />
-          );
+      {data.length === 1 ? (
+        <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+          {stages.map((stage) => {
+            const val = last.byStage[stage] || 0;
+            const cy = H - (val / maxVal) * (H - 5);
+            return <circle key={stage} cx={W / 2} cy={cy} r={3} fill={STAGE_COLORS[stage]} />;
+          })}
+        </svg>
+      ) : (
+        <svg
+          width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = (e.clientX - rect.left) / rect.width;
+            const idx = Math.round(x * (data.length - 1));
+            setHover(Math.max(0, Math.min(data.length - 1, idx)));
+          }}
+          onMouseLeave={() => setHover(null)}
+          style={{ cursor: "crosshair" }}
+        >
+          {stages.map((stage) => {
+            const points = data.map((d, i) => {
+              const x = (i / (data.length - 1)) * W;
+              const y = H - ((d.byStage[stage] || 0) / maxVal) * (H - 5);
+              return `${x},${y}`;
+            });
+            const isDashed = stage === "reserva" || stage === "contrato";
+            return (
+              <path
+                key={stage}
+                d={`M${points.join(" L")}`}
+                fill="none"
+                stroke={STAGE_COLORS[stage]}
+                strokeWidth={1.5}
+                strokeDasharray={isDashed ? "4" : undefined}
+              />
+            );
+          })}
+          {hover !== null && (
+            <line x1={(hover / (data.length - 1)) * W} y1={0} x2={(hover / (data.length - 1)) * W} y2={H} stroke={T.cinza400} strokeWidth={1} opacity={0.5} strokeDasharray="3" />
+          )}
+        </svg>
+      )}
+      <div style={{ display: "flex", gap: 6, fontSize: 9, marginTop: 2, color: T.cinza400, flexWrap: "wrap" }}>
+        <span style={{ fontWeight: 600 }}>{active ? display.date.substring(5).replace("-", "/") : "Hoje"}</span>
+        {stages.map((s) => {
+          const val = display.byStage[s] || 0;
+          if (s === "won" && val === 0) return null;
+          return <span key={s} style={{ color: STAGE_COLORS[s], fontWeight: 600 }}>{STAGE_LABELS[s]}: {val}</span>;
         })}
-        {hover !== null && (
-          <line x1={(hover / (data.length - 1)) * W} y1={0} x2={(hover / (data.length - 1)) * W} y2={H} stroke={T.cinza400} strokeWidth={1} opacity={0.5} strokeDasharray="3" />
-        )}
-      </svg>
-      <div style={{ display: "flex", gap: 6, fontSize: 9, marginTop: 2, color: T.cinza400 }}>
-        <span style={{ fontWeight: 600 }}>{display.date.substring(5).replace("-", "/")}</span>
-        {stages.map((s) => (
-          <span key={s} style={{ color: STAGE_COLORS[s] }}>{STAGE_LABELS[s]}: {display.byStage[s] || 0}</span>
-        ))}
       </div>
     </div>
   );
