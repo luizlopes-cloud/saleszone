@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS } from "@/lib/constants";
+import { paginate } from "@/lib/paginate";
 import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -12,22 +13,6 @@ function rate(num: number, den: number): number {
 
 function cost(spend: number, den: number): number {
   return den > 0 ? Math.round((spend / den) * 100) / 100 : 0;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
-  const rows: any[] = [];
-  let offset = 0;
-  const PS = 1000;
-  while (true) {
-    const { data, error } = await buildQuery(offset, PS);
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PS) break;
-    offset += PS;
-  }
-  return rows;
 }
 
 interface EventoCoorte {
@@ -275,10 +260,11 @@ export async function GET(req: NextRequest) {
         let eventos: EventoCoorte;
 
         if (paidOnly) {
-          // Leads = formulários Baserow, MQL/SQL/OPP/WON = deals com rd_source "pag"
+          // Leads = formulários Baserow (ou Meta Ads), garantindo >= MQL
           const baserowLeads = baserowLeadsMap.get(emp) || 0;
           const paid = paidCountsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
-          leads = baserowLeads > 0 ? baserowLeads : meta.leads;
+          const leadsBase = baserowLeads > 0 ? baserowLeads : meta.leads;
+          leads = Math.max(leadsBase, paid.mql);
           mql = paid.mql;
           sql = paid.sql;
           opp = paid.opp;
@@ -294,9 +280,9 @@ export async function GET(req: NextRequest) {
             wonEvento: Math.round(ev.wonEvento * ratio),
           };
         } else {
-          // Leads = formulários preenchidos (Baserow) — fonte real de leads
+          // Leads = formulários preenchidos (Baserow), garantindo >= MQL
           const baserowLeads = baserowLeadsMap.get(emp) || 0;
-          leads = baserowLeads > 0 ? baserowLeads : counts.mql;
+          leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, counts.mql);
           mql = counts.mql;
           sql = counts.sql;
           opp = counts.opp;

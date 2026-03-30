@@ -738,6 +738,7 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
   const [expanded, setExpanded] = useState(true);
   const [selectedRatio, setSelectedRatio] = useState<RatioKey>("opp_won");
   const isSZS = moduleId === "szs";
+  const isMKTP = moduleId === "mktp";
 
   if (loading && !data) return null;
   if (!data) return null;
@@ -745,7 +746,7 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
   const { current, history } = data;
 
   // Module-specific config
-  const groupOptions = isSZS ? SZS_CANAL_OPTIONS : SQUAD_OPTIONS;
+  const groupOptions = isSZS ? SZS_CANAL_OPTIONS : SQUAD_OPTIONS.slice(0, isMKTP ? 1 : undefined);
   const groupColors = isSZS ? SZS_CANAL_COLORS : SQUAD_COLORS;
   const groupLabel = isSZS ? "Canal" : "Squad";
   const empLabel = isSZS ? "Cidade" : "Empreendimento";
@@ -760,6 +761,8 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
           return emp === o.label;
         }),
       }))
+    : isMKTP
+    ? [{ id: 0, name: "Global", empreendimentos: Object.keys(data.empDaily || {}) }]
     : SQUADS.map(sq => ({ id: sq.id, name: sq.name, empreendimentos: [...sq.empreendimentos] }));
 
   // Get snapshot for each squad/canal
@@ -786,7 +789,7 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
         {expanded ? <ChevronDown size={16} color={T.cinza600} /> : <ChevronRight size={16} color={T.cinza600} />}
         <span style={{ fontSize: "14px", fontWeight: 600, color: T.cardFg }}>Histórico de Conversões</span>
         <span style={{ fontSize: "11px", color: T.cinza400, fontWeight: 400 }}>
-          Evolução das taxas de conversão por squad (janela 90 dias)
+          Evolução das taxas de conversão {isSZS ? "por canal" : isMKTP ? "global" : "por squad"} (janela 90 dias)
         </span>
       </div>
 

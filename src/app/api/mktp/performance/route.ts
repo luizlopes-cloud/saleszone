@@ -241,9 +241,20 @@ export async function GET(request: Request) {
     });
 
     // --- EMPREENDIMENTOS ---
+    // Discover empreendimentos from deal data when config is empty
+    const allDealEmps = new Set<string>();
+    for (const d of deals) {
+      if (d.empreendimento) allDealEmps.add(d.empreendimento);
+    }
+
+    const squadEmpsResolved = new Map<number, readonly string[]>();
+    for (const sq of mc.squads) {
+      squadEmpsResolved.set(sq.id, sq.empreendimentos.length > 0 ? sq.empreendimentos : [...allDealEmps].sort());
+    }
+
     const empToSquadId = new Map<string, number>();
     for (const sq of mc.squads) {
-      for (const emp of sq.empreendimentos) {
+      for (const emp of squadEmpsResolved.get(sq.id)!) {
         empToSquadId.set(emp, sq.id);
       }
     }
@@ -376,7 +387,9 @@ export async function GET(request: Request) {
 
     // Marketing (MIA)
     for (const sq of mc.squads) {
-      const sqEmpDeals = deals.filter((d) => (sq.empreendimentos as readonly string[]).includes(d.empreendimento!));
+      const sqEmps = squadEmpsResolved.get(sq.id)!;
+      const sqEmpSet = new Set(sqEmps);
+      const sqEmpDeals = deals.filter((d) => sqEmpSet.has(d.empreendimento!));
       const funnel = countFunnel(sqEmpDeals);
       allPresellers.push({
         name: sq.marketing,
@@ -406,7 +419,9 @@ export async function GET(request: Request) {
       const sqPreseller = allPresellers.find((p) => p.squadId === sq.id && p.role === "preseller")!;
       const sqMia = allPresellers.find((p) => p.squadId === sq.id && p.role === "marketing")!;
 
-      const sqEmpDeals = deals.filter((d) => (sq.empreendimentos as readonly string[]).includes(d.empreendimento!));
+      const sqEmps = squadEmpsResolved.get(sq.id)!;
+      const sqEmpSet = new Set(sqEmps);
+      const sqEmpDeals = deals.filter((d) => sqEmpSet.has(d.empreendimento!));
       const sqFunnel = countFunnel(sqEmpDeals);
 
       return {
