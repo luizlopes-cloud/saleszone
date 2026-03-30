@@ -56,7 +56,8 @@ export async function GET() {
     for (const canalGroup of allCanalGroups) {
       const owners = groupOwner.get(canalGroup) || new Map<string, number>();
       const sqId = getSquadIdFromCanalGroup(canalGroup);
-      const sqName = mc.squads.find((s) => s.id === sqId)?.name || `Squad ${sqId}`;
+      const sq = mc.squads.find((s) => s.id === sqId);
+      const sqName = sq?.name || `Squad ${sqId}`;
 
       const pv: Record<string, number> = {};
       const v: Record<string, number> = {};
@@ -81,8 +82,8 @@ export async function GET() {
         sqId,
         sqName,
         emp: canalGroup,
-        correctPV: "",
-        correctV: "",
+        correctPV: sq?.preVenda || "",
+        correctV: sq?.venda || "",
         cells: { pv, v },
       });
     }
@@ -90,16 +91,26 @@ export async function GET() {
     // Sort by squad then canal name
     rows.sort((a, b) => a.sqId - b.sqId || a.emp.localeCompare(b.emp));
 
-    // Stats
+    // Stats: calculate misaligned deals
     let total = 0;
+    let mis = 0;
     rows.forEach((row) => {
-      PV_COLS.forEach((p) => { total += row.cells.pv[p] || 0; });
-      V_COLS.forEach((p) => { total += row.cells.v[p] || 0; });
+      PV_COLS.forEach((p) => {
+        const val = row.cells.pv[p] || 0;
+        total += val;
+        if (val > 0 && !matchOwner(row.correctPV, p) && row.correctPV !== "") mis += val;
+      });
+      const sqVIndices = mc.squadCloserMap[row.sqId] || [];
+      V_COLS.forEach((p, idx) => {
+        const val = row.cells.v[p] || 0;
+        total += val;
+        if (val > 0 && !sqVIndices.includes(idx)) mis += val;
+      });
     });
 
     const result: AlinhamentoData = {
       rows,
-      stats: { total, ok: total, mis: 0 },
+      stats: { total, ok: total - mis, mis },
     };
 
     return NextResponse.json(result);
