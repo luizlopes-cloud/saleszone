@@ -116,6 +116,11 @@ export async function GET() {
     const currentDeals = filterDup(allDeals);
     const prevDeals = filterDup(prevWonDeals);
 
+    const geralFunnelDebug = countFunnel(currentDeals, "Geral");
+    console.log(`[geral] allDeals=${allDeals.length}, currentDeals=${currentDeals.length}, geralMql=${geralFunnelDebug.mql}, geralWon=${geralFunnelDebug.won}`);
+    console.log(`[geral] sample: canal=${currentDeals[0]?.canal}, mso=${currentDeals[0]?.max_stage_order}, so=${currentDeals[0]?.stage_order}, status=${currentDeals[0]?.status}`);
+    // dailyCounts aggregated below after line 170
+
     // --- Count funnel by canal groups ---
     type CanalGroup = "Marketing" | "Parceiros" | "Geral";
     function matchCanal(canal: string | null, group: CanalGroup): boolean {
