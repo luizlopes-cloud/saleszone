@@ -36,9 +36,9 @@ interface ChannelMetas {
 
 const MKTP_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
   "2026-03": {
-    "Vendas Diretas": { leads: 3354, mql: 1677, sql: 530, opp: 126, won: 0 },
-    Parcerias: { mql: 31, sql: 23, opp: 17, won: 0 },
-    "Funil Completo": { mql: 1436, sql: 479, opp: 132, won: 0, reserva: 25, contrato: 18 },
+    "Vendas Diretas": { leads: 3354, mql: 1677, sql: 530, opp: 126, won: 9 },
+    Parcerias: { mql: 31, sql: 23, opp: 17, won: 6 },
+    "Funil Completo": { mql: 1436, sql: 479, opp: 132, won: 15, reserva: 25, contrato: 18 },
   },
 };
 
