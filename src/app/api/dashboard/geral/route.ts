@@ -6,19 +6,35 @@ import type { GeralData, GeralChannelResult, GeralMetricPair } from "@/lib/types
 
 export const dynamic = "force-dynamic";
 
-// Canal mapping
-const MARKETING_CANALS = ["12"];
-const PARCEIROS_CANALS = ["582", "583", "2876"];
+// Canal value → macro channel
+// squad_deals.canal has mixed values: names ("Marketing") and IDs ("582")
+const CANAL_MAP: Record<string, string> = {
+  // By name
+  "Marketing": "Vendas Diretas",
+  // By ID and name — Parceiros
+  "582": "Parceiros",
+  "583": "Parceiros",
+  "2876": "Parceiros",
+  "Indicação de Corretor": "Parceiros",
+  "Indicaçao de Franquia": "Parceiros",  // note: typo in data (no ~)
+  "Indicação de outros Parceiros (exceto corretor e franquia)": "Parceiros",
+};
+function getMacroChannel(canal: string | null): string {
+  if (!canal) return "Outros";
+  return CANAL_MAP[canal] || "Outros";
+}
 
-// Stage thresholds for squad_deals.max_stage_order
+const CHANNEL_ORDER = ["Geral", "Vendas Diretas", "Parceiros"] as const;
+
+// Stage thresholds for squad_deals.max_stage_order (SZI pipeline 28)
 const TH_MQL = 1;
 const TH_SQL = 5;
 const TH_OPP = 9;
 const TH_RESERVA = 13;
 const TH_CONTRATO = 14;
 
-// Hardcoded metas for 2026-03
-const METAS: Record<string, {
+// Hardcoded metas for March 2026
+interface ChannelMetas {
   orcamento?: number;
   leads?: number;
   mql: number;
@@ -27,10 +43,14 @@ const METAS: Record<string, {
   reserva?: number;
   contrato?: number;
   won: number;
-}> = {
-  Marketing: { orcamento: 232389, leads: 9661, mql: 2839, sql: 921, opp: 228, won: 40 },
-  Parceiros: { mql: 1348, sql: 524, opp: 260, won: 55 },
-  Geral: { mql: 4187, sql: 1445, opp: 488, reserva: 217, contrato: 125, won: 95 },
+}
+
+const METAS_BY_MONTH: Record<string, Record<string, ChannelMetas>> = {
+  "2026-03": {
+    "Vendas Diretas": { orcamento: 232389, leads: 9661, mql: 2839, sql: 921, opp: 228, won: 40 },
+    Parceiros: { mql: 1348, sql: 524, opp: 260, won: 55 },
+    Geral: { mql: 4187, sql: 1445, opp: 488, reserva: 217, contrato: 125, won: 95 },
+  },
 };
 
 function pair(real: number, meta: number): GeralMetricPair {
@@ -39,295 +59,255 @@ function pair(real: number, meta: number): GeralMetricPair {
 
 export async function GET() {
   try {
+    const admin = createSquadSupabaseAdmin();
     const now = new Date();
     const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    const mesStr = `${year}-${String(month).padStart(2, "0")}`;
-    const startDate = `${mesStr}-01`;
-    const mesFim = month === 12
-      ? `${year + 1}-01-01`
-      : `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    const month = now.getMonth();
+    const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+    const startDate = `${monthKey}-01`;
 
-    // Previous month range (for lastMonthWon)
-    const prevMonth = month === 1 ? 12 : month - 1;
-    const prevYear = month === 1 ? year - 1 : year;
-    const prevMesStr = `${prevYear}-${String(prevMonth).padStart(2, "0")}`;
-    const prevStart = `${prevMesStr}-01`;
-    const prevEnd = startDate;
+    const prevDate = new Date(year, month - 1, 1);
+    const prevKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+    const prevStart = `${prevKey}-01`;
+    const prevEnd = `${prevKey}-${new Date(prevDate.getFullYear(), prevDate.getMonth() + 1, 0).getDate()}`;
 
-    const admin = createSquadSupabaseAdmin();
+    const cutoff90 = new Date(now);
+    cutoff90.setDate(cutoff90.getDate() - 90);
+    const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
-    // --- Parallel queries ---
-    const [
-      allDeals,
-      prevWonDeals,
-      metaAdsRes,
-      dailyCountsRes,
-      orcRes,
-      calEventsRes,
-    ] = await Promise.all([
-      // 1. All deals for current month (won + lost + open with add_time in month)
-      paginate((o, ps) =>
-        admin
-          .from("squad_deals")
-          .select("deal_id, canal, max_stage_order, status, lost_reason, add_time, won_time, stage_order")
-          .not("empreendimento", "is", null)
-          .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
-          .range(o, o + ps - 1),
-      ),
-      // 2. Previous month WON deals (for lastMonthWon)
-      paginate((o, ps) =>
-        admin
-          .from("squad_deals")
-          .select("deal_id, canal, status, lost_reason")
-          .eq("status", "won")
-          .gte("won_time", prevStart)
-          .lt("won_time", prevEnd)
-          .range(o, o + ps - 1),
-      ),
-      // 3. Meta Ads spend for current month (Marketing orçamento)
+    // ── 1. Funnel counts from squad_daily_counts (TOTAL — no canal split) ──
+    // This is the authoritative source for MQL/SQL/OPP/WON in SZI
+    const countsRows = await paginate((o, ps) =>
       supabase
-        .from("squad_meta_ads")
-        .select("ad_id, spend_month")
-        .gte("snapshot_date", startDate),
-      // 4. Daily counts for MQL/SQL/OPP/WON + Reserva/Contrato snapshots
-      paginate((o, ps) =>
-        supabase
-          .from("squad_daily_counts")
-          .select("date, tab, count")
-          .in("tab", ["mql", "sql", "opp", "won", "reserva", "contrato"])
-          .gte("date", startDate)
-          .range(o, o + ps - 1),
-      ),
-      // 5. Orçamento
-      supabase.from("squad_orcamento").select("orcamento_total").eq("mes", mesStr).maybeSingle(),
-      // 6. Calendar events for reserva/contrato history
-      supabase
-        .from("squad_calendar_events")
-        .select("dia, cancelou")
-        .gte("dia", startDate)
-        .lt("dia", mesFim),
-    ]);
+        .from("squad_daily_counts")
+        .select("date, tab, count")
+        .in("tab", ["mql", "sql", "opp", "won", "reserva", "contrato"])
+        .gte("date", startDate)
+        .range(o, o + ps - 1),
+    );
 
-    // --- Filter deals: exclude Duplicado/Erro in JS ---
-    const filterDup = (deals: typeof allDeals) =>
-      deals.filter((d) => d.lost_reason !== "Duplicado/Erro");
-
-    const currentDeals = filterDup(allDeals);
-    const prevDeals = filterDup(prevWonDeals);
-
-    const geralFunnelDebug = countFunnel(currentDeals, "Geral");
-    console.log(`[geral] allDeals=${allDeals.length}, currentDeals=${currentDeals.length}, geralMql=${geralFunnelDebug.mql}, geralWon=${geralFunnelDebug.won}`);
-    console.log(`[geral] sample: canal=${currentDeals[0]?.canal}, mso=${currentDeals[0]?.max_stage_order}, so=${currentDeals[0]?.stage_order}, status=${currentDeals[0]?.status}`);
-    // dailyCounts aggregated below after line 170
-
-    // --- Count funnel by canal groups ---
-    type CanalGroup = "Marketing" | "Parceiros" | "Geral";
-    function matchCanal(canal: string | null, group: CanalGroup): boolean {
-      if (group === "Geral") return true;
-      if (!canal) return false;
-      if (group === "Marketing") return MARKETING_CANALS.includes(canal);
-      if (group === "Parceiros") return PARCEIROS_CANALS.includes(canal);
-      return false;
+    const totalCounts: Record<string, number> = {};
+    for (const r of countsRows) {
+      totalCounts[r.tab] = (totalCounts[r.tab] || 0) + (r.count || 0);
     }
+    console.log(`[geral] squad_daily_counts total: mql=${totalCounts.mql || 0}, sql=${totalCounts.sql || 0}, opp=${totalCounts.opp || 0}, won=${totalCounts.won || 0}`);
 
-    function countFunnel(deals: typeof currentDeals, group: CanalGroup) {
-      let mql = 0, sql = 0, opp = 0, reserva = 0, contrato = 0, won = 0;
-      for (const d of deals) {
-        if (!matchCanal(d.canal, group)) continue;
-        const mso = d.max_stage_order ?? d.stage_order ?? 0;
-        if (mso >= TH_MQL) mql++;
-        if (mso >= TH_SQL) sql++;
-        if (mso >= TH_OPP) opp++;
-        if (mso >= TH_RESERVA) reserva++;
-        if (mso >= TH_CONTRATO) contrato++;
-        if (d.status === "won") won++;
-      }
-      return { mql, sql, opp, reserva, contrato, won };
+    // ── 2. Canal split from squad_deals (MQL/SQL/OPP/WON by canal) ──
+    // squad_deals has `canal` field for per-channel breakdown
+    const deals = await paginate((o, ps) =>
+      admin
+        .from("squad_deals")
+        .select("canal, max_stage_order, stage_order, status, lost_reason, won_time")
+        .not("empreendimento", "is", null)
+        .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
+        .range(o, o + ps - 1),
+    );
+    console.log(`[geral] squad_deals returned ${deals.length} deals`);
+    // Debug: check canal values
+    const canalDistrib: Record<string, number> = {};
+    for (const d of deals.slice(0, 500)) {
+      const key = String(d.canal ?? "NULL");
+      canalDistrib[key] = (canalDistrib[key] || 0) + 1;
     }
+    console.log(`[geral] canal distribution (first 500):`, JSON.stringify(canalDistrib));
 
-    function countWon(deals: typeof prevDeals, group: CanalGroup) {
-      let count = 0;
-      for (const d of deals) {
-        if (!matchCanal(d.canal, group)) continue;
-        count++;
-      }
-      return count;
-    }
+    // Count by macro channel
+    const channelCounts: Record<string, Record<string, number>> = {};
+    for (const ch of CHANNEL_ORDER) channelCounts[ch] = { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 };
 
-    // --- Meta Ads spend (max spend_month per ad) ---
-    const adSpend = new Map<string, number>();
-    for (const row of metaAdsRes.data || []) {
-      const cur = adSpend.get(row.ad_id) || 0;
-      const val = Number(row.spend_month) || 0;
-      if (val > cur) adSpend.set(row.ad_id, val);
-    }
-    let totalSpend = 0;
-    for (const v of adSpend.values()) totalSpend += v;
+    for (const d of deals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const macro = getMacroChannel(d.canal);
+      const mso = d.max_stage_order ?? d.stage_order ?? 0;
 
-    // --- Daily counts: leads from squad_daily_counts ---
-    const dailyCounts = { mql: 0, sql: 0, opp: 0, won: 0 };
-    for (const row of dailyCountsRes) {
-      const tab = row.tab as string;
-      if (tab in dailyCounts) {
-        dailyCounts[tab as keyof typeof dailyCounts] += row.count || 0;
+      // Vendas Diretas and Parceiros get their own counts
+      if (macro === "Vendas Diretas" || macro === "Parceiros") {
+        if (mso >= TH_MQL) channelCounts[macro].mql++;
+        if (mso >= TH_SQL) channelCounts[macro].sql++;
+        if (mso >= TH_OPP) channelCounts[macro].opp++;
+        if (mso >= TH_RESERVA) channelCounts[macro].reserva++;
+        if (mso >= TH_CONTRATO) channelCounts[macro].contrato++;
+        if (d.status === "won") channelCounts[macro].won++;
       }
     }
+    console.log(`[geral] channelCounts VD: mql=${channelCounts["Vendas Diretas"].mql}, won=${channelCounts["Vendas Diretas"].won}`);
+    console.log(`[geral] channelCounts Parceiros: mql=${channelCounts.Parceiros.mql}, won=${channelCounts.Parceiros.won}`);
 
-    // --- Orçamento ---
-    const orcamentoTotal = orcRes.data?.orcamento_total || 0;
-
-    // --- Build deals history (last 90 days) ---
-    // Group deals by date for open deals snapshot
-    function buildDealsHistory(group: CanalGroup): { date: string; total: number; byStage: Record<string, number> }[] {
-      // Count open deals matching group
-      const openDeals = currentDeals.filter(
-        (d) => d.status === "open" && matchCanal(d.canal, group),
-      );
-
-      // Simple approach: single snapshot of current open deals
-      const byStage: Record<string, number> = { mql: 0, sql: 0, opp: 0, reserva: 0, contrato: 0, won: 0 };
-      for (const d of openDeals) {
-        const so = d.stage_order ?? 0;
-        if (so >= TH_CONTRATO) byStage.contrato++;
-        else if (so >= TH_RESERVA) byStage.reserva++;
-        else if (so >= TH_OPP) byStage.opp++;
-        else if (so >= TH_SQL) byStage.sql++;
-        else if (so >= TH_MQL) byStage.mql++;
-      }
-
-      // Generate daily entries for last 90 days with the current snapshot value
-      // (real history would need daily snapshots; we approximate with current state)
-      const history: { date: string; total: number; byStage: Record<string, number> }[] = [];
-      const today = new Date();
-      for (let i = 90; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        history.push({
-          date: d.toISOString().substring(0, 10),
-          total: openDeals.length,
-          byStage: { ...byStage },
-        });
-      }
-      return history;
-    }
-
-    // --- Build reservaHistory for Geral channel ---
-    // Count reserva/contrato events per week from deals
-    function buildReservaHistory(): { date: string; reserva: number; contrato: number }[] {
-      const weeks = new Map<string, { reserva: number; contrato: number }>();
-      for (const d of currentDeals) {
-        if (d.status !== "won") continue;
-        const wt = d.won_time?.substring(0, 10);
-        if (!wt || wt < startDate) continue;
-        // Group by week start (Monday)
-        const date = new Date(wt + "T12:00:00");
-        const dayOfWeek = date.getDay();
-        const monday = new Date(date);
-        monday.setDate(date.getDate() - ((dayOfWeek + 6) % 7));
-        const weekKey = monday.toISOString().substring(0, 10);
-        const cur = weeks.get(weekKey) || { reserva: 0, contrato: 0 };
-        const mso = d.max_stage_order ?? 0;
-        if (mso >= TH_RESERVA) cur.reserva++;
-        if (mso >= TH_CONTRATO) cur.contrato++;
-        weeks.set(weekKey, cur);
-      }
-
-      // Sort by date and accumulate
-      const sorted = [...weeks.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-      let accRes = 0, accCont = 0;
-      return sorted.map(([date, v]) => {
-        accRes += v.reserva;
-        accCont += v.contrato;
-        return { date, reserva: accRes, contrato: accCont };
-      });
-    }
-
-    // --- Compute snapshots (current open deals in Reserva/Contrato stages) ---
-    function computeSnapshots(group: CanalGroup): { reserva: number; contrato: number } {
-      let reserva = 0, contrato = 0;
-      for (const d of currentDeals) {
-        if (d.status !== "open") continue;
-        if (!matchCanal(d.canal, group)) continue;
-        const so = d.stage_order ?? 0;
-        if (so === 13) reserva++; // Reservas stage
-        if (so === 14) contrato++; // Contrato stage
-      }
-      return { reserva, contrato };
-    }
-
-    // --- Leads count for Marketing (from Meta Ads leads_month or daily counts) ---
-    // Use daily_counts MQL as proxy for leads (same as funil route pattern)
-    const mktFunnel = countFunnel(currentDeals, "Marketing");
-    const parcFunnel = countFunnel(currentDeals, "Parceiros");
-    const geralFunnel = countFunnel(currentDeals, "Geral");
-
-    const mktLastWon = countWon(prevDeals, "Marketing");
-    const parcLastWon = countWon(prevDeals, "Parceiros");
-    const geralLastWon = countWon(prevDeals, "Geral");
-
-    const mktMeta = METAS.Marketing;
-    const parcMeta = METAS.Parceiros;
-    const geralMeta = METAS.Geral;
-
-    // --- Build channels ---
-    const channels: GeralChannelResult[] = [
-      {
-        name: "Marketing",
-        filterDescription: "Deals do canal Marketing (canal 12). Inclui leads de mídia paga e orgânico. Orçamento = gasto Meta Ads do mês.",
-        metrics: {
-          orcamento: pair(Math.round(totalSpend), mktMeta.orcamento!),
-          leads: pair(dailyCounts.mql, mktMeta.leads!),
-          mql: pair(mktFunnel.mql, mktMeta.mql),
-          sql: pair(mktFunnel.sql, mktMeta.sql),
-          opp: pair(mktFunnel.opp, mktMeta.opp),
-          won: pair(mktFunnel.won, mktMeta.won),
-        },
-        lastMonthWon: mktLastWon,
-        snapshots: computeSnapshots("Marketing"),
-        dealsHistory: buildDealsHistory("Marketing"),
-      },
-      {
-        name: "Parceiros",
-        filterDescription: "Deals de canais de parceiros (Ind. Corretor, Ind. Franquia, Outros Parceiros). Sem investimento Meta Ads.",
-        metrics: {
-          mql: pair(parcFunnel.mql, parcMeta.mql),
-          sql: pair(parcFunnel.sql, parcMeta.sql),
-          opp: pair(parcFunnel.opp, parcMeta.opp),
-          won: pair(parcFunnel.won, parcMeta.won),
-        },
-        lastMonthWon: parcLastWon,
-        snapshots: computeSnapshots("Parceiros"),
-        dealsHistory: buildDealsHistory("Parceiros"),
-      },
-      {
-        name: "Geral",
-        filterDescription: "Todos os canais sem filtro. Inclui Marketing, Parceiros e demais canais. Reservas e contratos mostram acumulado no mês.",
-        metrics: {
-          mql: pair(geralFunnel.mql, geralMeta.mql),
-          sql: pair(geralFunnel.sql, geralMeta.sql),
-          opp: pair(geralFunnel.opp, geralMeta.opp),
-          reserva: pair(geralFunnel.reserva, geralMeta.reserva!),
-          contrato: pair(geralFunnel.contrato, geralMeta.contrato!),
-          won: pair(geralFunnel.won, geralMeta.won),
-        },
-        lastMonthWon: geralLastWon,
-        reservaHistory: buildReservaHistory(),
-        dealsHistory: buildDealsHistory("Geral"),
-      },
-    ];
-
-    const result: GeralData = {
-      month: mesStr,
-      channels,
+    // Geral = from squad_daily_counts (authoritative total)
+    channelCounts.Geral = {
+      mql: totalCounts.mql || 0,
+      sql: totalCounts.sql || 0,
+      opp: totalCounts.opp || 0,
+      won: totalCounts.won || 0,
+      reserva: totalCounts.reserva || 0,
+      contrato: totalCounts.contrato || 0,
     };
 
-    return NextResponse.json(result);
-  } catch (err) {
-    console.error("[geral] Error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Unknown error" },
-      { status: 500 },
+    // ── 3. Previous month WON ──
+    const prevRows = await paginate((o, ps) =>
+      supabase
+        .from("squad_daily_counts")
+        .select("count")
+        .eq("tab", "won")
+        .gte("date", prevStart)
+        .lte("date", prevEnd)
+        .range(o, o + ps - 1),
     );
+    const prevTotalWon = prevRows.reduce((s, r) => s + (r.count || 0), 0);
+
+    // Per-channel previous won from squad_deals
+    const prevDeals = await paginate((o, ps) =>
+      admin
+        .from("squad_deals")
+        .select("canal, status")
+        .eq("status", "won")
+        .gte("won_time", prevStart)
+        .lte("won_time", prevEnd)
+        .range(o, o + ps - 1),
+    );
+    const prevWon: Record<string, number> = { "Vendas Diretas": 0, Parceiros: 0, Geral: prevTotalWon };
+    for (const d of prevDeals) {
+      const macro = getMacroChannel(d.canal);
+      if (macro === "Vendas Diretas" || macro === "Parceiros") prevWon[macro]++;
+    }
+
+    // ── 4. Meta Ads spend + leads (Vendas Diretas only) ──
+    const metaRows = await paginate((o, ps) =>
+      supabase
+        .from("squad_meta_ads")
+        .select("ad_id, spend_month, leads_month")
+        .gte("snapshot_date", startDate)
+        .range(o, o + ps - 1),
+    );
+    const adMax = new Map<string, { spend: number; leads: number }>();
+    for (const r of metaRows) {
+      const spend = Number(r.spend_month) || 0;
+      const leads = Number(r.leads_month) || 0;
+      const cur = adMax.get(r.ad_id);
+      if (!cur || spend > cur.spend) adMax.set(r.ad_id, { spend, leads });
+    }
+    let totalSpend = 0, totalLeads = 0;
+    for (const v of adMax.values()) { totalSpend += v.spend; totalLeads += v.leads; }
+
+    // ── 5. Orçamento ──
+    const { data: orcData } = await supabase
+      .from("squad_orcamento")
+      .select("orcamento_total")
+      .eq("mes", monthKey)
+      .maybeSingle();
+    const orcamentoMeta = orcData?.orcamento_total || 0;
+
+    // ── 6. Snapshots: open deals in Reserva/Contrato stages ──
+    const openDeals = await paginate((o, ps) =>
+      admin
+        .from("squad_deals")
+        .select("canal, stage_id, status")
+        .eq("status", "open")
+        .in("stage_id", [191, 192])
+        .range(o, o + ps - 1),
+    );
+    const snaps: Record<string, { reserva: number; contrato: number }> = {};
+    for (const ch of CHANNEL_ORDER) snaps[ch] = { reserva: 0, contrato: 0 };
+    for (const d of openDeals) {
+      const macro = getMacroChannel(d.canal);
+      const target = (macro === "Vendas Diretas" || macro === "Parceiros") ? macro : "Geral";
+      if (d.stage_id === 191) snaps[target].reserva++;
+      if (d.stage_id === 192) snaps[target].contrato++;
+      // Always add to Geral too
+      if (target !== "Geral") {
+        if (d.stage_id === 191) snaps.Geral.reserva++;
+        if (d.stage_id === 192) snaps.Geral.contrato++;
+      }
+    }
+
+    // ── 7. History (last 90 days) from squad_daily_counts ──
+    const historyRows = await paginate((o, ps) =>
+      supabase
+        .from("squad_daily_counts")
+        .select("date, tab, count, source")
+        .in("tab", ["mql", "sql", "opp", "won", "reserva", "contrato"])
+        .gte("date", cutoffDate)
+        .range(o, o + ps - 1),
+    );
+    const histMap = new Map<string, Record<string, number>>();
+    const openTotalMap = new Map<string, number>();
+    for (const r of historyRows) {
+      if (!histMap.has(r.date)) histMap.set(r.date, {});
+      const entry = histMap.get(r.date)!;
+      entry[r.tab] = (entry[r.tab] || 0) + (r.count || 0);
+      if (r.source === "open" && r.tab === "mql") {
+        openTotalMap.set(r.date, (openTotalMap.get(r.date) || 0) + (r.count || 0));
+      }
+    }
+    const dealsHistory = Array.from(histMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, tabs]) => ({
+        date,
+        total: Object.values(tabs).reduce((s, v) => s + v, 0),
+        openTotal: openTotalMap.get(date) || 0,
+        byStage: tabs,
+      }));
+
+    // ── Build channels ──
+    const metas = METAS_BY_MONTH[monthKey] || {};
+
+    const channels: GeralChannelResult[] = CHANNEL_ORDER.map((name) => {
+      const counts = channelCounts[name];
+      const meta = metas[name] || { mql: 0, sql: 0, opp: 0, won: 0 };
+      const snap = snaps[name];
+
+      const metrics: GeralChannelResult["metrics"] = {
+        mql: pair(counts.mql, meta.mql),
+        sql: pair(counts.sql, meta.sql),
+        opp: pair(counts.opp, meta.opp),
+        won: pair(counts.won, meta.won),
+      };
+
+      // Vendas Diretas: add orcamento + leads
+      if (name === "Vendas Diretas") {
+        metrics.orcamento = pair(Math.round(totalSpend), orcamentoMeta || meta.orcamento || 0);
+        metrics.leads = pair(totalLeads, meta.leads || 0);
+      }
+
+      // Geral: add reserva + contrato bars
+      if (name === "Geral" && meta.reserva != null) {
+        metrics.reserva = pair(counts.reserva, meta.reserva);
+        metrics.contrato = pair(counts.contrato, meta.contrato || 0);
+      }
+
+      const result: GeralChannelResult = {
+        name,
+        filterDescription:
+          name === "Vendas Diretas" ? "Deals do canal Marketing (canal 12). Orçamento = gasto Meta Ads do mês."
+            : name === "Parceiros" ? "Deals de canais de parceiros (Ind. Corretor, Ind. Franquia, Outros Parceiros)."
+              : "Todos os canais sem filtro. Reservas e contratos mostram acumulado no mês.",
+        metrics,
+        lastMonthWon: prevWon[name] || 0,
+        dealsHistory,
+      };
+
+      // Vendas Diretas/Parceiros: snapshots
+      if (name !== "Geral") {
+        result.snapshots = snap;
+      }
+
+      // Geral: reservaHistory (acumulado semanal)
+      if (name === "Geral") {
+        const monthHistory = dealsHistory.filter((h) => h.date >= startDate);
+        let accRes = 0, accCont = 0;
+        result.reservaHistory = monthHistory.map((h) => {
+          accRes += h.byStage.reserva || 0;
+          accCont += h.byStage.contrato || 0;
+          return { date: h.date, reserva: accRes, contrato: accCont };
+        });
+      }
+
+      return result;
+    });
+
+    return NextResponse.json({ month: monthKey, channels } as GeralData);
+  } catch (err: unknown) {
+    console.error("[geral] Error:", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }

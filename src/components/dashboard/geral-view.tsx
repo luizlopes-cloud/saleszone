@@ -12,15 +12,15 @@ interface Props {
 }
 
 const CHANNEL_ICONS: Record<string, string> = {
-  Marketing: "🎯",
-  Parceiros: "🤝",
   Geral: "📊",
+  "Vendas Diretas": "🎯",
+  Parceiros: "🤝",
 };
 
 const CHANNEL_ACCENT: Record<string, string> = {
-  Marketing: "rgba(59,130,246,0.04)",
-  Parceiros: "rgba(168,85,247,0.04)",
   Geral: "rgba(34,197,94,0.04)",
+  "Vendas Diretas": "rgba(59,130,246,0.04)",
+  Parceiros: "rgba(168,85,247,0.04)",
 };
 
 function progressColor(pct: number): string {
@@ -195,7 +195,7 @@ function ChannelCard({ channel, historyDays }: { channel: GeralChannelResult; hi
             <div style={{ fontSize: 11, fontWeight: 600, color: T.fg, marginBottom: 8 }}>Deals Abertos no Funil</div>
             <AreaChart
               data={filteredHistory.map((h) => ({ date: h.date, value: h.total }))}
-              color={name === "Parceiros" ? "#a855f7" : name === "Marketing" ? "#3b82f6" : "#22c55e"}
+              color={name === "Parceiros" ? "#a855f7" : name === "Vendas Diretas" ? "#3b82f6" : "#22c55e"}
             />
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: T.cinza400, marginTop: 2 }}>
               <span>{filteredHistory[0]?.date.substring(5).replace("-", "/") || ""}</span>
