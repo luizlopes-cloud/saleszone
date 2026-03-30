@@ -148,18 +148,41 @@ export async function GET() {
     let totalSpend = 0;
     for (const v of adSpend.values()) totalSpend += v;
 
-    // Fetch ALL open deals for snapshots + total count
-    const allOpenDeals = await paginate((o, ps) =>
-      admin.from("szs_deals").select("stage_order, canal, status").eq("status", "open").range(o, o + ps - 1)
+    // Use szs_open_snapshots for current totals (today's snapshot)
+    const todayStr = now.toISOString().substring(0, 10);
+    const todaySnap = await paginate((o, ps) =>
+      admin.from("szs_open_snapshots").select("*").eq("date", todayStr).range(o, o + ps - 1)
     );
     const snapshots: Record<string, { agDados: number; contrato: number; agendado: number; totalOpen: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { agDados: 0, contrato: 0, agendado: 0, totalOpen: 0 };
-    for (const d of allOpenDeals) {
-      const canalGroup = getCanalGroup(String(d.canal || ""));
-      const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
-      snapshots[macro].totalOpen++;
-      if (d.stage_order === STAGE_AG_DADOS) snapshots[macro].agDados++;
-      else if (d.stage_order === STAGE_CONTRATO) snapshots[macro].contrato++;
+    for (const s of todaySnap) {
+      const macro = MACRO_CHANNELS[s.canal_group] || "Vendas Diretas";
+      snapshots[macro].totalOpen += s.total_open || 0;
+      snapshots[macro].agDados += s.ag_dados || 0;
+      snapshots[macro].contrato += s.contrato || 0;
+    }
+
+    // Fetch snapshot history for charts (last 30 days)
+    const cutoff30 = new Date(now);
+    cutoff30.setDate(cutoff30.getDate() - 30);
+    const cutoff30Str = cutoff30.toISOString().substring(0, 10);
+    const snapshotHistory = await paginate((o, ps) =>
+      admin.from("szs_open_snapshots").select("*").gte("date", cutoff30Str).range(o, o + ps - 1)
+    );
+    // Aggregate by macro channel and date
+    const snapHistMap: Record<string, Map<string, { totalOpen: number; byStage: Record<string, number> }>> = {};
+    for (const ch of CHANNEL_ORDER) snapHistMap[ch] = new Map();
+    for (const s of snapshotHistory) {
+      const macro = MACRO_CHANNELS[s.canal_group] || "Vendas Diretas";
+      const map = snapHistMap[macro];
+      if (!map.has(s.date)) map.set(s.date, { totalOpen: 0, byStage: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 } });
+      const entry = map.get(s.date)!;
+      entry.totalOpen += s.total_open || 0;
+      entry.byStage.mql += s.mql || 0;
+      entry.byStage.sql += s.sql_count || 0;
+      entry.byStage.opp += s.opp || 0;
+      entry.byStage.reserva += s.ag_dados || 0;
+      entry.byStage.contrato += s.contrato || 0;
     }
 
     // Pipedrive activities: count meeting activities scheduled for next 7 days
@@ -197,25 +220,18 @@ export async function GET() {
       }
     }
 
-    // History: byStage uses all sources; openTotal uses only source=open + tab=mql
+    // History from szs_daily_counts (for funnel metrics, not charts)
     const historyRows = await paginate((o, ps) =>
-      admin.from("szs_daily_counts").select("date, tab, canal_group, count, source").gte("date", cutoffDate).range(o, o + ps - 1)
+      admin.from("szs_daily_counts").select("date, tab, canal_group, count").gte("date", cutoffDate).range(o, o + ps - 1)
     );
     const histMap: Record<string, Map<string, Record<string, number>>> = {};
-    const openTotalMap: Record<string, Map<string, number>> = {};
-    for (const ch of CHANNEL_ORDER) { histMap[ch] = new Map(); openTotalMap[ch] = new Map(); }
+    for (const ch of CHANNEL_ORDER) histMap[ch] = new Map();
     for (const r of historyRows) {
       const macro = MACRO_CHANNELS[r.canal_group] || "Vendas Diretas";
-      // byStage: aggregate all sources
       const map = histMap[macro];
       if (!map.has(r.date)) map.set(r.date, {});
       const entry = map.get(r.date)!;
       entry[r.tab] = (entry[r.tab] || 0) + (r.count || 0);
-      // openTotal: only source=open, tab=mql = total deals currently open
-      if (r.source === "open" && r.tab === "mql") {
-        const oMap = openTotalMap[macro];
-        oMap.set(r.date, (oMap.get(r.date) || 0) + (r.count || 0));
-      }
     }
 
     const metas = SZS_RESULTADOS_METAS[monthKey] || {};
@@ -235,15 +251,15 @@ export async function GET() {
       if (meta.orcamento != null) metrics.orcamento = { real: Math.round(totalSpend), meta: meta.orcamento };
       if (meta.leads != null) metrics.leads = { real: counts.mql || 0, meta: meta.leads };
 
-      const histEntries = histMap[name];
-      const oMap = openTotalMap[name];
-      const dealsHistory = Array.from(histEntries.entries())
+      // Charts use snapshot history (szs_open_snapshots)
+      const snapHist = snapHistMap[name];
+      const dealsHistory = Array.from(snapHist.entries())
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, tabs]) => ({
+        .map(([date, entry]) => ({
           date,
-          total: Object.values(tabs).reduce((s, v) => s + v, 0),
-          openTotal: oMap.get(date) || 0,
-          byStage: tabs,
+          total: 0,
+          openTotal: entry.totalOpen,
+          byStage: entry.byStage,
         }));
 
       return {
