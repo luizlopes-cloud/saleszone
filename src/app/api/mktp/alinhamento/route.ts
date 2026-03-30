@@ -1,97 +1,93 @@
-// MKTP (Marketplace) module
+// MKTP (Marketplace) module — alinhamento por canal
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { AlinhamentoData } from "@/lib/types";
+import { paginate } from "@/lib/paginate";
+import { getMktpCanalName } from "@/lib/mktp-utils";
 
 const mc = getModuleConfig("mktp");
 
 export const dynamic = "force-dynamic";
 
+function normalize(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function matchOwner(colName: string, ownerName: string): boolean {
+  if (!colName || !ownerName) return false;
+  return normalize(ownerName).includes(normalize(colName));
+}
+
 export async function GET() {
   try {
-    // Fetch alignment data from Supabase
-    const { data: alignRows, error } = await supabase
-      .from("mktp_alignment")
-      .select("empreendimento, owner_name, count");
+    const admin = createSquadSupabaseAdmin();
 
-    if (error) throw new Error(`Supabase error: ${error.message}`);
+    const deals = await paginate((o, ps) =>
+      admin
+        .from("mktp_deals")
+        .select("canal, owner_name, lost_reason")
+        .eq("status", "open")
+        .range(o, o + ps - 1)
+    );
 
-    // Build owner counts map: empreendimento → { owner → count }
-    const ownerCounts = new Map<string, Map<string, number>>();
-    for (const row of alignRows || []) {
-      if (!ownerCounts.has(row.empreendimento)) {
-        ownerCounts.set(row.empreendimento, new Map());
-      }
-      ownerCounts.get(row.empreendimento)!.set(row.owner_name, row.count);
-    }
-
-    // Match owner names (case-insensitive, accent-insensitive partial match)
-    function normalize(s: string): string {
-      return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    }
-    function matchOwner(colName: string, ownerName: string): boolean {
-      return normalize(ownerName).includes(normalize(colName));
+    // Group by canal × owner
+    const groupOwner = new Map<string, Map<string, number>>();
+    for (const d of deals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const canalName = getMktpCanalName(d.canal);
+      if (!groupOwner.has(canalName)) groupOwner.set(canalName, new Map());
+      const ownerMap = groupOwner.get(canalName)!;
+      const owner = d.owner_name || "Sem owner";
+      ownerMap.set(owner, (ownerMap.get(owner) || 0) + 1);
     }
 
     const PV_COLS = mc.presellers;
     const V_COLS = mc.closers;
 
-    // Build flat rows
-    const rows = mc.squads.flatMap((sq) => {
-      const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...ownerCounts.keys()].sort();
-      return emps.map((emp) => {
-        const counts = ownerCounts.get(emp) || new Map<string, number>();
-        const pv: Record<string, number> = {};
-        const v: Record<string, number> = {};
+    const rows: AlinhamentoData["rows"] = [];
+    const allCanals = Array.from(groupOwner.keys()).sort();
 
-        PV_COLS.forEach((col) => {
-          let total = 0;
-          for (const [owner, count] of counts) {
-            if (matchOwner(col, owner)) total += count;
-          }
-          pv[col] = total;
-        });
+    for (const canalName of allCanals) {
+      const owners = groupOwner.get(canalName) || new Map<string, number>();
+      const pv: Record<string, number> = {};
+      const v: Record<string, number> = {};
 
-        V_COLS.forEach((col) => {
-          let total = 0;
-          for (const [owner, count] of counts) {
-            if (matchOwner(col, owner)) total += count;
-          }
-          v[col] = total;
-        });
-
-        return {
-          sqId: sq.id,
-          sqName: sq.name,
-          emp,
-          correctPV: sq.preVenda,
-          correctV: sq.venda,
-          cells: { pv, v },
-        };
+      PV_COLS.forEach((col) => {
+        let total = 0;
+        for (const [owner, count] of owners) {
+          if (matchOwner(col, owner)) total += count;
+        }
+        pv[col] = total;
       });
-    });
 
-    // Stats
+      V_COLS.forEach((col) => {
+        let total = 0;
+        for (const [owner, count] of owners) {
+          if (matchOwner(col, owner)) total += count;
+        }
+        v[col] = total;
+      });
+
+      rows.push({
+        sqId: 1,
+        sqName: mc.squads[0]?.name || "Marketplace",
+        emp: canalName,
+        correctPV: mc.squads[0]?.preVenda || "",
+        correctV: mc.squads[0]?.venda || "",
+        cells: { pv, v },
+      });
+    }
+
     let total = 0;
-    let mis = 0;
     rows.forEach((row) => {
-      PV_COLS.forEach((p) => {
-        const val = row.cells.pv[p] || 0;
-        total += val;
-        if (val > 0 && p !== row.correctPV) mis += val;
-      });
-      const sqVIndices = mc.squadCloserMap[row.sqId] || [];
-      V_COLS.forEach((p, idx) => {
-        const val = row.cells.v[p] || 0;
-        total += val;
-        if (val > 0 && !sqVIndices.includes(idx)) mis += val;
-      });
+      PV_COLS.forEach((p) => { total += row.cells.pv[p] || 0; });
+      V_COLS.forEach((p) => { total += row.cells.v[p] || 0; });
     });
 
     const result: AlinhamentoData = {
       rows,
-      stats: { total, ok: total - mis, mis },
+      stats: { total, ok: total, mis: 0 },
     };
 
     return NextResponse.json(result);
