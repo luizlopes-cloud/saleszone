@@ -138,14 +138,18 @@ export async function GET() {
       channelCounts["Geral"][key] = (channelCounts["Geral"][key] || 0) + (r.count || 0);
     }
 
-    const prevRows = await paginate((o, ps) =>
-      admin.from("szs_daily_counts").select("canal_group, count").eq("tab", "won").gte("date", prevStart).lte("date", prevEnd).range(o, o + ps - 1)
+    // Last month WON from szs_deals (more complete than daily_counts)
+    const prevWonRows = await paginate((o, ps) =>
+      admin.from("szs_deals").select("canal, lost_reason").eq("status", "won").gte("won_time", prevStart).lt("won_time", startDate).range(o, o + ps - 1)
     );
     const prevWon: Record<string, number> = {};
-    for (const r of prevRows) {
-      const macro = MACRO_CHANNELS[r.canal_group] || "Vendas Diretas";
-      prevWon[macro] = (prevWon[macro] || 0) + (r.count || 0);
-      prevWon["Geral"] = (prevWon["Geral"] || 0) + (r.count || 0);
+    for (const ch of CHANNEL_ORDER) prevWon[ch] = 0;
+    for (const d of prevWonRows) {
+      if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
+      const canalGroup = getCanalGroup(String(d.canal || ""));
+      const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
+      prevWon[macro] = (prevWon[macro] || 0) + 1;
+      prevWon["Geral"] = (prevWon["Geral"] || 0) + 1;
     }
 
     const metaRows = await paginate((o, ps) =>
