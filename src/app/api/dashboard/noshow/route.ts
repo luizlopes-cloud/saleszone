@@ -5,6 +5,33 @@ import type { NoShowData, NoShowDealRow, NoShowSummary, NoShowAlert } from "@/li
 
 export const dynamic = "force-dynamic";
 
+const PIPEDRIVE_TOKEN = process.env.PIPEDRIVE_API_TOKEN || "";
+
+/** Fetch ALL deal_ids that have a no_show activity in Pipedrive (paginated, ~3-4 requests) */
+async function fetchAllNoShowDealIds(): Promise<Set<number>> {
+  const dealIds = new Set<number>();
+  let cursor: string | null = null;
+
+  while (true) {
+    let url = `https://api.pipedrive.com/v1/activities/collection?type=no_show&done=true&limit=500&api_token=${PIPEDRIVE_TOKEN}`;
+    if (cursor) url += `&cursor=${cursor}`;
+
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) break;
+
+    const json = await res.json();
+    const items = json?.data || [];
+    for (const a of items) {
+      if (a.deal_id) dealIds.add(a.deal_id as number);
+    }
+
+    cursor = json?.additional_data?.next_cursor || null;
+    if (!cursor) break;
+  }
+
+  return dealIds;
+}
+
 const STAGE_NAMES: Record<number, string> = {
   1: "FUP Parceiro",
   2: "Lead in",
@@ -59,8 +86,9 @@ export async function GET(request: NextRequest) {
     const cutoffStr = cutoff.toISOString().split("T")[0];
 
     // ── 1. Active no-shows: open deals currently in stage 8 (No Show/Reagendamento)
+    //    Filter by canal = Marketing (both "12" legacy and "Marketing" new Nekt values)
     const openNoShows = await paginateDeals(
-      { status: "open", stage_order: 8 },
+      { status: "open", stage_order: 8, or_canal: 'canal.eq.Marketing,canal.eq.12' },
       "deal_id, title, owner_name, preseller_name, empreendimento, stage_order, add_time, canal, lost_reason, status"
     );
 
@@ -68,7 +96,8 @@ export async function GET(request: NextRequest) {
     //    Filter by add_time within the period
     const historicalSelect = "deal_id, title, owner_name, preseller_name, empreendimento, stage_order, max_stage_order, add_time, canal, lost_reason, status, won_time, lost_time";
 
-    // Won deals that passed through No Show
+    // Won deals in the period (canal = Marketing only)
+    // Verification of actual no-show happens via Pipedrive Activities API below
     const wonRows: Record<string, unknown>[] = [];
     let wonOffset = 0;
     while (true) {
@@ -76,8 +105,8 @@ export async function GET(request: NextRequest) {
         .from("squad_deals")
         .select(historicalSelect)
         .eq("status", "won")
-        .gte("max_stage_order", 8)
         .gte("won_time", cutoffStr)
+        .or("canal.eq.Marketing,canal.eq.12")
         .range(wonOffset, wonOffset + PAGE_SIZE - 1);
       if (error) throw new Error(`Won query error: ${error.message}`);
       if (!data || data.length === 0) break;
@@ -86,7 +115,8 @@ export async function GET(request: NextRequest) {
       wonOffset += PAGE_SIZE;
     }
 
-    // Lost deals that passed through No Show
+    // Lost deals in the period (canal = Marketing only)
+    // Pre-filter: max_stage_order >= 7 (at least reached Agendado — must have been scheduled to have a no-show)
     const lostRows: Record<string, unknown>[] = [];
     let lostOffset = 0;
     while (true) {
@@ -94,8 +124,9 @@ export async function GET(request: NextRequest) {
         .from("squad_deals")
         .select(historicalSelect)
         .eq("status", "lost")
-        .gte("max_stage_order", 8)
+        .gte("max_stage_order", 7)
         .gte("lost_time", cutoffStr)
+        .or("canal.eq.Marketing,canal.eq.12")
         .range(lostOffset, lostOffset + PAGE_SIZE - 1);
       if (error) throw new Error(`Lost query error: ${error.message}`);
       if (!data || data.length === 0) break;
@@ -104,8 +135,21 @@ export async function GET(request: NextRequest) {
       lostOffset += PAGE_SIZE;
     }
 
+    // ── 2b. Verify won/lost deals via Pipedrive Activities API
+    // max_stage_order is unreliable (14 for all won, stage at loss for lost).
+    // The real indicator is whether the deal has a "no_show" activity type.
+    // Open deals at stage_order=8 are already confirmed — skip verification.
+    // Fetch all no_show deal_ids at once (~3-4 paginated requests) instead of per-deal.
+    const noShowDealIds = (wonRows.length > 0 || lostRows.length > 0)
+      ? await fetchAllNoShowDealIds()
+      : new Set<number>();
+
+    const verifiedWonRows = wonRows.filter((d) => noShowDealIds.has(d.deal_id as number));
+    const verifiedLostRows = lostRows.filter((d) => noShowDealIds.has(d.deal_id as number));
+    console.log(`[noshow] NoShow deal_ids: ${noShowDealIds.size} | Won: ${wonRows.length} → ${verifiedWonRows.length} | Lost: ${lostRows.length} → ${verifiedLostRows.length}`);
+
     // ── 3. Combine all no-show deals
-    const allRaw = [...openNoShows, ...wonRows, ...lostRows];
+    const allRaw = [...openNoShows, ...verifiedWonRows, ...verifiedLostRows];
 
     // Dedup by deal_id (open deal might also appear in historical)
     const seen = new Set<number>();
