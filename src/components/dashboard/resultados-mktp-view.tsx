@@ -216,16 +216,13 @@ function MultiLineChart({ data }: { data: { date: string; byStage: Record<string
   );
 }
 
-function ChannelCard({ channel, historyDays }: { channel: ChannelResult; historyDays: number }) {
+function ChannelCard({ channel }: { channel: ChannelResult }) {
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const { metrics, snapshots, ocupacaoAgenda, dealsHistory, lastMonthWon, name } = channel;
   const icon = CHANNEL_ICONS[name] || "📊";
   const accent = CHANNEL_ACCENT[name] || "transparent";
 
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - historyDays);
-  const cutoffStr = cutoff.toISOString().substring(0, 10);
-  const filteredHistory = dealsHistory.filter((h) => h.date >= cutoffStr);
+  const filteredHistory = dealsHistory;
 
   return (
     <div style={{ border: `1px solid ${T.border}`, borderRadius: 10, padding: 20, background: accent, marginBottom: 24 }}>
@@ -316,8 +313,6 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
 }
 
 export function ResultadosMKTPView({ data, loading, lastUpdated }: Props) {
-  const [historyDays, setHistoryDays] = useState(30);
-
   if (loading || !data) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: 60, color: T.cinza400, fontSize: 14 }}>
@@ -333,26 +328,10 @@ export function ResultadosMKTPView({ data, loading, lastUpdated }: Props) {
           {data.month.replace("-", "/")}
           {lastUpdated && <span style={{ marginLeft: 8, fontSize: 10, color: T.cinza400 }}>Atualizado {lastUpdated.toLocaleTimeString("pt-BR")}</span>}
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          {[30, 60, 90].map((d) => (
-            <button
-              key={d}
-              onClick={() => setHistoryDays(d)}
-              style={{
-                fontSize: 10, padding: "2px 8px", borderRadius: 4, border: "none", cursor: "pointer",
-                background: historyDays === d ? T.azul600 : T.cinza50,
-                color: historyDays === d ? "#fff" : T.cinza600,
-                fontWeight: 500,
-              }}
-            >
-              {d}d
-            </button>
-          ))}
-        </div>
       </div>
 
       {data.channels.map((ch) => (
-        <ChannelCard key={ch.name} channel={ch} historyDays={historyDays} />
+        <ChannelCard key={ch.name} channel={ch} />
       ))}
 
       <div style={{ textAlign: "center", fontSize: 11, color: T.cinza400, marginTop: 8 }}>
