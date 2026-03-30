@@ -54,15 +54,16 @@ const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
 };
 
 const CHANNEL_CLOSERS: Record<string, string[]> = {
-  "Vendas Diretas": ["Gabriela Branco", "Gabriela Lemos", "Giovanna de Araujo Zanchetta"],
+  "Vendas Diretas": ["Gabriela Branco"],
   Parceiros: ["Samuel Barreto"],
+  "Expansão": ["Giovanna de Araujo Zanchetta"],
 };
 
 /* ── Closer email → macro channel (for calendar events) ──── */
 const CLOSER_EMAIL_CHANNEL: Record<string, string> = {
   "gabriela.branco@seazone.com.br": "Vendas Diretas",
   "gabriela.lemos@seazone.com.br": "Vendas Diretas",
-  "giovanna.araujo@seazone.com.br": "Vendas Diretas",
+  "giovanna.araujo@seazone.com.br": "Expansão",
 };
 
 const MEETINGS_PER_DAY = 16;
