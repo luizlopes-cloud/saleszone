@@ -31,9 +31,9 @@ function getCanalGroup(canalId: string): string {
 const CHANNEL_ORDER = ["Vendas Diretas", "Parceiros", "Expansão"] as const;
 
 const CHANNEL_FILTERS: Record<string, string> = {
-  "Vendas Diretas": "canal_group NOT IN ('Parceiros', 'Expansão') · Exclui Duplicado/Erro",
-  Parceiros: "canal_group = 'Parceiros' · Exclui Duplicado/Erro",
-  "Expansão": "canal_group = 'Expansão' · Exclui Duplicado/Erro",
+  "Vendas Diretas": "Inclui: Marketing, Mônica, Spots, Ind. Colaborador, Eventos, Ind. Clientes, Outros\nExclui: Expansão, Ind. Corretor, Ind. Franquia, Duplicado/Erro",
+  Parceiros: "Inclui: Ind. Corretor, Ind. Franquia, Ind. Outros Parceiros\nExclui: Duplicado/Erro",
+  "Expansão": "Inclui: Expansão\nExclui: Duplicado/Erro",
 };
 
 interface ChannelMetas {

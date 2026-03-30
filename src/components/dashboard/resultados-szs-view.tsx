@@ -192,7 +192,7 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
             <div style={{
               position: "absolute", top: 20, left: -100, zIndex: 10, background: T.fg, color: "#fff",
               padding: "8px 12px", borderRadius: 6, fontSize: 11, width: 280, lineHeight: 1.4,
-              boxShadow: T.elevSm,
+              boxShadow: T.elevSm, whiteSpace: "pre-line",
             }}>
               {channel.filterDescription}
             </div>
