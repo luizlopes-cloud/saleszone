@@ -20,7 +20,7 @@ interface ChannelResult {
   lastMonthWon: number;
   snapshots: { aguardandoDados: number; emContrato: number };
   ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers?: string[]; meetingsPerDay?: number; workDays?: number };
-  dealsHistory: { date: string; total: number; byStage: Record<string, number> }[];
+  dealsHistory: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[];
 }
 
 interface ResultadosSZSData {
@@ -269,7 +269,7 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
           <div style={{ padding: "12px 14px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, flex: 1 }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: T.fg, marginBottom: 8 }}>Deals Abertos no Funil</div>
             <AreaChart
-              data={filteredHistory.map((h) => ({ date: h.date, value: h.total }))}
+              data={filteredHistory.map((h) => ({ date: h.date, value: h.openTotal || h.total }))}
               color={name === "Parceiros" ? "#a855f7" : name === "Expansão" ? "#eab308" : "#3b82f6"}
             />
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8, color: T.cinza400, marginTop: 2 }}>
