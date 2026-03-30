@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { ForecastData, ForecastStageSnapshot, ForecastCloserRow, ForecastSquadRow } from "@/lib/types";
+import { paginate } from "@/lib/paginate";
 
 const mc = getModuleConfig("mktp");
 const V_COLS = mc.closers;
@@ -24,22 +25,6 @@ function getSquadId(closerName: string): number {
     }
   }
   return 0;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
-  const rows: any[] = [];
-  let offset = 0;
-  const PS = 1000;
-  while (true) {
-    const { data, error } = await buildQuery(offset, PS);
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PS) break;
-    offset += PS;
-  }
-  return rows;
 }
 
 export async function GET() {
@@ -222,6 +207,11 @@ export async function GET() {
       };
     });
 
+    // Collect all empreendimentos from deal data for dynamic discovery
+    const allDealEmps = new Set<string>();
+    for (const d of openDeals) { if (d.empreendimento) allDealEmps.add(d.empreendimento); }
+    for (const d of wonThisMonth) { if (d.empreendimento) allDealEmps.add(d.empreendimento); }
+
     // --- Squad rows ---
     const squadsResult: ForecastSquadRow[] = mc.squads.map((sq) => {
       const sqClosers = closerRows.filter((c) => c.squadId === sq.id);
@@ -230,7 +220,9 @@ export async function GET() {
       const total = sqClosers.reduce((s, c) => s + c.total, 0);
       const meta = metaBySquad[sq.id] || 0;
 
-      const sqEmps = new Set(sq.empreendimentos as readonly string[]);
+      const sqEmps = sq.empreendimentos.length > 0
+        ? new Set(sq.empreendimentos as readonly string[])
+        : allDealEmps;
       const sqOpenByStage: Record<number, number> = {};
       for (const d of openDeals) {
         if (sqEmps.has(d.empreendimento)) {

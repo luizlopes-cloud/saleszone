@@ -18,11 +18,13 @@ function matchOwner(colName: string, ownerName: string): boolean {
 }
 
 // Build map: empreendimento → { correctPV, correctVIndices, squadId }
-function buildSquadMap() {
+// When sq.empreendimentos is empty, map is populated lazily from DB data
+function buildSquadMap(dbEmpreendimentos?: Set<string>) {
   const map = new Map<string, { correctPV: string; correctVIndices: number[]; squadId: number }>();
   for (const sq of mc.squads) {
     const vIndices = mc.squadCloserMap[sq.id] || [];
-    for (const emp of sq.empreendimentos) {
+    const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...(dbEmpreendimentos || [])];
+    for (const emp of emps) {
       map.set(emp, { correctPV: sq.preVenda, correctVIndices: vIndices, squadId: sq.id });
     }
   }
@@ -48,7 +50,13 @@ export async function GET() {
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    const squadMap = buildSquadMap();
+    // Collect unique empreendimentos from DB data for dynamic discovery
+    const dbEmps = new Set<string>();
+    for (const deal of deals || []) {
+      if (deal.empreendimento) dbEmps.add(deal.empreendimento);
+    }
+
+    const squadMap = buildSquadMap(dbEmps);
 
     // Group misaligned deals by person (PV or V column name)
     const byPerson = new Map<string, { role: "pv" | "v"; deals: MisalignedDeal[] }>();

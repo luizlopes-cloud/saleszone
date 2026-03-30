@@ -113,8 +113,33 @@ export async function GET() {
       empExplicacao.set(row.empreendimento, row.explicacao || "");
     }
 
+    // Collect all known empreendimentos from DB data
+    const allDbEmps = new Set<string>();
+    for (const key of empSpend.keys()) {
+      const emp = key.split(":")[1];
+      if (emp) allDbEmps.add(emp);
+    }
+    for (const key of empCampaigns.keys()) {
+      const emp = key.split(":")[1];
+      if (emp) allDbEmps.add(emp);
+    }
+
     const squadsBreakdown: OrcamentoSquadBreakdown[] = mc.squads.map((sq) => {
-      const empreendimentos: OrcamentoEmpBreakdown[] = sq.empreendimentos.map((emp) => {
+      // When empreendimentos is empty, discover from DB keys matching this squad
+      let emps: readonly string[];
+      if (sq.empreendimentos.length > 0) {
+        emps = sq.empreendimentos;
+      } else {
+        const sqEmps = new Set<string>();
+        for (const key of empSpend.keys()) {
+          if (key.startsWith(`${sq.id}:`)) sqEmps.add(key.split(":")[1]);
+        }
+        for (const key of empCampaigns.keys()) {
+          if (key.startsWith(`${sq.id}:`)) sqEmps.add(key.split(":")[1]);
+        }
+        emps = [...sqEmps].sort();
+      }
+      const empreendimentos: OrcamentoEmpBreakdown[] = emps.map((emp) => {
         const key = `${sq.id}:${emp}`;
         const empGasto = Math.round((empSpend.get(key) || 0) * 100) / 100;
         const empCampCount = empCampaigns.get(key)?.size || 0;

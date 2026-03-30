@@ -42,7 +42,8 @@ export async function GET(req: NextRequest) {
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
 
     const squads: SquadData[] = mc.squads.map((sq) => {
-      const sqRows = sq.empreendimentos.map((emp) => {
+      const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...empCounts.keys()].sort();
+      const sqRows = emps.map((emp) => {
         const daily = empCounts.get(emp) || new Array(NUM_DAYS).fill(0);
         let totalMes = 0;
         daily.forEach((v, i) => {

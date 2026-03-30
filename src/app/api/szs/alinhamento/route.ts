@@ -3,26 +3,11 @@ import { NextResponse } from "next/server";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { AlinhamentoData } from "@/lib/types";
+import { paginate } from "@/lib/paginate";
 
 const mc = getModuleConfig("szs");
 
 export const dynamic = "force-dynamic";
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
-  const rows: any[] = [];
-  let offset = 0;
-  const PS = 1000;
-  while (true) {
-    const { data, error } = await buildQuery(offset, PS);
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PS) break;
-    offset += PS;
-  }
-  return rows;
-}
 
 // Agrupar cidades em 4 grupos
 function getCidadeGroup(cidade: string): string {
@@ -52,7 +37,7 @@ export async function GET() {
     const deals = await paginate((o, ps) =>
       admin
         .from("szs_deals")
-        .select("empreendimento, owner_name, preseller_name")
+        .select("empreendimento, owner_name, preseller_name, lost_reason")
         .eq("status", "open")
         .not("empreendimento", "is", null)
         .range(o, o + ps - 1)
@@ -61,6 +46,7 @@ export async function GET() {
     // Agrupar deals por grupo de cidade × owner
     const groupOwner = new Map<string, Map<string, number>>();
     for (const d of deals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const cidade = d.empreendimento;
       if (!cidade) continue;
       const group = getCidadeGroup(cidade);

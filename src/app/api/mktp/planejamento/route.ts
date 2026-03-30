@@ -1,7 +1,9 @@
 // MKTP (Marketplace) module
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
+import { paginate } from "@/lib/paginate";
 import type { PlanejamentoData, PlanejamentoEmpRow, PlanejamentoMetrics } from "@/lib/types";
 
 const mc = getModuleConfig("mktp");
@@ -39,14 +41,6 @@ function sumMetrics(rows: PlanejamentoMetrics[]): PlanejamentoMetrics {
   return buildMetrics(leads, mql, sql, opp, won, spend);
 }
 
-// Map empreendimento → squad id
-const EMP_TO_SQUAD = new Map<string, number>();
-for (const sq of mc.squads) {
-  for (const emp of sq.empreendimentos) {
-    EMP_TO_SQUAD.set(emp, sq.id);
-  }
-}
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -60,33 +54,66 @@ export async function GET(request: Request) {
       ? new Date(now.getTime() - daysBack * 86400000).toISOString().substring(0, 10)
       : null;
 
-    const rpcParams = daysBack !== 0
-      ? { months_back: 12, days_back: daysBack }
-      : { months_back: 12 };
-
     const histMetaQuery = supabase
       .from("mktp_meta_ads")
       .select("ad_id, empreendimento, leads_month, spend_month, snapshot_date")
       .lt("snapshot_date", startDate);
     if (metaCutoffDate) histMetaQuery.gte("snapshot_date", metaCutoffDate);
 
-    const [countsRes, curMetaRes, histMetaRes] = await Promise.all([
-      supabase.rpc("get_mktp_planejamento_counts", rpcParams),
-      supabase
-        .from("mktp_meta_ads")
-        .select("ad_id, empreendimento, leads_month, spend_month")
-        .gte("snapshot_date", startDate)
-        .range(0, 49999),
-      histMetaQuery.range(0, 49999),
+    // Query mktp_deals directly instead of RPC (get_mktp_planejamento_counts doesn't exist)
+    const admin = createSquadSupabaseAdmin();
+
+    const dealsCutoff = daysBack > 0
+      ? new Date(now.getTime() - daysBack * 86400000).toISOString().substring(0, 10)
+      : daysBack === 0
+        ? new Date(now.getFullYear(), now.getMonth() - 12, 1).toISOString().substring(0, 10)
+        : null; // daysBack === -1: no date filter
+
+    const [dealsData, curMetaData, histMetaData] = await Promise.all([
+      paginate((o, ps) => {
+        let q = admin.from("mktp_deals")
+          .select("empreendimento, add_time, max_stage_order, status, lost_reason, won_time")
+          .not("empreendimento", "is", null);
+        if (dealsCutoff) q = q.gte("add_time", dealsCutoff);
+        return q.range(o, o + ps - 1);
+      }),
+      paginate((o, ps) =>
+        supabase
+          .from("mktp_meta_ads")
+          .select("ad_id, empreendimento, leads_month, spend_month")
+          .gte("snapshot_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      paginate((o, ps) => histMetaQuery.range(o, o + ps - 1)),
     ]);
 
-    if (countsRes.error) throw new Error(`RPC get_mktp_planejamento_counts: ${countsRes.error.message}`);
-    if (curMetaRes.error) throw new Error(`Current Meta Ads: ${curMetaRes.error.message}`);
-    if (histMetaRes.error) throw new Error(`Historical Meta Ads: ${histMetaRes.error.message}`);
+    // Compute counts by month/empreendimento from deals (same logic as RPC)
+    // Stage thresholds: MQL>=2, SQL>=5, OPP>=9
+    const rpcLikeData: Array<{ month: string; empreendimento: string; mql: number; sql: number; opp: number; won: number }> = [];
+    const empMonthCounts = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
+    for (const d of dealsData) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const emp = d.empreendimento;
+      const month = (d.add_time || "").substring(0, 7);
+      if (!month || !emp) continue;
+      const key = `${emp}|${month}`;
+      if (!empMonthCounts.has(key)) empMonthCounts.set(key, { mql: 0, sql: 0, opp: 0, won: 0 });
+      const c = empMonthCounts.get(key)!;
+      const mso = d.max_stage_order || 0;
+      if (mso >= 2) c.mql++;
+      if (mso >= 5) c.sql++;
+      if (mso >= 9) c.opp++;
+      if (d.status === "won") c.won++;
+    }
+    for (const [key, c] of empMonthCounts) {
+      const [emp, month] = key.split("|");
+      rpcLikeData.push({ month, empreendimento: emp, ...c });
+    }
+    // paginate() already throws on error
 
     const curCounts = new Map<string, Record<string, number>>();
     const histByEmpMonth = new Map<string, Map<string, Record<string, number>>>();
-    for (const row of countsRes.data || []) {
+    for (const row of rpcLikeData) {
       if (row.month === curMonth) {
         curCounts.set(row.empreendimento, {
           mql: Number(row.mql) || 0,
@@ -114,7 +141,7 @@ export async function GET(request: Request) {
     }
 
     const curAdMax = new Map<string, { empreendimento: string; leads_month: number; spend_month: number }>();
-    for (const row of curMetaRes.data || []) {
+    for (const row of curMetaData) {
       const cur = curAdMax.get(row.ad_id);
       if (!cur || (Number(row.spend_month) || 0) > cur.spend_month) {
         curAdMax.set(row.ad_id, {
@@ -133,7 +160,7 @@ export async function GET(request: Request) {
     }
 
     const histMetaEmpMonth = new Map<string, Map<string, { leads: number; spend: number }>>();
-    for (const row of histMetaRes.data || []) {
+    for (const row of histMetaData) {
       const month = (row.snapshot_date as string).substring(0, 7);
       const emp = row.empreendimento;
       const adMonthKey = `${row.ad_id}|${month}`;
@@ -173,9 +200,18 @@ export async function GET(request: Request) {
     for (const emp of curMeta.keys()) allEmps.add(emp);
     for (const emp of histMeta.keys()) allEmps.add(emp);
 
+    // Build empreendimento → squad id map dynamically
+    const empToSquad = new Map<string, number>();
+    for (const sq of mc.squads) {
+      const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...allEmps];
+      for (const emp of emps) {
+        empToSquad.set(emp, sq.id);
+      }
+    }
+
     const empRows: PlanejamentoEmpRow[] = [];
     for (const emp of allEmps) {
-      const squadId = EMP_TO_SQUAD.get(emp) || 0;
+      const squadId = empToSquad.get(emp) || 0;
       const cc = curCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
       const cm = curMeta.get(emp) || { leads: 0, spend: 0 };
       const hc = histCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
