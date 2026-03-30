@@ -14,6 +14,18 @@ const FIELD_EMPREENDIMENTO = "6d565fd4fce66c16da078f520a685fa2fa038272";
 const FIELD_QUALIFICACAO = "bc74bcc4326527cbeb331d1697d4c8812d68506e";
 const FIELD_REUNIAO = "bfafc352c5c6f2edbaa41bf6d1c6daa825fc9c16";
 const CANAL_MARKETING_ID = "12";
+
+/* ── Canal-group mapping for Resultados MKTP ── */
+const MKTP_CANAL_GROUPS: Record<string, string> = {
+  "582": "Parcerias",    // Indicação de Corretor
+  "583": "Parcerias",    // Indicação de Franquia
+  "2876": "Parcerias",   // Indicação de Outros Parceiros
+};
+
+function getCanalGroup(deal: any): string {
+  const canal = String(deal[FIELD_CANAL] || "");
+  return MKTP_CANAL_GROUPS[canal] || "Vendas Diretas";
+}
 const EMPREENDIMENTO_MAP: Record<string, string> = {
   "3313": "Altavista",
   "1132": "Barra de São Miguel Spot",
@@ -148,24 +160,24 @@ function countDeals(
   deals: any[], startDate: string, endDate: string,
   countsPerTab: Record<Tab, Map<string, number>>,
 ) {
-  let mkt = 0;
+  let total = 0;
   for (const deal of deals) {
     // Filter to MKTP pipeline only (/deals endpoint returns ALL pipelines)
     if (deal.pipeline_id !== PIPELINE_ID) continue;
-    if (!isMarketingDeal(deal)) continue;
-    mkt++;
+    total++;
     const emp = getEmpreendimento(deal);
     if (!emp) continue;
+    const canalGroup = getCanalGroup(deal);
     for (const tab of TABS) {
       const dateStr = getDateField(deal, tab);
       if (!dateStr) continue;
       const day = dateStr.substring(0, 10);
       if (day < startDate || day > endDate) continue;
-      const key = `${day}|${emp}`;
+      const key = `${day}|${canalGroup}|${emp}`;
       countsPerTab[tab].set(key, (countsPerTab[tab].get(key) || 0) + 1);
     }
   }
-  return mkt;
+  return total;
 }
 
 // ---- Write counts to DB ----
@@ -175,8 +187,8 @@ async function writeDailyCounts(supabase: any, countsPerTab: Record<Tab, Map<str
     const final = countsPerTab[tab];
 
     const rows = Array.from(final.entries()).map(([key, count]) => {
-      const [date, empreendimento] = key.split("|");
-      return { date, tab, empreendimento, count, source, synced_at: new Date().toISOString() };
+      const [date, canal_group, empreendimento] = key.split("|");
+      return { date, tab, canal_group, empreendimento, count, source, synced_at: new Date().toISOString() };
     });
 
     // Delete only rows from THIS source (idempotent — each source replaces only itself)
