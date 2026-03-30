@@ -54,17 +54,15 @@ const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
 };
 
 const CHANNEL_CLOSERS: Record<string, string[]> = {
-  "Vendas Diretas": ["Maria Vitória Amaral", "Gabriela Branco", "Gabriela Lemos"],
+  "Vendas Diretas": ["Gabriela Branco", "Gabriela Lemos", "Giovanna de Araujo Zanchetta"],
   Parceiros: ["Samuel Barreto"],
-  "Expansão": ["Giovanna de Araujo Zanchetta"],
 };
 
 /* ── Closer email → macro channel (for calendar events) ──── */
 const CLOSER_EMAIL_CHANNEL: Record<string, string> = {
-  "maria.amaral@seazone.com.br": "Vendas Diretas",
   "gabriela.branco@seazone.com.br": "Vendas Diretas",
   "gabriela.lemos@seazone.com.br": "Vendas Diretas",
-  "giovanna.araujo@seazone.com.br": "Expansão",
+  "giovanna.araujo@seazone.com.br": "Vendas Diretas",
 };
 
 const MEETINGS_PER_DAY = 16;
@@ -89,7 +87,7 @@ interface ChannelResult {
   lastMonthWon: number;
   snapshots: { aguardandoDados: number; emContrato: number };
   ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers: string[]; meetingsPerDay: number; workDays: number };
-  dealsHistory: { date: string; total: number; byStage: Record<string, number> }[];
+  dealsHistory: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[];
 }
 
 interface ResultadosSZSData {
@@ -174,17 +172,25 @@ export async function GET() {
       if (macro) snapshots[macro].agendado++;
     }
 
+    // History: byStage uses all sources; openTotal uses only source=open + tab=mql
     const historyRows = await paginate((o, ps) =>
-      admin.from("szs_daily_counts").select("date, tab, canal_group, count").gte("date", cutoffDate).range(o, o + ps - 1)
+      admin.from("szs_daily_counts").select("date, tab, canal_group, count, source").gte("date", cutoffDate).range(o, o + ps - 1)
     );
     const histMap: Record<string, Map<string, Record<string, number>>> = {};
-    for (const ch of CHANNEL_ORDER) histMap[ch] = new Map();
+    const openTotalMap: Record<string, Map<string, number>> = {};
+    for (const ch of CHANNEL_ORDER) { histMap[ch] = new Map(); openTotalMap[ch] = new Map(); }
     for (const r of historyRows) {
       const macro = MACRO_CHANNELS[r.canal_group] || "Vendas Diretas";
+      // byStage: aggregate all sources
       const map = histMap[macro];
       if (!map.has(r.date)) map.set(r.date, {});
       const entry = map.get(r.date)!;
       entry[r.tab] = (entry[r.tab] || 0) + (r.count || 0);
+      // openTotal: only source=open, tab=mql = total deals currently open
+      if (r.source === "open" && r.tab === "mql") {
+        const oMap = openTotalMap[macro];
+        oMap.set(r.date, (oMap.get(r.date) || 0) + (r.count || 0));
+      }
     }
 
     const metas = SZS_RESULTADOS_METAS[monthKey] || {};
@@ -205,11 +211,13 @@ export async function GET() {
       if (meta.leads != null) metrics.leads = { real: counts.mql || 0, meta: meta.leads };
 
       const histEntries = histMap[name];
+      const oMap = openTotalMap[name];
       const dealsHistory = Array.from(histEntries.entries())
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([date, tabs]) => ({
           date,
           total: Object.values(tabs).reduce((s, v) => s + v, 0),
+          openTotal: oMap.get(date) || 0,
           byStage: tabs,
         }));
 
