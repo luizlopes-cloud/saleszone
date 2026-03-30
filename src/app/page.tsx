@@ -33,7 +33,7 @@ class ViewErrorBoundary extends React.Component<
   }
 }
 import { getModuleConfig, DEFAULT_MODULE } from "@/lib/modules";
-import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, LostsData, RatioHistoryData, UserRole, NoShowData } from "@/lib/types";
+import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, LostsData, RatioHistoryData, UserRole, NoShowData, GeralData } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { Header } from "@/components/dashboard/header";
 import { AcompanhamentoView } from "@/components/dashboard/acompanhamento-view";
@@ -63,6 +63,7 @@ import { MensalView } from "@/components/dashboard/mensal-view";
 import { NoShowView } from "@/components/dashboard/noshow-view";
 import { ResultadosSZSView } from "@/components/dashboard/resultados-szs-view";
 import { ResultadosMKTPView } from "@/components/dashboard/resultados-mktp-view";
+import { GeralView } from "@/components/dashboard/geral-view";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -126,6 +127,7 @@ export default function Dashboard() {
   const [resultadosSZSData, setResultadosSZSData] = useState<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [resultadosMKTPData, setResultadosMKTPData] = useState<any>(null);
+  const [geralData, setGeralData] = useState<GeralData | null>(null);
   const [ratioData, setRatioData] = useState<RatioHistoryData | null>(null);
   const [ratioDays, setRatioDays] = useState(90);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
@@ -448,6 +450,20 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchGeral = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/dashboard/geral");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setGeralData(data);
+    } catch (err) {
+      console.error("Fetch geral error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const fetchRatios = useCallback(async (days: number = 90) => {
     try {
       const res = await fetch(`${moduleConfig.apiBase}/ratios?days=${days}`);
@@ -543,6 +559,8 @@ export default function Dashboard() {
       fetchResultadosSZS();
     } else if (mainView === "resultados-mktp" && !resultadosMKTPData) {
       fetchResultadosMKTP();
+    } else if (mainView === "geral" && !geralData) {
+      fetchGeral();
     }
   }, [activeTab, mainView, hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -576,6 +594,7 @@ export default function Dashboard() {
     setRatioData(null);
     setResultadosSZSData(null);
     setResultadosMKTPData(null);
+    setGeralData(null);
   };
 
   const fetchCurrentView = async () => {
@@ -598,6 +617,7 @@ export default function Dashboard() {
     else if (mainView === "losts-prevendas" || mainView === "losts-vendas") await fetchLosts(lostsPeriod, lostsCustomDate);
     else if (mainView === "noshow") await fetchNoShow(noShowDays);
     else if (mainView === "mensal") await fetchMensal();
+    else if (mainView === "geral") await fetchGeral();
   };
 
   const handleRefresh = async () => {
@@ -747,6 +767,7 @@ export default function Dashboard() {
         {mainView === "backlog" && <BacklogView />}
         {mainView === "admin" && <AdminView userRole={userRole} />}
         {mainView === "mensal" && <MensalView data={mensalData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "geral" && <GeralView data={geralData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "resultados-szs" && (
           <ResultadosSZSView
             data={resultadosSZSData}
