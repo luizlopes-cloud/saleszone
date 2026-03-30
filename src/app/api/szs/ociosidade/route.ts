@@ -12,9 +12,10 @@ export const dynamic = "force-dynamic";
 const JORNADA_MIN = 480; // 8h úteis
 
 function getSquadId(name: string): number {
-  const lower = name.toLowerCase();
+  const n = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   for (const sq of mc.squads) {
-    if (lower.includes(sq.venda.toLowerCase().split(" ")[0])) return sq.id;
+    const v = sq.venda.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    if (n === v || n.includes(v) || v.includes(n)) return sq.id;
   }
   return 0;
 }
@@ -48,18 +49,27 @@ function isoWeekLabel(dateStr: string): string {
 
 export async function GET() {
   try {
-    // 1. Get SZS closers
+    // 1. Get SZS closers — include "Expansao" setor (Giovanna is there)
     const { data: rules, error: closerErr } = await supabase
       .from("squad_closer_rules")
       .select("email")
-      .eq("setor", "SZS");
+      .in("setor", ["SZS", "Expansao"]);
 
     if (closerErr) throw closerErr;
     if (!rules || rules.length === 0) {
       return NextResponse.json({ closers: [], dates: [], syncedAt: new Date().toISOString() });
     }
 
-    const emails = rules.map((c) => c.email);
+    // Only keep emails that match mc.closers (excludes Samuel, Maria Vitória)
+    const closerNorm = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const configClosers = mc.closers.map(closerNorm);
+    const emails = rules
+      .filter((r) => {
+        // Match email prefix (e.g. "gabriela.lemos") against closer names
+        const prefix = r.email.split("@")[0].replace(".", " ");
+        return configClosers.some((c) => c.includes(closerNorm(prefix)) || closerNorm(prefix).includes(c.split(" ")[0]));
+      })
+      .map((r) => r.email);
 
     // 2. Date window
     const today = new Date();
@@ -143,9 +153,24 @@ export async function GET() {
       }
     }
 
+    // Map emails to full names from mc.closers for disambiguation
+    // e.g. gabriela.lemos@ → "Gabriela Lemos", gabriela.branco@ → "Gabriela Branco"
+    const emailToFullName = new Map<string, string>();
+    for (const closer of mc.closers) {
+      const parts = closerNorm(closer).split(" ");
+      for (const e of emails) {
+        const emailParts = e.split("@")[0].split(".");
+        if (emailParts.length >= 2 && parts[0] === emailParts[0] && parts.some((p) => p === emailParts[1])) {
+          emailToFullName.set(e, closer);
+        } else if (emailParts.length === 1 && parts[0] === emailParts[0] && !emailToFullName.has(e)) {
+          emailToFullName.set(e, closer);
+        }
+      }
+    }
+
     const result: OciosidadeCloser[] = emails.map((email) => {
       const emailMap = agg.get(email) || new Map();
-      const name = nameMap.get(email) || email.split("@")[0].replace(".", " ");
+      const name = emailToFullName.get(email) || nameMap.get(email) || email.split("@")[0].replace(".", " ");
       const squadId = getSquadId(name);
 
       const days: OciosidadeDay[] = displayDays.map((ds) => {
