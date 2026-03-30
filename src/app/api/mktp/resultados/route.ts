@@ -3,7 +3,7 @@ import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { paginate } from "@/lib/paginate";
 
 /* ── Channel definitions ──────────────────────────────────── */
-const CHANNEL_ORDER = ["Vendas Diretas", "Parcerias", "Funil Completo"] as const;
+const CHANNEL_ORDER = ["Funil Completo", "Vendas Diretas", "Parcerias"] as const;
 type MktpChannel = (typeof CHANNEL_ORDER)[number];
 
 const CHANNEL_FILTERS: Record<MktpChannel, string> = {
