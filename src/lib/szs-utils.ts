@@ -83,3 +83,54 @@ for (const [month, canals] of Object.entries(RAW_METAS)) {
     3: (canals["Expansão"] || 0) + (canals.Spots || 0) + (canals.Outros || 0),
   };
 }
+
+// --- Nekt meta fields by city × squad ---
+// Used to read city-specific metas from nekt_meta26_metas
+export const NEKT_META_FIELDS_BY_CITY: Record<string, Record<number, string[]>> = {
+  "São Paulo": {
+    1: ["won_szs_sp_meta_pago"],
+    2: ["won_szs_sp_meta_parceiro"],
+    3: ["won_szs_sp_meta_exp", "won_szs_sp_meta_spot", "won_szs_sp_meta_direto"],
+  },
+  Salvador: {
+    1: ["won_szs_sa_meta_pago"],
+    2: ["won_szs_sa_meta_parceiro"],
+    3: ["won_szs_sa_meta_exp", "won_szs_sa_meta_spot", "won_szs_sa_meta_direto"],
+  },
+  // Total (all cities)
+  _total: {
+    1: ["won_szs_meta_pago"],
+    2: ["won_szs_meta_parceiro"],
+    3: ["won_szs_meta_exp", "won_szs_meta_spot", "won_szs_meta_direto"],
+  },
+};
+
+/** Read squad metas from nekt row, optionally filtered by city */
+export function getSquadMetasFromNekt(
+  nektRow: Record<string, unknown>,
+  cityFilter: string | null,
+): Record<number, number> {
+  const fields = cityFilter && NEKT_META_FIELDS_BY_CITY[cityFilter]
+    ? NEKT_META_FIELDS_BY_CITY[cityFilter]
+    : NEKT_META_FIELDS_BY_CITY._total;
+
+  const result: Record<number, number> = {};
+  for (const [sqIdStr, fieldList] of Object.entries(fields)) {
+    const sqId = Number(sqIdStr);
+    result[sqId] = fieldList.reduce(
+      (sum, field) => sum + (Number(nektRow[field]) || 0), 0,
+    );
+  }
+
+  // Floripa/Outros = Total - Salvador - SP (no dedicated fields)
+  if (cityFilter === "Florianópolis" || cityFilter === "Outros") {
+    const total = getSquadMetasFromNekt(nektRow, null);
+    const sp = getSquadMetasFromNekt(nektRow, "São Paulo");
+    const sa = getSquadMetasFromNekt(nektRow, "Salvador");
+    for (const sqId of [1, 2, 3]) {
+      result[sqId] = Math.max(0, (total[sqId] || 0) - (sp[sqId] || 0) - (sa[sqId] || 0));
+    }
+  }
+
+  return result;
+}
