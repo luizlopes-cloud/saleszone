@@ -91,6 +91,13 @@ export async function GET() {
     // Sort by squad then canal name
     rows.sort((a, b) => a.sqId - b.sqId || a.emp.localeCompare(b.emp));
 
+    // Build PV → squad mapping (PVs not matching any squad.preVenda fall to squad 1)
+    const pvToSquad = new Map<string, number>();
+    for (const p of PV_COLS) {
+      const pvSq = mc.squads.find((s) => normalize(s.preVenda) === normalize(p));
+      pvToSquad.set(p, pvSq?.id ?? mc.squads[0]?.id ?? 1);
+    }
+
     // Stats: calculate misaligned deals
     let total = 0;
     let mis = 0;
@@ -98,7 +105,7 @@ export async function GET() {
       PV_COLS.forEach((p) => {
         const val = row.cells.pv[p] || 0;
         total += val;
-        if (val > 0 && row.correctPV && !matchOwner(row.correctPV, p)) mis += val;
+        if (val > 0 && pvToSquad.get(p) !== row.sqId) mis += val;
       });
       const sqVIndices = mc.squadCloserMap[row.sqId] || [];
       V_COLS.forEach((p, idx) => {
