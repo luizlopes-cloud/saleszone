@@ -98,6 +98,7 @@ function ProgressBar({ label, real, meta, isMoney }: { label: string; real: numb
 }
 
 function AreaChart({ data, color }: { data: { date: string; value: number }[]; color: string }) {
+  const [hover, setHover] = useState<number | null>(null);
   if (data.length < 2) return <div style={{ fontSize: 11, color: T.cinza400, padding: 20, textAlign: "center" }}>Dados insuficientes</div>;
   const maxVal = Math.max(...data.map((d) => d.value), 1);
   const W = 500;
@@ -108,18 +109,47 @@ function AreaChart({ data, color }: { data: { date: string; value: number }[]; c
   }));
   const line = points.map((p) => `${p.x},${p.y}`).join(" L");
   const area = `M${line} L${W},${H} L0,${H} Z`;
+  const last = data[data.length - 1];
+  const active = hover !== null ? data[hover] : null;
 
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-      <defs>
-        <linearGradient id={`grad-${color.replace("#", "")}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} />
-          <stop offset="100%" stopColor="transparent" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill={`url(#grad-${color.replace("#", "")})`} opacity={0.3} />
-      <path d={`M${line}`} fill="none" stroke={color} strokeWidth={2} />
-    </svg>
+    <div style={{ position: "relative" }}>
+      <svg
+        width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = (e.clientX - rect.left) / rect.width;
+          const idx = Math.round(x * (data.length - 1));
+          setHover(Math.max(0, Math.min(data.length - 1, idx)));
+        }}
+        onMouseLeave={() => setHover(null)}
+        style={{ cursor: "crosshair" }}
+      >
+        <defs>
+          <linearGradient id={`grad-${color.replace("#", "")}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} />
+            <stop offset="100%" stopColor="transparent" />
+          </linearGradient>
+        </defs>
+        <path d={area} fill={`url(#grad-${color.replace("#", "")})`} opacity={0.3} />
+        <path d={`M${line}`} fill="none" stroke={color} strokeWidth={2} />
+        {hover !== null && (
+          <>
+            <line x1={points[hover].x} y1={0} x2={points[hover].x} y2={H} stroke={color} strokeWidth={1} opacity={0.5} strokeDasharray="3" />
+            <circle cx={points[hover].x} cy={points[hover].y} r={3} fill={color} />
+          </>
+        )}
+      </svg>
+      {active ? (
+        <div style={{ position: "absolute", top: -2, right: 0, fontSize: 10, color, fontWeight: 600 }}>
+          {active.date.substring(5).replace("-", "/")} · {active.value}
+        </div>
+      ) : (
+        <div style={{ position: "absolute", top: -2, right: 0, fontSize: 10, color, fontWeight: 600 }}>
+          Hoje: {last.value}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -132,33 +162,58 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 function MultiLineChart({ data }: { data: { date: string; byStage: Record<string, number> }[] }) {
+  const [hover, setHover] = useState<number | null>(null);
   if (data.length < 2) return <div style={{ fontSize: 11, color: T.cinza400, padding: 20, textAlign: "center" }}>Dados insuficientes</div>;
   const stages = Object.keys(STAGE_COLORS);
   const maxVal = Math.max(...data.flatMap((d) => stages.map((s) => d.byStage[s] || 0)), 1);
   const W = 500;
   const H = 70;
+  const active = hover !== null ? data[hover] : null;
+  const last = data[data.length - 1];
+  const display = active || last;
 
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
-      {stages.map((stage) => {
-        const points = data.map((d, i) => {
-          const x = (i / (data.length - 1)) * W;
-          const y = H - ((d.byStage[stage] || 0) / maxVal) * (H - 5);
-          return `${x},${y}`;
-        });
-        const isDashed = stage === "reserva" || stage === "contrato";
-        return (
-          <path
-            key={stage}
-            d={`M${points.join(" L")}`}
-            fill="none"
-            stroke={STAGE_COLORS[stage]}
-            strokeWidth={1.5}
-            strokeDasharray={isDashed ? "4" : undefined}
-          />
-        );
-      })}
-    </svg>
+    <div style={{ position: "relative" }}>
+      <svg
+        width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = (e.clientX - rect.left) / rect.width;
+          const idx = Math.round(x * (data.length - 1));
+          setHover(Math.max(0, Math.min(data.length - 1, idx)));
+        }}
+        onMouseLeave={() => setHover(null)}
+        style={{ cursor: "crosshair" }}
+      >
+        {stages.map((stage) => {
+          const points = data.map((d, i) => {
+            const x = (i / (data.length - 1)) * W;
+            const y = H - ((d.byStage[stage] || 0) / maxVal) * (H - 5);
+            return `${x},${y}`;
+          });
+          const isDashed = stage === "reserva" || stage === "contrato";
+          return (
+            <path
+              key={stage}
+              d={`M${points.join(" L")}`}
+              fill="none"
+              stroke={STAGE_COLORS[stage]}
+              strokeWidth={1.5}
+              strokeDasharray={isDashed ? "4" : undefined}
+            />
+          );
+        })}
+        {hover !== null && (
+          <line x1={(hover / (data.length - 1)) * W} y1={0} x2={(hover / (data.length - 1)) * W} y2={H} stroke={T.cinza400} strokeWidth={1} opacity={0.5} strokeDasharray="3" />
+        )}
+      </svg>
+      <div style={{ display: "flex", gap: 6, fontSize: 9, marginTop: 2, color: T.cinza400 }}>
+        <span style={{ fontWeight: 600 }}>{display.date.substring(5).replace("-", "/")}</span>
+        {stages.map((s) => (
+          <span key={s} style={{ color: STAGE_COLORS[s] }}>{STAGE_LABELS[s]}: {display.byStage[s] || 0}</span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -260,8 +315,6 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
 }
 
 export function ResultadosSZSView({ data, loading, lastUpdated }: Props) {
-  const [historyDays, setHistoryDays] = useState(30);
-
   if (loading || !data) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: 60, color: T.cinza400, fontSize: 14 }}>
@@ -272,31 +325,15 @@ export function ResultadosSZSView({ data, loading, lastUpdated }: Props) {
 
   return (
     <div style={{ fontFamily: T.font, maxWidth: 1100, margin: "0 auto", padding: "20px 0" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+      <div style={{ marginBottom: 20 }}>
         <div style={{ fontSize: 12, color: T.cinza600 }}>
           {data.month.replace("-", "/")}
           {lastUpdated && <span style={{ marginLeft: 8, fontSize: 10, color: T.cinza400 }}>Atualizado {lastUpdated.toLocaleTimeString("pt-BR")}</span>}
         </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          {[30, 60, 90].map((d) => (
-            <button
-              key={d}
-              onClick={() => setHistoryDays(d)}
-              style={{
-                fontSize: 10, padding: "2px 8px", borderRadius: 4, border: "none", cursor: "pointer",
-                background: historyDays === d ? T.azul600 : T.cinza50,
-                color: historyDays === d ? "#fff" : T.cinza600,
-                fontWeight: 500,
-              }}
-            >
-              {d}d
-            </button>
-          ))}
-        </div>
       </div>
 
       {data.channels.map((ch) => (
-        <ChannelCard key={ch.name} channel={ch} historyDays={historyDays} />
+        <ChannelCard key={ch.name} channel={ch} historyDays={30} />
       ))}
 
       <div style={{ textAlign: "center", fontSize: 11, color: T.cinza400, marginTop: 8 }}>
