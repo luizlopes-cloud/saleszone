@@ -208,15 +208,25 @@ export async function GET() {
     }
 
     // Accumulated: deals that reached Ag.Dados (>=11) and Contrato (>=12) this month
-    // Uses szs_deals.max_stage_order (historical max stage reached)
-    const accumDeals = await paginate((o, ps) =>
-      admin.from("szs_deals").select("canal, max_stage_order, stage_order, lost_reason")
-        .gte("add_time", startDate)
-        .range(o, o + ps - 1)
-    );
+    // Count deals that were active in March (won/lost/open) and reached these stages
+    // 3 queries: open with mso>=11, won in March with mso>=11, lost in March with mso>=11
+    const [accumOpen, accumWon, accumLost] = await Promise.all([
+      paginate((o, ps) =>
+        admin.from("szs_deals").select("canal, max_stage_order, stage_order, lost_reason")
+          .eq("status", "open").range(o, o + ps - 1)
+      ),
+      paginate((o, ps) =>
+        admin.from("szs_deals").select("canal, max_stage_order, stage_order, lost_reason")
+          .eq("status", "won").gte("won_time", startDate).range(o, o + ps - 1)
+      ),
+      paginate((o, ps) =>
+        admin.from("szs_deals").select("canal, max_stage_order, stage_order, lost_reason")
+          .eq("status", "lost").gte("lost_time", startDate).range(o, o + ps - 1)
+      ),
+    ]);
     const accumData: Record<string, { agDados: number; contrato: number }> = {};
     for (const ch of CHANNEL_ORDER) accumData[ch] = { agDados: 0, contrato: 0 };
-    for (const d of accumDeals) {
+    for (const d of [...accumOpen, ...accumWon, ...accumLost]) {
       if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
       const mso = d.max_stage_order || d.stage_order || 0;
       const canalGroup = getCanalGroup(String(d.canal || ""));
