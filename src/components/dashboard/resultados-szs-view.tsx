@@ -349,7 +349,7 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
                 zIndex: 10, background: T.fg, color: "#fff", padding: "8px 12px", borderRadius: 6,
                 fontSize: 10, width: 220, lineHeight: 1.5, boxShadow: T.elevSm, whiteSpace: "pre-line", textAlign: "left", textTransform: "none",
               }}>
-                {`Reuniões no Google Calendar (próx. 7 dias)\n\nClosers: ${(ocupacaoAgenda.closers || []).join(", ") || "—"}\nCapacidade: ${ocupacaoAgenda.closers?.length || 0} closer × ${ocupacaoAgenda.meetingsPerDay || 0} reuniões/dia × ${ocupacaoAgenda.workDays || 0} dias = ${ocupacaoAgenda.capacidade} slots`}
+                {`Reuniões no Google Calendar (próx. 7 dias)\n\nAgendadas: ${ocupacaoAgenda.agendadas} reuniões\nClosers: ${(ocupacaoAgenda.closers || []).join(", ") || "—"}\nCapacidade: ${ocupacaoAgenda.closers?.length || 0} closer × ${ocupacaoAgenda.meetingsPerDay || 0} reuniões/dia × ${ocupacaoAgenda.workDays || 0} dias = ${ocupacaoAgenda.capacidade} slots`}
               </div>
             </span>
           </div>
