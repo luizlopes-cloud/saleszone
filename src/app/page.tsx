@@ -422,13 +422,13 @@ export default function Dashboard() {
     }
   }, [moduleConfig.apiBase]);
 
-  const fetchResultadosSZS = useCallback(async () => {
+  const fetchResultadosSZS = useCallback(async (cityFilter?: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/szs/resultados`);
+      const params = cityFilter && cityFilter !== "all" ? `?city=${cityFilter}` : "";
+      const res = await fetch(`/api/szs/resultados${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setResultadosSZSData(data);
+      setResultadosSZSData(await res.json());
     } catch (err) {
       console.error("Fetch resultados SZS error:", err);
     } finally {
@@ -773,6 +773,8 @@ export default function Dashboard() {
             data={resultadosSZSData}
             loading={loading}
             lastUpdated={lastUpdated}
+            cityFilter={acompFilter}
+            onCityChange={(city: string) => { setAcompFilter(city as any); setResultadosSZSData(null); fetchResultadosSZS(city); }}
           />
         )}
         {mainView === "resultados-mktp" && (

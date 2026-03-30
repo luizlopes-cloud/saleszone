@@ -37,6 +37,8 @@ interface Props {
   data: ResultadosSZSData | null;
   loading: boolean;
   lastUpdated?: Date | null;
+  cityFilter?: string;
+  onCityChange?: (city: string) => void;
 }
 
 const CHANNEL_ICONS: Record<string, string> = {
@@ -381,7 +383,15 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
   );
 }
 
-export function ResultadosSZSView({ data, loading, lastUpdated }: Props) {
+const CITY_OPTIONS = [
+  { key: "all", label: "Geral" },
+  { key: "sao-paulo", label: "São Paulo" },
+  { key: "salvador", label: "Salvador" },
+  { key: "florianopolis", label: "Florianópolis" },
+  { key: "outros", label: "Outros" },
+];
+
+export function ResultadosSZSView({ data, loading, lastUpdated, cityFilter = "all", onCityChange }: Props) {
   if (loading || !data) {
     return (
       <div style={{ display: "flex", justifyContent: "center", padding: 60, color: T.cinza400, fontSize: 14 }}>
@@ -392,11 +402,29 @@ export function ResultadosSZSView({ data, loading, lastUpdated }: Props) {
 
   return (
     <div style={{ fontFamily: T.font, maxWidth: 1100, margin: "0 auto", padding: "20px 0" }}>
-      <div style={{ marginBottom: 20 }}>
+      <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ fontSize: 12, color: T.cinza600 }}>
           {data.month.replace("-", "/")}
           {lastUpdated && <span style={{ marginLeft: 8, fontSize: 10, color: T.cinza400 }}>Atualizado {lastUpdated.toLocaleTimeString("pt-BR")}</span>}
         </div>
+        {onCityChange && (
+          <div style={{ display: "flex", gap: 2, backgroundColor: T.bg, borderRadius: 8, padding: 2, border: `1px solid ${T.border}` }}>
+            {CITY_OPTIONS.map((opt) => (
+              <button
+                key={opt.key}
+                onClick={() => onCityChange(opt.key)}
+                style={{
+                  padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer",
+                  fontSize: 11, fontWeight: 500, transition: "all 0.15s",
+                  backgroundColor: cityFilter === opt.key ? T.primary : "transparent",
+                  color: cityFilter === opt.key ? "#FFF" : T.mutedFg,
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {data.channels.map((ch) => (
