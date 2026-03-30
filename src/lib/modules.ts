@@ -108,16 +108,16 @@ const MKTP_CONFIG: ModuleConfig = {
 const SZS_SQUADS: readonly SquadDef[] = [
   {
     id: 1,
-    name: "Marketing",
+    name: "Squad 1",
     marketing: "",
     preVenda: "Joyce", // + Larissa Marques
     venda: "Gabriela Lemos",
-    canalIds: [12], // canal 12 = Marketing
+    canalIds: [12], // Marketing
     empreendimentos: [],
   },
   {
     id: 2,
-    name: "Parceiros",
+    name: "Squad 2",
     marketing: "",
     preVenda: "Raynara Lopes",
     venda: "Gabriela Branco",
@@ -126,7 +126,7 @@ const SZS_SQUADS: readonly SquadDef[] = [
   },
   {
     id: 3,
-    name: "Expansão/Spot/Outros",
+    name: "Squad 3",
     marketing: "",
     preVenda: "Raquel",
     venda: "Giovanna de Araujo Zanchetta",

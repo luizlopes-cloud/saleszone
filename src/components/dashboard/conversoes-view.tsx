@@ -37,9 +37,9 @@ const SQUAD_OPTIONS = [
 
 const SZS_SQUAD_OPTIONS = [
   { id: 0, label: "Global" },
-  { id: 1, label: "Marketing" },
-  { id: 2, label: "Parceiros" },
-  { id: 3, label: "Exp/Spot/Outros" },
+  { id: 1, label: "Squad 1" },
+  { id: 2, label: "Squad 2" },
+  { id: 3, label: "Squad 3" },
 ];
 
 const SZS_SQUAD_COLORS: Record<number, string> = {
