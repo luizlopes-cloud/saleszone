@@ -176,7 +176,11 @@ export async function GET(req: NextRequest) {
           opp = Math.round(totalPaid.opp * mqlShare); won = Math.round(totalPaid.won * mqlShare);
           reserva = 0; contrato = 0;
         } else {
-          leads = Math.max(0, counts.mql || 0);
+          // Geral: Marketing canal gets Meta Ads leads, others just MQL
+          const baserowLeads = isMarketing ? Array.from(baserowLeadsMap.values()).reduce((a, b) => a + b, 0) : 0;
+          const metaLeads = isMarketing ? Math.round(squadMeta.leads * mqlShare) : 0;
+          const baseLeads = baserowLeads > 0 ? Math.round(baserowLeads * mqlShare) : metaLeads;
+          leads = Math.max(baseLeads, counts.mql || 0);
           mql = counts.mql || 0; sql = counts.sql || 0; opp = counts.opp || 0; won = counts.won || 0;
           reserva = counts.reserva || 0; contrato = counts.contrato || 0;
         }

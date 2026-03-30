@@ -272,7 +272,7 @@ export async function GET(request: Request) {
 
       allEmps.push({
         emp: canal,
-        squadId: 0,
+        squadId: 1,
         opp: f.opp,
         won: f.won,
         oppToWon: rate(f.won, f.opp),
