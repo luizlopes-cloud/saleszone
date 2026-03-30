@@ -79,8 +79,8 @@ const MKTP_SQUADS: readonly SquadDef[] = [
     id: 1,
     name: "Marketplace",
     marketing: "Rodrigo Guirado",
-    preVenda: "Karoane",  // multiple presellers, using first as squad representative
-    venda: "Nevine Saratt",
+    preVenda: "Karoane Izabela Soares",  // multiple presellers, using first as squad representative
+    venda: "Nevine",
     empreendimentos: [], // TODO: populate with MKTP empreendimentos (all non-active/closed groups)
   },
 ] as const;
@@ -92,10 +92,10 @@ const MKTP_CONFIG: ModuleConfig = {
   pipelineId: 37,
   metaAdsAccountId: "act_799783985155825",
   squads: MKTP_SQUADS,
-  closers: ["Nevine Saratt", "Willian Miranda"],
-  presellers: ["Karoane", "Izabela Soares", "Karoline Borges"],
+  closers: ["Nevine", "Willian Miranda"],
+  presellers: ["Karoane Izabela Soares", "Karoline Borges"],
   squadCloserMap: {
-    1: [0, 1], // Nevine Saratt, Willian Miranda
+    1: [0, 1], // Nevine, Willian Miranda
   },
   tablePrefix: "mktp",
   apiBase: "/api/mktp",
@@ -110,7 +110,7 @@ const SZS_SQUADS: readonly SquadDef[] = [
     name: "Serviços",
     marketing: "Priscila",
     preVenda: "Larissa Marques",
-    venda: "Maria Vitória",
+    venda: "Maria Vitória Amaral",
     empreendimentos: [], // SZS groups by cidade — discovered dynamically from DB data
   },
 ] as const;
@@ -122,8 +122,8 @@ const SZS_CONFIG: ModuleConfig = {
   pipelineId: 14,
   metaAdsAccountId: "act_721191188358261",
   squads: SZS_SQUADS,
-  closers: ["Maria Vitória", "Gabriela Branco", "Gabriela Lemos", "Samuel Barreto", "Giovanna Araujo"],
-  presellers: ["Larissa Marques", "Joyce Batista", "Adriano Raquel", "Raynara Lopes"],
+  closers: ["Maria Vitória Amaral", "Gabriela Branco", "Gabriela Lemos", "Samuel Barreto", "Giovanna de Araujo Zanchetta"],
+  presellers: ["Larissa Marques", "Joyce", "Raynara Lopes", "Kamille Gomes"],
   squadCloserMap: { 1: [0, 1, 2, 3, 4] },
   tablePrefix: "szs",
   apiBase: "/api/szs",

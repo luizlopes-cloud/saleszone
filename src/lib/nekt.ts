@@ -123,6 +123,8 @@ function parseCSV(csv: string): NektQueryResult {
   return { columns, rows }
 }
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export function buildFilteredSQL(filters: {
   campaign_name?: string
   vertical?: string
@@ -138,10 +140,12 @@ export function buildFilteredSQL(filters: {
   if (!filters.date_from) {
     conditions.push(`date >= CURRENT_DATE - INTERVAL '${windowDays}' DAY`)
   } else {
+    if (!DATE_RE.test(filters.date_from)) throw new Error(`Invalid date_from: ${filters.date_from}`)
     conditions.push(`date >= DATE '${filters.date_from}'`)
   }
 
   if (filters.date_to) {
+    if (!DATE_RE.test(filters.date_to)) throw new Error(`Invalid date_to: ${filters.date_to}`)
     conditions.push(`date <= DATE '${filters.date_to}'`)
   }
 
