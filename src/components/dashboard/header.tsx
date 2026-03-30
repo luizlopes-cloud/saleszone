@@ -11,7 +11,7 @@ import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento", "explorador", "otimizacao"] as const;
 const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas", "ociosidade", "leadtime", "avaliacoes", "losts-vendas"] as const;
 const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento", "squad-atividades", "losts-prevendas", "noshow"] as const;
-const RESULTADOS_VIEWS = ["resultados", "acompanhamento", "forecast", "mensal", "resultados-szs"] as const;
+const RESULTADOS_VIEWS = ["resultados", "acompanhamento", "forecast", "mensal", "resultados-szs", "resultados-mktp"] as const;
 
 const SeazoneIcon = () => (
   <svg width="28" height="29" viewBox="0 0 48 49" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -143,6 +143,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
                 { key: "forecast", label: "Forecast", icon: <Target size={13} /> },
                 { key: "mensal", label: "Mensal", icon: <Calendar size={13} /> },
                 ...(activeModule === "szs" ? [{ key: "resultados-szs", label: "Resultados SZS", icon: <BarChart3 size={13} /> }] : []),
+                ...(activeModule === "mktp" ? [{ key: "resultados-mktp", label: "Resultados MKTP", icon: <BarChart3 size={13} /> }] : []),
               ] as Array<{ key: string; label: string; icon: React.ReactNode }>).map((item) => (
                 <button
                   key={item.key}
