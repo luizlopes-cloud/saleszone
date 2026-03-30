@@ -133,14 +133,22 @@ export async function GET() {
     console.log(`[geral] channelCounts VD: mql=${channelCounts["Vendas Diretas"].mql}, won=${channelCounts["Vendas Diretas"].won}`);
     console.log(`[geral] channelCounts Parceiros: mql=${channelCounts.Parceiros.mql}, won=${channelCounts.Parceiros.won}`);
 
-    // Geral = from squad_daily_counts (authoritative total)
+    // Geral = from squad_daily_counts for MQL/SQL/OPP/WON, squad_deals for reserva/contrato (accumulated)
+    // Reserva/contrato from daily_counts is snapshot (4/2), but accumulated from deals is much higher
+    let geralReserva = 0, geralContrato = 0;
+    for (const d of deals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const mso = d.max_stage_order ?? d.stage_order ?? 0;
+      if (mso >= TH_RESERVA) geralReserva++;
+      if (mso >= TH_CONTRATO) geralContrato++;
+    }
     channelCounts.Geral = {
       mql: totalCounts.mql || 0,
       sql: totalCounts.sql || 0,
       opp: totalCounts.opp || 0,
       won: totalCounts.won || 0,
-      reserva: totalCounts.reserva || 0,
-      contrato: totalCounts.contrato || 0,
+      reserva: geralReserva,
+      contrato: geralContrato,
     };
 
     // ── 3. Previous month WON ──
@@ -221,6 +229,8 @@ export async function GET() {
     }
 
     // ── 7. History (last 90 days) from squad_daily_counts ──
+    // Use source="open" for snapshot of currently open deals per day
+    // Use all sources for incremental stage counts (mql/sql/opp/won added that day)
     const historyRows = await paginate((o, ps) =>
       supabase
         .from("squad_daily_counts")
@@ -229,24 +239,32 @@ export async function GET() {
         .gte("date", cutoffDate)
         .range(o, o + ps - 1),
     );
-    const histMap = new Map<string, Record<string, number>>();
-    const openTotalMap = new Map<string, number>();
+    // Open deals snapshot per day (source=open only)
+    const openByDate = new Map<string, Record<string, number>>();
+    // All sources aggregated for stage history
+    const allByDate = new Map<string, Record<string, number>>();
     for (const r of historyRows) {
-      if (!histMap.has(r.date)) histMap.set(r.date, {});
-      const entry = histMap.get(r.date)!;
-      entry[r.tab] = (entry[r.tab] || 0) + (r.count || 0);
-      if (r.source === "open" && r.tab === "mql") {
-        openTotalMap.set(r.date, (openTotalMap.get(r.date) || 0) + (r.count || 0));
+      // All sources
+      if (!allByDate.has(r.date)) allByDate.set(r.date, {});
+      allByDate.get(r.date)![r.tab] = (allByDate.get(r.date)![r.tab] || 0) + (r.count || 0);
+      // Open only
+      if (r.source === "open") {
+        if (!openByDate.has(r.date)) openByDate.set(r.date, {});
+        openByDate.get(r.date)![r.tab] = (openByDate.get(r.date)![r.tab] || 0) + (r.count || 0);
       }
     }
-    const dealsHistory = Array.from(histMap.entries())
+    const dealsHistory = Array.from(allByDate.entries())
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, tabs]) => ({
-        date,
-        total: Object.values(tabs).reduce((s, v) => s + v, 0),
-        openTotal: openTotalMap.get(date) || 0,
-        byStage: tabs,
-      }));
+      .map(([date, tabs]) => {
+        const openTabs = openByDate.get(date) || {};
+        const openTotal = Object.values(openTabs).reduce((s, v) => s + v, 0);
+        return {
+          date,
+          total: openTotal, // "Deals Abertos" = open deals only
+          openTotal,
+          byStage: tabs,    // "Deals por Etapa" = all sources (incremental)
+        };
+      });
 
     // ── Build channels ──
     const metas = METAS_BY_MONTH[monthKey] || {};
