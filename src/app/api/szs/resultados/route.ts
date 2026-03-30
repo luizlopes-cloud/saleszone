@@ -81,7 +81,7 @@ interface ChannelResult {
   };
   lastMonthWon: number;
   snapshots: { aguardandoDados: number; emContrato: number };
-  ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number };
+  ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers: string[]; meetingsPerDay: number; workDays: number };
   dealsHistory: { date: string; total: number; byStage: Record<string, number> }[];
 }
 
@@ -204,6 +204,9 @@ export async function GET() {
           agendadas: snap.agendado,
           capacidade: capacity,
           percent: capacity > 0 ? Math.round((snap.agendado / capacity) * 1000) / 10 : 0,
+          closers,
+          meetingsPerDay: MEETINGS_PER_DAY,
+          workDays: WORK_DAYS_PER_WEEK,
         },
         dealsHistory,
       };
