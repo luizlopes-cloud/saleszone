@@ -12,6 +12,19 @@ const MACRO_CHANNELS: Record<string, string> = {
   "Expansão": "Expansão",
 };
 
+/* ── Canal ID → group (for szs_deals which stores raw IDs) ── */
+const CANAL_ID_TO_GROUP: Record<string, string> = {
+  "12": "Marketing",
+  "582": "Parceiros",
+  "583": "Parceiros",
+  "1748": "Expansão",
+  "3189": "Spots",
+  "4551": "Mônica",
+};
+function getCanalGroup(canalId: string): string {
+  return CANAL_ID_TO_GROUP[canalId] || "Outros";
+}
+
 const CHANNEL_ORDER = ["Vendas Diretas", "Parceiros", "Expansão"] as const;
 
 const CHANNEL_FILTERS: Record<string, string> = {
@@ -46,9 +59,9 @@ const CHANNEL_CLOSERS: Record<string, string[]> = {
 const MEETINGS_PER_DAY = 16;
 const WORK_DAYS_PER_WEEK = 5;
 
-const STAGE_AG_DADOS = 152;
-const STAGE_CONTRATO = 76;
-const STAGE_AGENDADO = 73;
+const STAGE_AG_DADOS = 11;   // stage_id 152 → stage_order 11
+const STAGE_CONTRATO = 12;   // stage_id 76  → stage_order 12
+const STAGE_AGENDADO = 6;    // stage_id 73  → stage_order 6
 
 interface MetricPair { real: number; meta: number }
 
@@ -125,7 +138,7 @@ export async function GET() {
     const snapshots: Record<string, { agDados: number; contrato: number; agendado: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { agDados: 0, contrato: 0, agendado: 0 };
     for (const d of snapshotDeals) {
-      const canalGroup = d.canal || "Outros";
+      const canalGroup = getCanalGroup(String(d.canal || ""));
       const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
       if (d.stage_order === STAGE_AG_DADOS) snapshots[macro].agDados++;
       else if (d.stage_order === STAGE_CONTRATO) snapshots[macro].contrato++;
