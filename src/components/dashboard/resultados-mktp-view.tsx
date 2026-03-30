@@ -16,6 +16,8 @@ interface ChannelResult {
     sql: MetricPair;
     opp: MetricPair;
     won: MetricPair;
+    reserva?: MetricPair;
+    contrato?: MetricPair;
   };
   lastMonthWon: number;
   snapshots: { aguardandoDados: number; emContrato: number };
@@ -207,6 +209,8 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
           <ProgressBar label="MQL" real={metrics.mql.real} meta={metrics.mql.meta} />
           <ProgressBar label="SQL" real={metrics.sql.real} meta={metrics.sql.meta} />
           <ProgressBar label="OPP" real={metrics.opp.real} meta={metrics.opp.meta} />
+          {metrics.reserva && <ProgressBar label="Reserva" real={metrics.reserva.real} meta={metrics.reserva.meta} />}
+          {metrics.contrato && <ProgressBar label="Contrato" real={metrics.contrato.real} meta={metrics.contrato.meta} />}
           <ProgressBar label="Ganhos (WON)" real={metrics.won.real} meta={metrics.won.meta} />
         </div>
 
