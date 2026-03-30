@@ -150,12 +150,41 @@ const SZS_CONFIG: ModuleConfig = {
   syncFunctions: ["szs-dashboard-light", "szs-meta-ads", "szs-deals-light", "szs-calendar", "szs-presales"],
 };
 
+// --- Decor — single squad, empreendimento grouping ---
+
+const DECOR_SQUADS: readonly SquadDef[] = [
+  {
+    id: 1,
+    name: "Decor",
+    marketing: "",
+    preVenda: "",
+    venda: "Rubia Lorena Santos",
+    empreendimentos: [], // discovered dynamically from DB
+  },
+] as const;
+
+const DECOR_CONFIG: ModuleConfig = {
+  id: "decor",
+  label: "Decor",
+  shortLabel: "Decor",
+  pipelineId: 44,
+  metaAdsAccountId: "",
+  squads: DECOR_SQUADS,
+  closers: ["Eduardo Albani", "Rubia Lorena Santos", "Carol Rosário"],
+  presellers: [],
+  squadCloserMap: { 1: [0, 1, 2] },
+  tablePrefix: "decor",
+  apiBase: "/api/decor",
+  syncFunctions: [],
+};
+
 // --- Registry ---
 
 export const MODULES: Record<string, ModuleConfig> = {
   szi: SZI_CONFIG,
   mktp: MKTP_CONFIG,
   szs: SZS_CONFIG,
+  decor: DECOR_CONFIG,
 };
 
 export const MODULE_IDS = Object.keys(MODULES);
