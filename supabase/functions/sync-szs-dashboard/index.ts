@@ -18,8 +18,9 @@ const FIELD_REUNIAO = "bfafc352c5c6f2edbaa41bf6d1c6daa825fc9c16";
 // Canal group mapping: groups deals by channel for SZS module
 const CANAL_GROUPS: Record<string, string> = {
   "12": "Marketing",
-  "582": "Parceiros",   // Indicação de Corretor
-  "583": "Parceiros",   // Indicação de Franquia
+  "582": "Ind. Corretor",
+  "583": "Ind. Franquia",
+  "2876": "Ind. Outros Parceiros",
   "1748": "Expansão",
   "3189": "Spots",       // Spot Seazone
   "4551": "Mônica",
@@ -795,7 +796,9 @@ async function syncMetas(supabase: any) {
 
   // Save daily snapshot to szs_ratios_daily (global + per-canal_group)
   const CANAL_ID_MAP: Record<string, number> = {
-    "Marketing": 1, "Parceiros": 2, "Expansão": 3, "Spots": 4, "Mônica": 5, "Outros": 6,
+    "Marketing": 1,
+    "Ind. Corretor": 2, "Ind. Franquia": 2, "Ind. Outros Parceiros": 2, "Parceiros": 2,
+    "Expansão": 3, "Spots": 4, "Mônica": 5, "Outros": 6,
   };
   const canalCounts90d: Record<number, Record<Tab, number>> = {};
   for (const cId of Object.values(CANAL_ID_MAP)) {

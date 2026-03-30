@@ -30,7 +30,7 @@ function rowMinMax(daily: number[]): { min: number; max: number } {
   return { min: Math.min(...nonZero), max: Math.max(...nonZero) };
 }
 
-export type AcompFilter = "all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao";
+export type AcompFilter = "all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao" | "sao-paulo" | "salvador" | "florianopolis" | "outros";
 
 interface Props {
   data: AcompanhamentoData | null;
@@ -290,10 +290,10 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
           >
             {(isSZS ? [
               { key: "all" as AcompFilter, label: "Geral" },
-              { key: "vd" as AcompFilter, label: "VD" },
-              { key: "expansao" as AcompFilter, label: "Expansão" },
-              { key: "marketing" as AcompFilter, label: "Marketing" },
-              { key: "paid" as AcompFilter, label: "Mídia Paga" },
+              { key: "sao-paulo" as AcompFilter, label: "São Paulo" },
+              { key: "salvador" as AcompFilter, label: "Salvador" },
+              { key: "florianopolis" as AcompFilter, label: "Florianópolis" },
+              { key: "outros" as AcompFilter, label: "Outros" },
             ] : [
               { key: "all" as AcompFilter, label: "Geral" },
               { key: "marketing" as AcompFilter, label: "Marketing" },
@@ -542,7 +542,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
                 })()}
               </tr>
               <tr style={{ backgroundColor: T.cinza50 }}>
-                <TH w={120}>{isSZS ? "Canal" : "Squad"}</TH>
+                <TH w={120}>{"Squad"}</TH>
                 {showTeamCols ? (
                   <>
                     <TH w={90}>
@@ -760,7 +760,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
           {Object.entries(SQUAD_COLORS).map(([n, cc]) => (
             <div key={n} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
               <span style={{ width: "7px", height: "7px", borderRadius: "9999px", backgroundColor: cc }} />
-              <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>{isSZS ? "Canal" : "Squad"} {n}</span>
+              <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>{"Squad"} {n}</span>
             </div>
           ))}
         </div>

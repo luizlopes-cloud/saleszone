@@ -488,7 +488,7 @@ export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter,
             </select>
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: T.cinza700 }}>
-            {isSZS ? "Canal" : "Squad"}
+            {"Squad"}
             <select
               value={filtroSquad}
               onChange={(e) => setFiltroSquad(e.target.value)}
@@ -509,7 +509,7 @@ export function DiagnosticoMktView({ data, loading, mediaFilter, setMediaFilter,
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "1500px" }}>
             <thead>
               <tr>
-                <SortTh label={isSZS ? "Canal" : "Squad"} col="squad_id" align="left" minW={60} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+                <SortTh label={"Squad"} col="squad_id" align="left" minW={60} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label={isSZS ? "Cidade" : "Empreendimento"} col="empreendimento" align="left" minW={130} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Ad" col="ad_name" align="left" minW={180} sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
                 <SortTh label="Gasto" col="spend" align="right" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />

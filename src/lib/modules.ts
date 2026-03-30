@@ -7,6 +7,7 @@ export interface SquadDef {
   preVenda: string;
   venda: string;
   empreendimentos: readonly string[];
+  canalIds?: readonly number[]; // SZS: canal IDs for squad grouping (Pipedrive canal field)
 }
 
 export interface ModuleConfig {
@@ -102,16 +103,35 @@ const MKTP_CONFIG: ModuleConfig = {
   syncFunctions: ["mktp-dashboard-light", "mktp-meta-ads", "mktp-deals-light", "mktp-calendar", "mktp-presales"],
 };
 
-// --- SZS (Serviços) — single squad, no squad grouping ---
+// --- SZS (Serviços) — 3 squads ---
 
 const SZS_SQUADS: readonly SquadDef[] = [
   {
     id: 1,
-    name: "Serviços",
-    marketing: "Priscila",
-    preVenda: "Larissa Marques",
-    venda: "Maria Vitória Amaral",
-    empreendimentos: [], // SZS groups by cidade — discovered dynamically from DB data
+    name: "Squad 1",
+    marketing: "",
+    preVenda: "Joyce", // + Larissa Marques
+    venda: "Gabriela Lemos",
+    canalIds: [12], // Marketing
+    empreendimentos: [],
+  },
+  {
+    id: 2,
+    name: "Squad 2",
+    marketing: "",
+    preVenda: "Raynara Lopes",
+    venda: "Gabriela Branco",
+    canalIds: [582, 583], // Parceiros
+    empreendimentos: [],
+  },
+  {
+    id: 3,
+    name: "Squad 3",
+    marketing: "",
+    preVenda: "Raquel",
+    venda: "Giovanna de Araujo Zanchetta",
+    canalIds: [1748, 3189], // Expansão, Spots — Outros = fallback
+    empreendimentos: [],
   },
 ] as const;
 
@@ -122,9 +142,9 @@ const SZS_CONFIG: ModuleConfig = {
   pipelineId: 14,
   metaAdsAccountId: "act_721191188358261",
   squads: SZS_SQUADS,
-  closers: ["Maria Vitória Amaral", "Gabriela Branco", "Gabriela Lemos", "Samuel Barreto", "Giovanna de Araujo Zanchetta"],
-  presellers: ["Larissa Marques", "Joyce", "Raynara Lopes", "Kamille Gomes"],
-  squadCloserMap: { 1: [0, 1, 2, 3, 4] },
+  closers: ["Gabriela Lemos", "Gabriela Branco", "Giovanna de Araujo Zanchetta"],
+  presellers: ["Joyce", "Larissa Marques", "Raynara Lopes", "Raquel"],
+  squadCloserMap: { 1: [0], 2: [1], 3: [2] },
   tablePrefix: "szs",
   apiBase: "/api/szs",
   syncFunctions: ["szs-dashboard-light", "szs-meta-ads", "szs-deals-light", "szs-calendar", "szs-presales"],

@@ -1,35 +1,15 @@
-// SZS (Serviços) module — forecast agrupado por canal
+// SZS (Serviços) module — forecast agrupado por squad (3 squads)
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import type { ForecastData, ForecastStageSnapshot, ForecastCloserRow, ForecastSquadRow } from "@/lib/types";
+import type { ForecastData, ForecastStageSnapshot, ForecastSquadRow } from "@/lib/types";
 import { paginate } from "@/lib/paginate";
+import { getModuleConfig } from "@/lib/modules";
+import { getSquadIdFromCanalId, getSquadName, SZS_METAS_WON_BY_SQUAD } from "@/lib/szs-utils";
 
 export const dynamic = "force-dynamic";
 
-// Canal group mapping (same as sync-szs-dashboard)
-const CANAL_GROUPS: Record<string, string> = {
-  "12": "Marketing",
-  "582": "Parceiros",
-  "583": "Parceiros",
-  "1748": "Expansão",
-  "3189": "Spots",
-  "4551": "Mônica",
-};
-function getCanalGroup(canal: string | null): string {
-  return CANAL_GROUPS[String(canal || "")] || "Outros";
-}
-
-const CANAL_ORDER = ["Marketing", "Parceiros", "Mônica", "Expansão", "Spots", "Outros"];
-
-// Metas WON por canal (from nekt_meta26_metas fields)
-const META_FIELD_MAP: Record<string, string> = {
-  Marketing: "won_szs_meta_pago",
-  Parceiros: "won_szs_meta_parceiro",
-  Expansão: "won_szs_meta_exp",
-  Spots: "won_szs_meta_spot",
-  Outros: "won_szs_meta_direto",
-};
+const mc = getModuleConfig("szs");
 
 const STAGE_NAMES: Record<number, string> = {
   1: "Lead in", 2: "Contatados", 3: "Qualificação", 4: "Qualificado", 5: "Aguardando data",
@@ -37,6 +17,13 @@ const STAGE_NAMES: Record<number, string> = {
   10: "Negociação", 11: "Aguardando Dados", 12: "Contrato",
 };
 const ALL_STAGES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+// Meta fields from nekt_meta26_metas, consolidated per squad
+const META_FIELDS_BY_SQUAD: Record<number, string[]> = {
+  1: ["won_szs_meta_pago"],                                         // Marketing
+  2: ["won_szs_meta_parceiro"],                                     // Parceiros
+  3: ["won_szs_meta_exp", "won_szs_meta_spot", "won_szs_meta_direto"], // Expansão + Spots + Outros
+};
 
 export async function GET() {
   try {
@@ -171,50 +158,62 @@ export async function GET() {
 
     const totalPipeline = stages.reduce((s, st) => s + st.expectedWon, 0);
 
-    // --- WON do mês por canal ---
-    const wonByCanal: Record<string, number> = {};
+    // --- WON do mês por squad ---
+    const wonBySquad: Record<number, number> = {};
     for (const d of wonThisMonth) {
-      const group = getCanalGroup(d.canal);
-      wonByCanal[group] = (wonByCanal[group] || 0) + 1;
+      const sqId = getSquadIdFromCanalId(d.canal);
+      wonBySquad[sqId] = (wonBySquad[sqId] || 0) + 1;
     }
     const totalWonActual = wonThisMonth.length;
 
-    // --- Pipeline por canal ---
-    const pipelineByCanal: Record<string, number> = {};
-    const openByCanalStage: Record<string, Record<number, number>> = {};
+    // --- Pipeline por squad ---
+    const pipelineBySquad: Record<number, number> = {};
+    const openBySquadStage: Record<number, Record<number, number>> = {};
     for (const d of openDeals) {
-      const group = getCanalGroup(d.canal);
+      const sqId = getSquadIdFromCanalId(d.canal);
       const so = d.stage_order || 1;
-      pipelineByCanal[group] = (pipelineByCanal[group] || 0) + (convRate[so] || 0);
-      if (!openByCanalStage[group]) openByCanalStage[group] = {};
-      openByCanalStage[group][so] = (openByCanalStage[group][so] || 0) + 1;
+      pipelineBySquad[sqId] = (pipelineBySquad[sqId] || 0) + (convRate[so] || 0);
+      if (!openBySquadStage[sqId]) openBySquadStage[sqId] = {};
+      openBySquadStage[sqId][so] = (openBySquadStage[sqId][so] || 0) + 1;
     }
 
-    // --- Meta WON por canal ---
-    const metaByCanal: Record<string, number> = {};
+    // --- Meta WON por squad (from nekt_meta26_metas, consolidated) ---
+    const metaBySquad: Record<number, number> = {};
     const nektMeta = metasRows.data;
     if (nektMeta) {
-      for (const [group, field] of Object.entries(META_FIELD_MAP)) {
-        metaByCanal[group] = Number(nektMeta[field as keyof typeof nektMeta]) || 0;
+      for (const [sqIdStr, fields] of Object.entries(META_FIELDS_BY_SQUAD)) {
+        const sqId = Number(sqIdStr);
+        metaBySquad[sqId] = fields.reduce(
+          (sum, field) => sum + (Number(nektMeta[field as keyof typeof nektMeta]) || 0),
+          0,
+        );
+      }
+    }
+    // Fallback: if nekt_meta26_metas unavailable, use hardcoded SZS_METAS_WON_BY_SQUAD
+    if (!nektMeta && SZS_METAS_WON_BY_SQUAD[mesStr]) {
+      const fallback = SZS_METAS_WON_BY_SQUAD[mesStr];
+      for (const sqId of [1, 2, 3]) {
+        metaBySquad[sqId] = fallback[sqId] || 0;
       }
     }
 
-    // --- Canal rows (reuse ForecastSquadRow — canal = "squad") ---
-    const squadsResult: ForecastSquadRow[] = CANAL_ORDER
-      .filter((group) => {
-        // Only include canals with data or meta
-        return (wonByCanal[group] || 0) > 0 || (pipelineByCanal[group] || 0) > 0 || (metaByCanal[group] || 0) > 0;
+    // --- Squad rows (iterate over mc.squads — 3 items) ---
+    const squadsResult: ForecastSquadRow[] = mc.squads
+      .filter((sq) => {
+        const sqId = sq.id;
+        return (wonBySquad[sqId] || 0) > 0 || (pipelineBySquad[sqId] || 0) > 0 || (metaBySquad[sqId] || 0) > 0;
       })
-      .map((group, idx) => {
-        const wonActual = wonByCanal[group] || 0;
-        const pipeline = pipelineByCanal[group] || 0;
+      .map((sq) => {
+        const sqId = sq.id;
+        const wonActual = wonBySquad[sqId] || 0;
+        const pipeline = pipelineBySquad[sqId] || 0;
         const total = wonActual + pipeline;
-        const meta = metaByCanal[group] || 0;
+        const meta = metaBySquad[sqId] || 0;
 
-        // Stage snapshot per canal
-        const canalOpenByStage = openByCanalStage[group] || {};
-        const canalStages: ForecastStageSnapshot[] = ALL_STAGES.map((so) => {
-          const deals = canalOpenByStage[so] || 0;
+        // Stage snapshot per squad
+        const squadOpenByStage = openBySquadStage[sqId] || {};
+        const squadStages: ForecastStageSnapshot[] = ALL_STAGES.map((so) => {
+          const deals = squadOpenByStage[so] || 0;
           const rate = convRate[so] || 0;
           return {
             stage: STAGE_NAMES[so] || `Stage ${so}`,
@@ -227,8 +226,8 @@ export async function GET() {
         });
 
         return {
-          id: idx + 1,
-          name: group,
+          id: sqId,
+          name: getSquadName(sqId),
           closers: [],
           wonActual,
           pipeline: Math.round(pipeline * 10) / 10,
@@ -236,13 +235,13 @@ export async function GET() {
           total: Math.round(total * 10) / 10,
           meta,
           pctMeta: meta > 0 ? Math.round((total / meta) * 100) : 0,
-          stages: canalStages,
+          stages: squadStages,
         };
       });
 
     // --- Grand total ---
     const grandTotal = totalWonActual + totalPipeline;
-    const grandMeta = Object.values(metaByCanal).reduce((s, v) => s + v, 0);
+    const grandMeta = Object.values(metaBySquad).reduce((s, v) => s + v, 0);
 
     const result: ForecastData = {
       month: mesStr,
@@ -262,7 +261,7 @@ export async function GET() {
       },
       stages,
       squads: squadsResult,
-      metodologia: `Deals abertos de todos os canais (pipeline SZS), agrupados por canal. Taxa de conversão por etapa calculada com base nos últimos 90 dias: de todos os deals que passaram pela etapa X (max_stage_order >= X), qual % virou WON. Forecast = WON já ganhos no mês + Σ(deals abertos por etapa × taxa conversão da etapa). Meta por canal: nekt_meta26_metas.`,
+      metodologia: `Deals abertos de todos os canais (pipeline SZS), agrupados por squad (3 squads: Marketing, Parceiros, Expansão/Spot/Outros). Taxa de conversão por etapa calculada com base nos últimos 90 dias: de todos os deals que passaram pela etapa X (max_stage_order >= X), qual % virou WON. Forecast = WON já ganhos no mês + Σ(deals abertos por etapa × taxa conversão da etapa). Meta por squad: nekt_meta26_metas (consolidada por squad).`,
     };
 
     return NextResponse.json(result);

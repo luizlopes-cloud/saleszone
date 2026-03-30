@@ -35,19 +35,15 @@ const SQUAD_OPTIONS = [
   { id: 3, label: "Squad 3" },
 ];
 
-const SZS_CANAL_OPTIONS = [
+const SZS_SQUAD_OPTIONS = [
   { id: 0, label: "Global" },
-  { id: 1, label: "Marketing" },
-  { id: 2, label: "Parceiros" },
-  { id: 3, label: "Expansão" },
-  { id: 4, label: "Spots" },
-  { id: 5, label: "Mônica" },
-  { id: 6, label: "Outros" },
+  { id: 1, label: "Squad 1" },
+  { id: 2, label: "Squad 2" },
+  { id: 3, label: "Squad 3" },
 ];
 
-const SZS_CANAL_COLORS: Record<number, string> = {
+const SZS_SQUAD_COLORS: Record<number, string> = {
   1: T.azul600, 2: T.roxo600, 3: T.teal600,
-  4: T.laranja500, 5: "#E91E63", 6: T.cinza400,
 };
 
 interface Props {
@@ -746,14 +742,14 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
   const { current, history } = data;
 
   // Module-specific config
-  const groupOptions = isSZS ? SZS_CANAL_OPTIONS : SQUAD_OPTIONS.slice(0, isMKTP ? 1 : undefined);
-  const groupColors = isSZS ? SZS_CANAL_COLORS : SQUAD_COLORS;
-  const groupLabel = isSZS ? "Canal" : "Squad";
+  const groupOptions = isSZS ? SZS_SQUAD_OPTIONS : SQUAD_OPTIONS.slice(0, isMKTP ? 1 : undefined);
+  const groupColors = isSZS ? SZS_SQUAD_COLORS : SQUAD_COLORS;
+  const groupLabel = "Squad";
   const empLabel = isSZS ? "Cidade" : "Empreendimento";
 
   // Build squad defs from empDaily keys grouped by canal/squad
   const squadDefs = isSZS
-    ? SZS_CANAL_OPTIONS.filter(o => o.id !== 0).map(o => ({
+    ? SZS_SQUAD_OPTIONS.filter(o => o.id !== 0).map(o => ({
         id: o.id,
         name: o.label,
         empreendimentos: Object.keys(data.empDaily || {}).filter(emp => {
@@ -789,7 +785,7 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
         {expanded ? <ChevronDown size={16} color={T.cinza600} /> : <ChevronRight size={16} color={T.cinza600} />}
         <span style={{ fontSize: "14px", fontWeight: 600, color: T.cardFg }}>Histórico de Conversões</span>
         <span style={{ fontSize: "11px", color: T.cinza400, fontWeight: 400 }}>
-          Evolução das taxas de conversão {isSZS ? "por canal" : isMKTP ? "global" : "por squad"} (janela 90 dias)
+          Evolução das taxas de conversão {isMKTP ? "global" : "por squad"} (janela 90 dias)
         </span>
       </div>
 
