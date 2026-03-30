@@ -258,15 +258,18 @@ export async function GET() {
         .range(o, o + ps - 1)
     );
 
-    const STAGE_THRESHOLDS = { mql: 1, sql: 5, opp: 9 } as const;
+    // Stage thresholds: MQL>=1, SQL>=5, OPP>=9, Reserva>=12, Contrato>=13
+    const STAGES = ["mql", "sql", "opp", "reserva", "contrato"] as const;
+    const STAGE_MIN: Record<string, number> = { mql: 1, sql: 5, opp: 9, reserva: 12, contrato: 13 };
 
-    // Group open deals by date, canal group, and stage
-    type DailyEntry = { total: number; mql: number; sql: number; opp: number };
+    type DailyEntry = Record<string, number>; // total + stage keys
+    function emptyEntry(): DailyEntry { return { total: 0, mql: 0, sql: 0, opp: 0, reserva: 0, contrato: 0 }; }
+
     const dailyByGroup: Record<string, Map<string, DailyEntry>> = {};
     const baselineByGroup: Record<string, DailyEntry> = {};
     for (const ch of CHANNEL_ORDER) {
       dailyByGroup[ch] = new Map();
-      baselineByGroup[ch] = { total: 0, mql: 0, sql: 0, opp: 0 };
+      baselineByGroup[ch] = emptyEntry();
     }
 
     for (const d of openDeals) {
@@ -276,27 +279,22 @@ export async function GET() {
       const targets = [group, "Funil Completo"] as const;
 
       if (day < cutoffDate) {
-        // Baseline: deals before 90-day window
         for (const ch of targets) {
           baselineByGroup[ch].total++;
-          if (mso >= STAGE_THRESHOLDS.mql) baselineByGroup[ch].mql++;
-          if (mso >= STAGE_THRESHOLDS.sql) baselineByGroup[ch].sql++;
-          if (mso >= STAGE_THRESHOLDS.opp) baselineByGroup[ch].opp++;
+          for (const s of STAGES) if (mso >= STAGE_MIN[s]) baselineByGroup[ch][s]++;
         }
       } else {
         for (const ch of targets) {
           const map = dailyByGroup[ch];
-          if (!map.has(day)) map.set(day, { total: 0, mql: 0, sql: 0, opp: 0 });
+          if (!map.has(day)) map.set(day, emptyEntry());
           const e = map.get(day)!;
           e.total++;
-          if (mso >= STAGE_THRESHOLDS.mql) e.mql++;
-          if (mso >= STAGE_THRESHOLDS.sql) e.sql++;
-          if (mso >= STAGE_THRESHOLDS.opp) e.opp++;
+          for (const s of STAGES) if (mso >= STAGE_MIN[s]) e[s]++;
         }
       }
     }
 
-    // Build cumulative history per channel (total + per-stage)
+    // Build cumulative history per channel
     const cumulativeHist: Record<string, { date: string; total: number; byStage: Record<string, number> }[]> = {};
     for (const ch of CHANNEL_ORDER) {
       const dailyMap = dailyByGroup[ch];
@@ -306,10 +304,8 @@ export async function GET() {
       for (const date of dates) {
         const e = dailyMap.get(date)!;
         cum.total += e.total;
-        cum.mql += e.mql;
-        cum.sql += e.sql;
-        cum.opp += e.opp;
-        arr.push({ date, total: cum.total, byStage: { mql: cum.mql, sql: cum.sql, opp: cum.opp } });
+        for (const s of STAGES) cum[s] += e[s];
+        arr.push({ date, total: cum.total, byStage: { mql: cum.mql, sql: cum.sql, opp: cum.opp, reserva: cum.reserva, contrato: cum.contrato } });
       }
       cumulativeHist[ch] = arr;
     }

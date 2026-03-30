@@ -113,7 +113,7 @@ function AreaChart({ data, color }: { data: { date: string; value: number }[]; c
   }));
   const line = points.map((p) => `${p.x},${p.y}`).join(" L");
   const area = `M${line} L${W},${H} L0,${H} Z`;
-  const activeIdx = hover ?? todayIdx;
+  const activeIdx = hover ?? (todayIdx >= 0 ? todayIdx : data.length - 1);
 
   return (
     <svg width="100%" height={H + 18} viewBox={`0 0 ${W} ${H + 18}`} preserveAspectRatio="none"
@@ -163,7 +163,7 @@ function MultiLineChart({ data }: { data: { date: string; byStage: Record<string
   const H = 70;
   const todayStr = new Date().toISOString().substring(0, 10);
   const todayIdx = data.findIndex((d) => d.date === todayStr);
-  const activeIdx = hover ?? todayIdx;
+  const activeIdx = hover ?? (todayIdx >= 0 ? todayIdx : data.length - 1);
 
   return (
     <svg width="100%" height={H + 18} viewBox={`0 0 ${W} ${H + 18}`} preserveAspectRatio="none"
@@ -196,7 +196,7 @@ function MultiLineChart({ data }: { data: { date: string; byStage: Record<string
       {activeIdx >= 0 && activeIdx < data.length && (() => {
         const x = (activeIdx / (data.length - 1)) * W;
         const d = data[activeIdx];
-        const label = stages.filter((s) => (d.byStage[s] || 0) > 0).map((s) => `${STAGE_LABELS[s]}:${d.byStage[s] || 0}`).join("  ");
+        const label = stages.map((s) => `${STAGE_LABELS[s]}:${d.byStage[s] || 0}`).join("  ");
         return (
           <>
             <line x1={x} y1={0} x2={x} y2={H} stroke={T.cinza300} strokeWidth={1} strokeDasharray="3" />
