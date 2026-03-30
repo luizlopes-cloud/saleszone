@@ -1,8 +1,11 @@
-// MKTP (Marketplace) module — Ratios (computed from mktp_daily_counts)
+// MKTP (Marketplace) module — Ratios (computed from mktp_daily_counts + mktp_deals for canal grouping)
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
+import { paginate } from "@/lib/paginate";
 import { generateDates } from "@/lib/dates";
 import type { RatioHistoryData, RatioSnapshot } from "@/lib/types";
+import { getMktpCanalName } from "@/lib/mktp-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -18,23 +21,15 @@ export async function GET(req: NextRequest) {
     const dates = generateDates();
     const startDate = dates[dates.length - 1].date;
 
-    // Fetch daily counts for the period (paginated — pode exceder 1000 rows)
-    const countsData: { date: string; tab: string; empreendimento: string; count: number }[] = [];
-    let offset = 0;
-    const PS = 1000;
-    while (true) {
-      const { data, error } = await supabase
+    // Fetch daily counts for rolling ratios (mktp_daily_counts)
+    const countsData = await paginate((o, ps) =>
+      supabase
         .from("mktp_daily_counts")
-        .select("date, tab, empreendimento, count")
+        .select("date, tab, count")
         .gte("date", cutoffDate)
         .lte("date", today)
-        .range(offset, offset + PS - 1);
-      if (error) throw new Error(`Supabase error: ${error.message}`);
-      if (!data || data.length === 0) break;
-      countsData.push(...data);
-      if (data.length < PS) break;
-      offset += PS;
-    }
+        .range(o, o + ps - 1),
+    );
 
     // Aggregate daily totals by date+tab
     const dailyTotals = new Map<string, Record<string, number>>();
@@ -44,7 +39,7 @@ export async function GET(req: NextRequest) {
       dailyTotals.get(r.date)![r.tab] += r.count || 0;
     }
 
-    // Build rolling 90d ratio snapshots for each date that has data
+    // Build rolling 90d ratio snapshots for each date
     const sortedDates = Array.from(dailyTotals.keys()).sort();
     const history: RatioSnapshot[] = [];
     for (const d of sortedDates) {
@@ -74,14 +69,28 @@ export async function GET(req: NextRequest) {
       counts_90d: { mql: 0, sql: 0, opp: 0, won: 0 },
     };
 
-    // Build per-emp daily counts for the heatmap
+    // Build empDaily by CANAL (from mktp_deals which has canal field)
+    const admin = createSquadSupabaseAdmin();
+    const dealRows = await paginate((o, ps) =>
+      admin
+        .from("mktp_deals")
+        .select("canal, add_time, max_stage_order, status")
+        .not("canal", "is", null)
+        .gte("add_time", startDate)
+        .range(o, o + ps - 1),
+    );
+
     const empDaily: Record<string, Record<string, Record<string, number>>> = {};
-    for (const row of countsData) {
-      const tab = row.tab as string;
-      if (!["mql", "sql", "opp", "won"].includes(tab)) continue;
-      if (!empDaily[row.empreendimento]) empDaily[row.empreendimento] = {};
-      if (!empDaily[row.empreendimento][row.date]) empDaily[row.empreendimento][row.date] = { mql: 0, sql: 0, opp: 0, won: 0 };
-      empDaily[row.empreendimento][row.date][tab] += row.count || 0;
+    for (const d of dealRows) {
+      const canalName = getMktpCanalName(d.canal);
+      const dateStr = (d.add_time || "").substring(0, 10);
+      if (!dateStr) continue;
+      if (!empDaily[canalName]) empDaily[canalName] = {};
+      if (!empDaily[canalName][dateStr]) empDaily[canalName][dateStr] = { mql: 0, sql: 0, opp: 0, won: 0 };
+      empDaily[canalName][dateStr].mql += 1;
+      if ((d.max_stage_order || 0) >= 5) empDaily[canalName][dateStr].sql += 1;
+      if ((d.max_stage_order || 0) >= 9) empDaily[canalName][dateStr].opp += 1;
+      if (d.status === "won") empDaily[canalName][dateStr].won += 1;
     }
 
     const result: RatioHistoryData = {
