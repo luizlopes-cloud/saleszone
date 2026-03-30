@@ -149,12 +149,16 @@ export function buildFilteredSQL(filters: {
     conditions.push(`date <= DATE '${filters.date_to}'`)
   }
 
+  const SAFE_TEXT = /^[\w\s\-.:,/()&@#àáâãéêíóôõúçÀÁÂÃÉÊÍÓÔÕÚÇ]+$/;
+
   if (filters.campaign_name) {
+    if (!SAFE_TEXT.test(filters.campaign_name)) throw new Error(`Invalid campaign_name: ${filters.campaign_name}`)
     const escaped = filters.campaign_name.replace(/'/g, "''")
     conditions.push(`campaign_name LIKE '%${escaped}%'`)
   }
 
   if (filters.vertical) {
+    if (!SAFE_TEXT.test(filters.vertical)) throw new Error(`Invalid vertical: ${filters.vertical}`)
     const escaped = filters.vertical.replace(/'/g, "''")
     conditions.push(`vertical = '${escaped}'`)
   }
@@ -163,8 +167,8 @@ export function buildFilteredSQL(filters: {
   // Não filtramos por status no SQL
 
   if (filters.ad_id) {
-    const escaped = filters.ad_id.replace(/'/g, "''")
-    conditions.push(`ad_id = '${escaped}'`)
+    if (!/^\d+$/.test(filters.ad_id)) throw new Error(`Invalid ad_id: ${filters.ad_id}`)
+    conditions.push(`ad_id = '${filters.ad_id}'`)
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""

@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 /** Direct REST API for monitor tables (jp-rambo project) */
 const MONITOR_REST = process.env.MONITOR_SUPABASE_URL || "https://iobxudcyihqfdwiggohz.supabase.co/rest/v1";
 const MONITOR_KEY = process.env.MONITOR_SUPABASE_KEY || "";
+if (!MONITOR_KEY) console.error("[losts] MONITOR_SUPABASE_KEY not set — requests will fail with 401");
 
 const HEADERS = {
   apikey: MONITOR_KEY,
