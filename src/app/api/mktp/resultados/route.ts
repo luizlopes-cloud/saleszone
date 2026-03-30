@@ -246,10 +246,58 @@ export async function GET() {
     const totalAgendadas = calendarEvents.length;
     const agendaPct = totalCapacity > 0 ? Math.round((totalAgendadas / totalCapacity) * 1000) / 10 : 0;
 
-    /* ── 6. History (90 days) — open deals snapshot from mktp_daily_counts ── */
-    // mktp_daily_counts has daily snapshots of open deals (source=open) populated by sync.
-    // Sum all tabs per day to get total open deals in the pipeline on that date.
-    const histRows = await paginate((o, ps) =>
+    /* ── 6. History — cumulative open deals from mktp_deals ── */
+    // Fetch ALL open deals (just canal + add_time) to build cumulative chart.
+    // Each deal's add_time = when it entered the funnel. Cumulative sum shows
+    // total open deals over time (only currently-open deals are counted).
+    const openDeals = await paginate((o, ps) =>
+      admin
+        .from("mktp_deals")
+        .select("canal, add_time")
+        .eq("status", "open")
+        .not("add_time", "is", null)
+        .range(o, o + ps - 1)
+    );
+
+    // Group open deals by date and canal group
+    const dailyByGroup: Record<string, Map<string, number>> = {};
+    for (const ch of CHANNEL_ORDER) dailyByGroup[ch] = new Map();
+
+    for (const d of openDeals) {
+      const day = d.add_time.substring(0, 10);
+      if (day < cutoffDate) continue; // only show 90-day window in chart
+      const group = getCanalGroup(String(d.canal || ""));
+      dailyByGroup[group].set(day, (dailyByGroup[group].get(day) || 0) + 1);
+      dailyByGroup["Funil Completo"].set(day, (dailyByGroup["Funil Completo"].get(day) || 0) + 1);
+    }
+
+    // Count deals created BEFORE the 90-day window that are still open (baseline)
+    const baselineByGroup: Record<string, number> = {};
+    for (const ch of CHANNEL_ORDER) baselineByGroup[ch] = 0;
+    for (const d of openDeals) {
+      const day = d.add_time.substring(0, 10);
+      if (day >= cutoffDate) continue;
+      const group = getCanalGroup(String(d.canal || ""));
+      baselineByGroup[group]++;
+      baselineByGroup["Funil Completo"]++;
+    }
+
+    // Build cumulative totals per channel (for area chart)
+    const cumulativeHist: Record<string, { date: string; total: number }[]> = {};
+    for (const ch of CHANNEL_ORDER) {
+      const dailyMap = dailyByGroup[ch];
+      const dates = Array.from(dailyMap.keys()).sort();
+      let cum = baselineByGroup[ch];
+      const arr: { date: string; total: number }[] = [];
+      for (const date of dates) {
+        cum += dailyMap.get(date)!;
+        arr.push({ date, total: cum });
+      }
+      cumulativeHist[ch] = arr;
+    }
+
+    // Build per-stage daily counts from mktp_daily_counts (for multi-line chart)
+    const stageHistRows = await paginate((o, ps) =>
       admin
         .from("mktp_daily_counts")
         .select("date, tab, count")
@@ -257,22 +305,13 @@ export async function GET() {
         .gte("date", cutoffDate)
         .range(o, o + ps - 1)
     );
-
-    // Only "Funil Completo" gets history (mktp_daily_counts doesn't have canal_group for open deals)
-    const histMap: Record<string, Map<string, Record<string, number>>> = {};
-    for (const ch of CHANNEL_ORDER) histMap[ch] = new Map();
-
-    for (const r of histRows) {
+    const stageHist = new Map<string, Record<string, number>>();
+    for (const r of stageHistRows) {
       const date = r.date as string;
       const tab = r.tab as string;
-      const count = r.count || 0;
-
-      // All channels get the same history (mktp_daily_counts = marketing deals only)
-      for (const ch of CHANNEL_ORDER) {
-        if (!histMap[ch].has(date)) histMap[ch].set(date, {});
-        const entry = histMap[ch].get(date)!;
-        entry[tab] = (entry[tab] || 0) + count;
-      }
+      if (!stageHist.has(date)) stageHist.set(date, {});
+      const entry = stageHist.get(date)!;
+      entry[tab] = (entry[tab] || 0) + (r.count || 0);
     }
 
     /* ── 7. Build response ─────────────────────────────────── */
@@ -303,13 +342,16 @@ export async function GET() {
         metrics.contrato = { real: funnelContrato[name] || 0, meta: meta.contrato };
       }
 
-      const histEntries = histMap[name];
-      const dealsHistory = Array.from(histEntries.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, tabs]) => ({
+      // Merge cumulative totals with per-stage counts
+      const cumArr = cumulativeHist[name] || [];
+      const allDates = new Set([...cumArr.map((c) => c.date), ...Array.from(stageHist.keys())]);
+      const cumMap = new Map(cumArr.map((c) => [c.date, c.total]));
+      const dealsHistory = Array.from(allDates)
+        .sort()
+        .map((date) => ({
           date,
-          total: Object.values(tabs).reduce((s, v) => s + v, 0),
-          byStage: tabs,
+          total: cumMap.get(date) || 0,
+          byStage: stageHist.get(date) || {},
         }));
 
       return {
