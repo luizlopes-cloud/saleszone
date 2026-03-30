@@ -157,8 +157,8 @@ const DECOR_SQUADS: readonly SquadDef[] = [
     id: 1,
     name: "Decor",
     marketing: "",
-    preVenda: "",
-    venda: "Rubia Lorena Santos",
+    preVenda: "Rubia Lorena Santos",
+    venda: "Eduardo Albani",
     empreendimentos: [], // discovered dynamically from DB
   },
 ] as const;
@@ -170,9 +170,9 @@ const DECOR_CONFIG: ModuleConfig = {
   pipelineId: 44,
   metaAdsAccountId: "",
   squads: DECOR_SQUADS,
-  closers: ["Eduardo Albani", "Rubia Lorena Santos", "Carol Rosário"],
-  presellers: [],
-  squadCloserMap: { 1: [0, 1, 2] },
+  closers: ["Eduardo Albani", "Carol Rosário"],
+  presellers: ["Rubia Lorena Santos"],
+  squadCloserMap: { 1: [0, 1] },
   tablePrefix: "decor",
   apiBase: "/api/decor",
   syncFunctions: [],
