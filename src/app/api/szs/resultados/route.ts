@@ -178,7 +178,7 @@ export async function GET() {
         .range(o, o + ps - 1)
     );
     // Build set of deal_ids with meetings
-    const meetingDealIds = [...new Set(meetingActivities.map((a: { deal_id: number }) => a.deal_id))];
+    const meetingDealIds = [...new Set(meetingActivities.map((a: { deal_id: number }) => a.deal_id).filter(Boolean))];
     // Fetch owner_name for these deals from szs_deals
     const CLOSER_NAME_CHANNEL: Record<string, string> = {};
     for (const [ch, closers] of Object.entries(CHANNEL_CLOSERS)) {
