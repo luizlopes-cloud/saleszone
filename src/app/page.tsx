@@ -61,6 +61,7 @@ import { OtimizacaoView } from "@/components/dashboard/otimizacao-view";
 import SquadAtividadesView from "@/components/dashboard/squad-atividades-view";
 import { MensalView } from "@/components/dashboard/mensal-view";
 import { NoShowView } from "@/components/dashboard/noshow-view";
+import { ResultadosSZSView } from "@/components/dashboard/resultados-szs-view";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -120,6 +121,8 @@ export default function Dashboard() {
   const [noShowDays, setNoShowDays] = useState(30);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [mensalData, setMensalData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [resultadosSZSData, setResultadosSZSData] = useState<any>(null);
   const [ratioData, setRatioData] = useState<RatioHistoryData | null>(null);
   const [ratioDays, setRatioDays] = useState(90);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
@@ -411,6 +414,20 @@ export default function Dashboard() {
     }
   }, [moduleConfig.apiBase]);
 
+  const fetchResultadosSZS = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/szs/resultados`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setResultadosSZSData(data);
+    } catch (err) {
+      console.error("Fetch resultados SZS error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const fetchRatios = useCallback(async (days: number = 90) => {
     try {
       const res = await fetch(`${moduleConfig.apiBase}/ratios?days=${days}`);
@@ -502,6 +519,8 @@ export default function Dashboard() {
       fetchNoShow(noShowDays);
     } else if (mainView === "mensal" && !mensalData) {
       fetchMensal();
+    } else if (mainView === "resultados-szs" && !resultadosSZSData) {
+      fetchResultadosSZS();
     }
   }, [activeTab, mainView, hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -533,6 +552,7 @@ export default function Dashboard() {
     setNoShowData(null);
     setMensalData(null);
     setRatioData(null);
+    setResultadosSZSData(null);
   };
 
   const fetchCurrentView = async () => {
@@ -704,6 +724,13 @@ export default function Dashboard() {
         {mainView === "backlog" && <BacklogView />}
         {mainView === "admin" && <AdminView userRole={userRole} />}
         {mainView === "mensal" && <MensalView data={mensalData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "resultados-szs" && (
+          <ResultadosSZSView
+            data={resultadosSZSData}
+            loading={loading}
+            lastUpdated={lastUpdated}
+          />
+        )}
         {mainView === "squad-atividades" && <SquadAtividadesView pipelineSlug={moduleConfig.id} dateFrom="" dateTo="" />}
         {mainView === "venda" && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
