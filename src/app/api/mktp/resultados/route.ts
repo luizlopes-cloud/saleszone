@@ -246,28 +246,32 @@ export async function GET() {
     const totalAgendadas = calendarEvents.length;
     const agendaPct = totalCapacity > 0 ? Math.round((totalAgendadas / totalCapacity) * 1000) / 10 : 0;
 
-    /* ── 6. History (90 days) for charts ───────────────────── */
+    /* ── 6. History (90 days) — open deals snapshot from mktp_daily_counts ── */
+    // mktp_daily_counts has daily snapshots of open deals (source=open) populated by sync.
+    // Sum all tabs per day to get total open deals in the pipeline on that date.
+    const histRows = await paginate((o, ps) =>
+      admin
+        .from("mktp_daily_counts")
+        .select("date, tab, count")
+        .eq("source", "open")
+        .gte("date", cutoffDate)
+        .range(o, o + ps - 1)
+    );
+
+    // Only "Funil Completo" gets history (mktp_daily_counts doesn't have canal_group for open deals)
     const histMap: Record<string, Map<string, Record<string, number>>> = {};
     for (const ch of CHANNEL_ORDER) histMap[ch] = new Map();
 
-    for (const deal of deals) {
-      const group = getCanalGroup(String(deal.canal || ""));
-      for (const tab of TABS) {
-        const dateCol = TAB_DATE_COL[tab];
-        const dateVal = deal[dateCol];
-        if (!dateVal) continue;
-        const day = dateVal.substring(0, 10);
-        if (day < cutoffDate) continue;
+    for (const r of histRows) {
+      const date = r.date as string;
+      const tab = r.tab as string;
+      const count = r.count || 0;
 
-        // Specific channel
-        if (!histMap[group].has(day)) histMap[group].set(day, {});
-        const entry = histMap[group].get(day)!;
-        entry[tab] = (entry[tab] || 0) + 1;
-
-        // Funil Completo
-        if (!histMap["Funil Completo"].has(day)) histMap["Funil Completo"].set(day, {});
-        const fcEntry = histMap["Funil Completo"].get(day)!;
-        fcEntry[tab] = (fcEntry[tab] || 0) + 1;
+      // All channels get the same history (mktp_daily_counts = marketing deals only)
+      for (const ch of CHANNEL_ORDER) {
+        if (!histMap[ch].has(date)) histMap[ch].set(date, {});
+        const entry = histMap[ch].get(date)!;
+        entry[tab] = (entry[tab] || 0) + count;
       }
     }
 
