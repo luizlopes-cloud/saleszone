@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
+import { getSquadIdFromCanalGroup } from "@/lib/szs-utils";
 import { paginate } from "@/lib/paginate";
 import type { PlanejamentoData, PlanejamentoEmpRow, PlanejamentoMetrics } from "@/lib/types";
 
@@ -48,13 +49,9 @@ function sumMetrics(rows: PlanejamentoMetrics[]): PlanejamentoMetrics {
   return buildMetrics(leads, mql, sql, opp, won, spend);
 }
 
-// Map empreendimento → squad id
-const EMP_TO_SQUAD = new Map<string, number>();
-for (const sq of mc.squads) {
-  for (const emp of sq.empreendimentos) {
-    EMP_TO_SQUAD.set(emp, sq.id);
-  }
-}
+// SZS: all planejamento data is Marketing canal (is_marketing=true, rd_source paga)
+// Squad assignment uses canal-based mapping; Marketing = squad 1
+const MARKETING_SQUAD_ID = getSquadIdFromCanalGroup("Marketing");
 
 export async function GET(request: Request) {
   try {
@@ -178,7 +175,7 @@ export async function GET(request: Request) {
 
     const empRows: PlanejamentoEmpRow[] = [];
     for (const emp of allEmps) {
-      const squadId = EMP_TO_SQUAD.get(emp) || (mc.squads[0]?.id ?? 0);
+      const squadId = MARKETING_SQUAD_ID;
       const cc = curCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
       const cm = curMeta.get(emp) || { leads: 0, spend: 0 };
       const hc = histCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
