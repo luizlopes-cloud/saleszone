@@ -93,6 +93,7 @@ interface ChannelResult {
   lastMonthWon: number;
   snapshots: { aguardandoDados: number; emContrato: number; totalOpen: number; agDadosMeta?: number; contratoMeta?: number; isAccumulated?: boolean };
   ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers: string[]; meetingsPerDay: number; workDays: number };
+  noShow: { canceladas: number; total: number; percent: number };
   dealsHistory: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[];
 }
 
@@ -213,6 +214,25 @@ export async function GET() {
       snapshots["Geral"].agendado++;
     }
 
+    // No-show: cancelled meetings in last 7 days vs total
+    const past7 = new Date(now);
+    past7.setDate(past7.getDate() - 6);
+    const past7Str = past7.toISOString().substring(0, 10);
+    const noShowRows = await paginate((o, ps) =>
+      admin.from("szs_calendar_events").select("closer_email, cancelou").gte("dia", past7Str).lte("dia", today).range(o, o + ps - 1)
+    );
+    const noShowData: Record<string, { canceladas: number; total: number }> = {};
+    for (const ch of CHANNEL_ORDER) noShowData[ch] = { canceladas: 0, total: 0 };
+    for (const ev of noShowRows) {
+      const macro = CLOSER_EMAIL_CHANNEL[ev.closer_email];
+      if (macro) {
+        noShowData[macro].total++;
+        if (ev.cancelou) noShowData[macro].canceladas++;
+      }
+      noShowData["Geral"].total++;
+      if (ev.cancelou) noShowData["Geral"].canceladas++;
+    }
+
     // History from szs_daily_counts (for funnel metrics, not charts)
     const historyRows = await paginate((o, ps) =>
       admin.from("szs_daily_counts").select("date, tab, canal_group, count").gte("date", cutoffDate).range(o, o + ps - 1)
@@ -278,6 +298,11 @@ export async function GET() {
           closers,
           meetingsPerDay: MEETINGS_PER_DAY,
           workDays: WORK_DAYS_PER_WEEK,
+        },
+        noShow: {
+          canceladas: noShowData[name].canceladas,
+          total: noShowData[name].total,
+          percent: noShowData[name].total > 0 ? Math.round((noShowData[name].canceladas / noShowData[name].total) * 1000) / 10 : 0,
         },
         dealsHistory,
       };
