@@ -9,6 +9,9 @@ const MACRO_CHANNELS: Record<string, string> = {
   Spots: "Vendas Diretas",
   Outros: "Vendas Diretas",
   Parceiros: "Parceiros",
+  "Ind. Corretor": "Parceiros",
+  "Ind. Franquia": "Parceiros",
+  "Ind. Outros Parceiros": "Parceiros",
   "Expansão": "Expansão",
 };
 
