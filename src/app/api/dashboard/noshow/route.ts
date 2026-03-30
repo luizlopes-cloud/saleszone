@@ -1,78 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { getModuleConfig } from "@/lib/modules";
-import type { NoShowData, NoShowDealRow, NoShowSummary, NoShowAlert } from "@/lib/types";
+import { paginate } from "@/lib/paginate";
+import type { NoShowData, NoShowEventRow, NoShowCloserRow, NoShowSummary, NoShowAlert } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const PIPEDRIVE_TOKEN = process.env.PIPEDRIVE_API_TOKEN || "";
-
-/** Fetch ALL deal_ids that have a no_show activity in Pipedrive (paginated, ~3-4 requests) */
-async function fetchAllNoShowDealIds(): Promise<Set<number>> {
-  const dealIds = new Set<number>();
-  let cursor: string | null = null;
-
-  while (true) {
-    let url = `https://api.pipedrive.com/v1/activities/collection?type=no_show&done=true&limit=500&api_token=${PIPEDRIVE_TOKEN}`;
-    if (cursor) url += `&cursor=${cursor}`;
-
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) break;
-
-    const json = await res.json();
-    const items = json?.data || [];
-    for (const a of items) {
-      if (a.deal_id) dealIds.add(a.deal_id as number);
-    }
-
-    cursor = json?.additional_data?.next_cursor || null;
-    if (!cursor) break;
-  }
-
-  return dealIds;
+interface CalEvent {
+  closer_email: string;
+  closer_name: string;
+  dia: string;
+  hora: string | null;
+  titulo: string;
+  empreendimento: string | null;
+  cancelou: boolean;
 }
 
-const STAGE_NAMES: Record<number, string> = {
-  1: "FUP Parceiro",
-  2: "Lead in",
-  3: "Contatados",
-  4: "Qualificação",
-  5: "Qualificado",
-  6: "Aguardando data",
-  7: "Agendado",
-  8: "No Show/Reagendamento",
-  9: "Reunião/OPP",
-  10: "FUP",
-  11: "Negociação",
-  12: "Fila de espera",
-  13: "Reservas",
-  14: "Contrato",
-};
-
-const PAGE_SIZE = 1000;
-
-async function paginateDeals(filter: Record<string, unknown>, select: string): Promise<Record<string, unknown>[]> {
-  const all: Record<string, unknown>[] = [];
-  let offset = 0;
-
-  while (true) {
-    let query = supabase.from("squad_deals").select(select).range(offset, offset + PAGE_SIZE - 1);
-
-    for (const [key, val] of Object.entries(filter)) {
-      if (key.startsWith("gte_")) query = query.gte(key.slice(4), val);
-      else if (key.startsWith("or_")) query = query.or(val as string);
-      else query = query.eq(key, val);
-    }
-
-    const { data, error } = await query;
-    if (error) throw new Error(`Supabase error: ${error.message}`);
-    if (!data || data.length === 0) break;
-    all.push(...(data as unknown as Record<string, unknown>[]));
-    if (data.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
-  }
-
-  return all;
+function isWeekday(dateStr: string): boolean {
+  const d = new Date(dateStr + "T12:00:00");
+  const dow = d.getDay();
+  return dow >= 1 && dow <= 5;
 }
 
 export async function GET(request: NextRequest) {
@@ -84,273 +30,168 @@ export async function GET(request: NextRequest) {
     const cutoff = new Date(now);
     cutoff.setDate(cutoff.getDate() - days);
     const cutoffStr = cutoff.toISOString().split("T")[0];
+    const todayStr = now.toISOString().split("T")[0];
 
-    // ── 1. Active no-shows: open deals currently in stage 8 (No Show/Reagendamento)
-    //    Filter by canal = Marketing (both "12" legacy and "Marketing" new Nekt values)
-    const openNoShows = await paginateDeals(
-      { status: "open", stage_order: 8, or_canal: 'canal.eq.Marketing,canal.eq.12' },
-      "deal_id, title, owner_name, preseller_name, empreendimento, stage_order, add_time, canal, lost_reason, status"
+    // ── 1. Fetch all calendar events in period
+    const allEvents: CalEvent[] = await paginate((o, ps) =>
+      supabase
+        .from("squad_calendar_events")
+        .select("closer_email, closer_name, dia, hora, titulo, empreendimento, cancelou")
+        .gte("dia", cutoffStr)
+        .range(o, o + ps - 1)
     );
 
-    // ── 2. Historical no-shows: won/lost deals that passed through stage 8 (max_stage_order >= 8)
-    //    Filter by add_time within the period
-    const historicalSelect = "deal_id, title, owner_name, preseller_name, empreendimento, stage_order, max_stage_order, add_time, canal, lost_reason, status, won_time, lost_time";
+    // Only past events (up to today) — future events can't have no-shows
+    const pastEvents = allEvents.filter((e) => e.dia <= todayStr);
 
-    // Won deals in the period (canal = Marketing only)
-    // Verification of actual no-show happens via Pipedrive Activities API below
-    const wonRows: Record<string, unknown>[] = [];
-    let wonOffset = 0;
-    while (true) {
-      const { data, error } = await supabase
-        .from("squad_deals")
-        .select(historicalSelect)
-        .eq("status", "won")
-        .gte("won_time", cutoffStr)
-        .or("canal.eq.Marketing,canal.eq.12")
-        .range(wonOffset, wonOffset + PAGE_SIZE - 1);
-      if (error) throw new Error(`Won query error: ${error.message}`);
-      if (!data || data.length === 0) break;
-      wonRows.push(...(data as Record<string, unknown>[]));
-      if (data.length < PAGE_SIZE) break;
-      wonOffset += PAGE_SIZE;
-    }
+    const totalScheduled = pastEvents.length;
+    const cancelledEvents = pastEvents.filter((e) => e.cancelou);
+    const totalCancelled = cancelledEvents.length;
+    const noShowRate = totalScheduled > 0 ? Math.round((totalCancelled / totalScheduled) * 100) : 0;
 
-    // Lost deals in the period (canal = Marketing only)
-    // Pre-filter: max_stage_order >= 7 (at least reached Agendado — must have been scheduled to have a no-show)
-    const lostRows: Record<string, unknown>[] = [];
-    let lostOffset = 0;
-    while (true) {
-      const { data, error } = await supabase
-        .from("squad_deals")
-        .select(historicalSelect)
-        .eq("status", "lost")
-        .gte("max_stage_order", 7)
-        .gte("lost_time", cutoffStr)
-        .or("canal.eq.Marketing,canal.eq.12")
-        .range(lostOffset, lostOffset + PAGE_SIZE - 1);
-      if (error) throw new Error(`Lost query error: ${error.message}`);
-      if (!data || data.length === 0) break;
-      lostRows.push(...(data as Record<string, unknown>[]));
-      if (data.length < PAGE_SIZE) break;
-      lostOffset += PAGE_SIZE;
-    }
+    // ── 2. Aggregate by closer
+    const closerMap = new Map<string, { name: string; scheduled: number; cancelled: number; dailyCancelled: Map<string, { cancelled: number; total: number }> }>();
 
-    // ── 2b. Verify won/lost deals via Pipedrive Activities API
-    // max_stage_order is unreliable (14 for all won, stage at loss for lost).
-    // The real indicator is whether the deal has a "no_show" activity type.
-    // Open deals at stage_order=8 are already confirmed — skip verification.
-    // Fetch all no_show deal_ids at once (~3-4 paginated requests) instead of per-deal.
-    const noShowDealIds = (wonRows.length > 0 || lostRows.length > 0)
-      ? await fetchAllNoShowDealIds()
-      : new Set<number>();
-
-    const verifiedWonRows = wonRows.filter((d) => noShowDealIds.has(d.deal_id as number));
-    const verifiedLostRows = lostRows.filter((d) => noShowDealIds.has(d.deal_id as number));
-    console.log(`[noshow] NoShow deal_ids: ${noShowDealIds.size} | Won: ${wonRows.length} → ${verifiedWonRows.length} | Lost: ${lostRows.length} → ${verifiedLostRows.length}`);
-
-    // ── 3. Combine all no-show deals
-    const allRaw = [...openNoShows, ...verifiedWonRows, ...verifiedLostRows];
-
-    // Dedup by deal_id (open deal might also appear in historical)
-    const seen = new Set<number>();
-    const deduped: Record<string, unknown>[] = [];
-    for (const d of allRaw) {
-      if (d.lost_reason === "Duplicado/Erro") continue;
-      const id = d.deal_id as number;
-      if (!seen.has(id)) {
-        seen.add(id);
-        deduped.push(d);
+    for (const evt of pastEvents) {
+      const key = evt.closer_email;
+      if (!closerMap.has(key)) {
+        closerMap.set(key, { name: evt.closer_name || key.split("@")[0], scheduled: 0, cancelled: 0, dailyCancelled: new Map() });
       }
+      const c = closerMap.get(key)!;
+      c.scheduled++;
+      if (evt.cancelou) c.cancelled++;
+
+      // Daily tracking for avg7d
+      const dayInfo = c.dailyCancelled.get(evt.dia) || { cancelled: 0, total: 0 };
+      dayInfo.total++;
+      if (evt.cancelou) dayInfo.cancelled++;
+      c.dailyCancelled.set(evt.dia, dayInfo);
     }
 
-    const deals: NoShowDealRow[] = deduped.map((d) => {
-      const addTime = d.add_time as string | null;
-      let daysInFunnel = 0;
-      if (addTime) {
-        daysInFunnel = Math.max(0, Math.round((now.getTime() - new Date(addTime).getTime()) / (1000 * 60 * 60 * 24)));
-      }
-      const stageOrder = d.stage_order as number;
-      const status = d.status as "open" | "won" | "lost";
-
-      return {
-        deal_id: d.deal_id as number,
-        title: (d.title as string) || `Deal #${d.deal_id}`,
-        stage_name: STAGE_NAMES[stageOrder] || `Stage ${stageOrder}`,
-        current_stage: STAGE_NAMES[stageOrder] || `Stage ${stageOrder}`,
-        owner_name: (d.owner_name as string) || "",
-        preseller_name: (d.preseller_name as string) || null,
-        empreendimento: (d.empreendimento as string) || null,
-        pipeline_name: "SZI",
-        add_time: addTime,
-        days_in_funnel: daysInFunnel,
-        canal: (d.canal as string) || null,
-        stage_order: stageOrder,
-        status,
-        lost_reason: (d.lost_reason as string) || null,
-      };
-    });
-
-    // Sort: open first, then by days_in_funnel DESC
-    deals.sort((a, b) => {
-      if (a.status === "open" && b.status !== "open") return -1;
-      if (a.status !== "open" && b.status === "open") return 1;
-      return b.days_in_funnel - a.days_in_funnel;
-    });
-
-    // ── 4. Calendar enrichment — no-show rate from squad_calendar_events
-    let calendarTotal = 0;
-    let calendarCancelled = 0;
-    try {
-      const { data: calEvents } = await supabase
-        .from("squad_calendar_events")
-        .select("closer_email, cancelou, dia")
-        .gte("dia", cutoffStr);
-
-      if (calEvents) {
-        calendarTotal = calEvents.length;
-        calendarCancelled = calEvents.filter((e) => e.cancelou).length;
-      }
-    } catch (calErr) {
-      console.error("[noshow] Calendar query error:", calErr);
+    // Compute avg7d (past 7 business days)
+    const past7biz: string[] = [];
+    const cur = new Date(now);
+    cur.setDate(cur.getDate() - 1);
+    while (past7biz.length < 7) {
+      const ds = cur.toISOString().split("T")[0];
+      if (isWeekday(ds)) past7biz.push(ds);
+      cur.setDate(cur.getDate() - 1);
     }
 
-    // ── 5. Build summary
-    const byPreseller: Record<string, number> = {};
+    const closers: NoShowCloserRow[] = Array.from(closerMap.entries())
+      .map(([email, c]) => {
+        const dailyRates = past7biz
+          .map((ds) => {
+            const d = c.dailyCancelled.get(ds);
+            return d && d.total > 0 ? (d.cancelled / d.total) * 100 : -1;
+          })
+          .filter((v) => v >= 0);
+        const avg7d = dailyRates.length > 0 ? Math.round(dailyRates.reduce((a, b) => a + b, 0) / dailyRates.length) : 0;
+
+        return {
+          closer_name: c.name,
+          closer_email: email,
+          scheduled: c.scheduled,
+          cancelled: c.cancelled,
+          rate: c.scheduled > 0 ? Math.round((c.cancelled / c.scheduled) * 100) : 0,
+          avg7d,
+        };
+      })
+      .sort((a, b) => b.rate - a.rate);
+
+    // ── 3. Aggregate by empreendimento
     const byEmpreendimento: Record<string, number> = {};
-    const byOwner: Record<string, number> = {};
-    const byCanal: Record<string, number> = {};
-    let totalDays = 0;
-    let countWithDays = 0;
-
-    for (const d of deals) {
-      const ps = d.preseller_name || d.owner_name || "Sem pré-vendedor";
-      byPreseller[ps] = (byPreseller[ps] || 0) + 1;
-
-      const emp = d.empreendimento || "Sem empreendimento";
+    const byCloser: Record<string, number> = {};
+    for (const evt of cancelledEvents) {
+      const emp = evt.empreendimento || "Sem empreendimento";
       byEmpreendimento[emp] = (byEmpreendimento[emp] || 0) + 1;
 
-      byOwner[d.owner_name || "—"] = (byOwner[d.owner_name || "—"] || 0) + 1;
-
-      const canal = d.canal || "—";
-      byCanal[canal] = (byCanal[canal] || 0) + 1;
-
-      if (d.days_in_funnel > 0) {
-        totalDays += d.days_in_funnel;
-        countWithDays++;
-      }
+      const name = evt.closer_name || evt.closer_email.split("@")[0];
+      byCloser[name] = (byCloser[name] || 0) + 1;
     }
 
+    // ── 4. Summary
     const summary: NoShowSummary = {
-      total: deals.length,
-      open_count: deals.filter((d) => d.status === "open").length,
-      won_count: deals.filter((d) => d.status === "won").length,
-      lost_count: deals.filter((d) => d.status === "lost").length,
-      by_preseller: byPreseller,
+      total_scheduled: totalScheduled,
+      total_cancelled: totalCancelled,
+      noshow_rate: noShowRate,
+      by_closer: byCloser,
       by_empreendimento: byEmpreendimento,
-      by_owner: byOwner,
-      by_canal: byCanal,
-      avg_days_in_funnel: countWithDays > 0 ? Math.round(totalDays / countWithDays) : null,
-      calendar_noshow_rate: calendarTotal > 0 ? Math.round((calendarCancelled / calendarTotal) * 100) : null,
-      calendar_total_events: calendarTotal,
-      calendar_cancelled_events: calendarCancelled,
     };
 
-    // ── 6. Alerts
+    // ── 5. Alerts
     const alerts: NoShowAlert[] = [];
 
-    // High no-show count by preseller
-    const entries = Object.entries(byPreseller).sort((a, b) => b[1] - a[1]);
-    const median = entries.length > 0 ? entries[Math.floor(entries.length / 2)][1] : 0;
-
-    for (const [name, count] of entries) {
-      if (count >= 5 && count > median * 2) {
+    for (const c of closers) {
+      if (c.rate >= 40 && c.cancelled >= 5) {
         alerts.push({
-          id: `noshow-high-${name}`,
+          id: `noshow-high-${c.closer_email}`,
           severity: "critical",
-          alert_type: "high_noshow_count",
-          message: `${name} tem ${count} no-shows no período (${Math.round((count / deals.length) * 100)}% do total)`,
-          seller_name: name,
-          metric_value: count,
-          threshold_value: median,
+          alert_type: "high_noshow_rate",
+          message: `${c.closer_name} tem taxa de no-show de ${c.rate}% (${c.cancelled}/${c.scheduled} eventos)`,
+          seller_name: c.closer_name,
+          metric_value: c.rate,
+          threshold_value: 40,
         });
-      } else if (count >= 3 && count > median * 1.5) {
+      } else if (c.rate >= 30 && c.cancelled >= 3) {
         alerts.push({
-          id: `noshow-above-${name}`,
+          id: `noshow-above-${c.closer_email}`,
           severity: "warning",
-          alert_type: "above_median",
-          message: `${name} tem ${count} no-shows (acima da mediana de ${median})`,
-          seller_name: name,
-          metric_value: count,
-          threshold_value: median,
+          alert_type: "above_threshold",
+          message: `${c.closer_name} tem taxa de no-show de ${c.rate}% (${c.cancelled}/${c.scheduled})`,
+          seller_name: c.closer_name,
+          metric_value: c.rate,
+          threshold_value: 30,
         });
       }
     }
 
-    // Calendar no-show rate alert
-    if (summary.calendar_noshow_rate !== null && summary.calendar_noshow_rate > 30) {
+    if (noShowRate > 30) {
       alerts.push({
-        id: "calendar-high-rate",
+        id: "global-high-rate",
         severity: "warning",
-        alert_type: "high_calendar_noshow",
-        message: `Taxa de cancelamento no calendário: ${summary.calendar_noshow_rate}% (${calendarCancelled} de ${calendarTotal} eventos)`,
+        alert_type: "high_global_noshow",
+        message: `Taxa global de no-show: ${noShowRate}% (${totalCancelled} de ${totalScheduled} eventos)`,
         seller_name: "",
-        metric_value: summary.calendar_noshow_rate,
+        metric_value: noShowRate,
         threshold_value: 30,
       });
     }
 
-    // Active no-shows awaiting action
-    if (summary.open_count > 10) {
-      alerts.push({
-        id: "open-noshow-backlog",
-        severity: "info",
-        alert_type: "open_backlog",
-        message: `${summary.open_count} deals em No Show aguardando reagendamento`,
-        seller_name: "",
-        metric_value: summary.open_count,
-        threshold_value: 10,
-      });
-    }
-
-    // ── 7. Trend (daily no-shows for last 7 days from calendar)
+    // ── 6. Trend (daily cancelled for last 7 days)
     const trendDates: string[] = [];
     const trendTotals: number[] = [];
-    try {
-      const trendStart = new Date(now);
-      trendStart.setDate(trendStart.getDate() - 6);
 
-      const { data: trendEvents } = await supabase
-        .from("squad_calendar_events")
-        .select("dia, cancelou")
-        .gte("dia", trendStart.toISOString().split("T")[0])
-        .lte("dia", now.toISOString().split("T")[0]);
-
-      if (trendEvents) {
-        const dayMap = new Map<string, { total: number; cancelled: number }>();
-        for (const e of trendEvents) {
-          const existing = dayMap.get(e.dia) || { total: 0, cancelled: 0 };
-          existing.total++;
-          if (e.cancelou) existing.cancelled++;
-          dayMap.set(e.dia, existing);
-        }
-
-        // Fill 7 days
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(now);
-          d.setDate(d.getDate() - i);
-          const ds = d.toISOString().split("T")[0];
-          trendDates.push(ds);
-          trendTotals.push(dayMap.get(ds)?.cancelled || 0);
-        }
-      }
-    } catch (trendErr) {
-      console.error("[noshow] Trend error:", trendErr);
+    const dayMap = new Map<string, number>();
+    for (const evt of cancelledEvents) {
+      dayMap.set(evt.dia, (dayMap.get(evt.dia) || 0) + 1);
     }
+
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      const ds = d.toISOString().split("T")[0];
+      trendDates.push(ds);
+      trendTotals.push(dayMap.get(ds) || 0);
+    }
+
+    // ── 7. Cancelled events list (most recent first)
+    const events: NoShowEventRow[] = cancelledEvents
+      .sort((a, b) => (b.dia + (b.hora || "")).localeCompare(a.dia + (a.hora || "")))
+      .map((e) => ({
+        closer_email: e.closer_email,
+        closer_name: e.closer_name || e.closer_email.split("@")[0],
+        dia: e.dia,
+        hora: e.hora,
+        titulo: e.titulo,
+        empreendimento: e.empreendimento,
+      }));
 
     const result: NoShowData = {
       days,
       summary,
-      deals,
+      closers,
+      events,
       alerts,
       trend: { dates: trendDates, totals: trendTotals },
     };
