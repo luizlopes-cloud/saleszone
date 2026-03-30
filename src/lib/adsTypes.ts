@@ -69,19 +69,21 @@ export interface VerticalConfig {
     taxa_mql_sql: number; taxa_sql_opp: number
   }
   checkpoints: { mql: number; sql: number; opp: number; won: number }
+  spendCap?: number
 }
 
 export const VERTICAL_CONFIGS: Record<string, VerticalConfig> = {
   Investimentos: {
-    benchmarks: { cost_per_mql: 170, cost_per_sql: 554, cost_per_opp: 2953, cost_per_won: 10190 },
+    benchmarks: { cost_per_mql: 121, cost_per_sql: 435, cost_per_opp: 2953, cost_per_won: 5000 },
     scoring: {
-      won_meta: 10000, won_teto: 17784,
+      won_meta: 5000, won_teto: 5000,
       opp_meta: 2953, opp_teto: 4520,
-      sql_meta: 554, sql_teto: 834,
-      mql_meta: 170, mql_teto: 200,
+      sql_meta: 435, sql_teto: 579,
+      mql_meta: 121, mql_teto: 170,
       taxa_mql_sql: 0.17, taxa_sql_opp: 0.06,
     },
     checkpoints: { mql: 3, sql: 7, opp: 15, won: 35 },
+    spendCap: 5000,
   },
   Marketplace: {
     benchmarks: { cost_per_mql: 212.81, cost_per_sql: 876.08, cost_per_opp: 1049.74, cost_per_won: 5391.33 },

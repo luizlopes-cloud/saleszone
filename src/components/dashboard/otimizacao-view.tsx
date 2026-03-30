@@ -220,6 +220,10 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
   const [filterStatus, setFilterStatus] = useState("PAUSAR")
   const [filterCampaigns, setFilterCampaigns] = useState<Set<string>>(new Set())
   const [searchId, setSearchId] = useState("")
+  const [thumbMap, setThumbMap] = useState<Record<string, string>>({})
+  const [previewAd, setPreviewAd] = useState<string | null>(null)
+  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -249,40 +253,45 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
           body: JSON.stringify({ adIds: ids }),
         })
         if (metaRes.ok) {
-          const { statuses } = await metaRes.json()
+          const metaJson = await metaRes.json()
+          const statuses = metaJson.statuses
+          const thumbs: Record<string, string> = metaJson.thumbnails || {}
           if (statuses) {
             for (const ad of perf) {
               ad.effective_status = statuses[ad.ad_id] ?? "UNKNOWN"
             }
           }
-        }
 
-        // Retry para UNKNOWN + fallback spend_7d
-        const unknownIds = perf.filter(a => a.effective_status === "UNKNOWN").map(a => a.ad_id)
-        if (unknownIds.length > 0) {
-          try {
-            const retryRes = await fetch("/api/meta-ads/meta-status", {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ adIds: unknownIds }),
-            })
-            if (retryRes.ok) {
-              const { statuses: retryStatuses } = await retryRes.json()
-              if (retryStatuses) {
-                for (const ad of perf) {
-                  if (ad.effective_status === "UNKNOWN" && retryStatuses[ad.ad_id]) {
-                    ad.effective_status = retryStatuses[ad.ad_id]
+          // Retry para UNKNOWN + fallback spend_7d
+          const unknownIds = perf.filter(a => a.effective_status === "UNKNOWN").map(a => a.ad_id)
+          if (unknownIds.length > 0) {
+            try {
+              const retryRes = await fetch("/api/meta-ads/meta-status", {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ adIds: unknownIds }),
+              })
+              if (retryRes.ok) {
+                const retryJson = await retryRes.json()
+                const retryStatuses = retryJson.statuses
+                Object.assign(thumbs, retryJson.thumbnails || {})
+                if (retryStatuses) {
+                  for (const ad of perf) {
+                    if (ad.effective_status === "UNKNOWN" && retryStatuses[ad.ad_id]) {
+                      ad.effective_status = retryStatuses[ad.ad_id]
+                    }
                   }
                 }
               }
-            }
-          } catch { /* retry opcional */ }
-          // Fallback: UNKNOWN = Meta não retornou o ad (sem permissão ou delay).
-          // Se Meta confirmasse PAUSED, teria retornado "PAUSED". Portanto, assumir ACTIVE.
-          for (const ad of perf) {
-            if (ad.effective_status === "UNKNOWN") {
-              ad.effective_status = "ACTIVE"
+            } catch { /* retry opcional */ }
+            // Fallback: UNKNOWN = Meta não retornou o ad (sem permissão ou delay).
+            // Se Meta confirmasse PAUSED, teria retornado "PAUSED". Portanto, assumir ACTIVE.
+            for (const ad of perf) {
+              if (ad.effective_status === "UNKNOWN") {
+                ad.effective_status = "ACTIVE"
+              }
             }
           }
+          if (Object.keys(thumbs).length > 0) setThumbMap(prev => ({ ...prev, ...thumbs }))
         }
       } catch { /* Meta status é opcional */ }
 
@@ -461,7 +470,9 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                   <th style={{ ...S.th, width: 32 }}></th>
                   <th style={S.th}>ID</th>
                   <th style={{ ...S.th, minWidth: 200 }}>Anúncio</th>
+                  <th style={{ ...S.th, textAlign: "center" }}>Criativo</th>
                   <th style={{ ...S.th, minWidth: 150 }}>Adset</th>
+                  {tab === "Investimentos" && <th style={{ ...S.th, minWidth: 140 }}>Empreend.</th>}
                   <th style={{ ...S.th, textAlign: "right" }}>Dias</th>
                   <th style={{ ...S.th, textAlign: "right" }}>Checkpoint</th>
                   <th style={{ ...S.th, textAlign: "right" }}>Spend</th>
@@ -491,12 +502,13 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                 {tabAds.map((ad, i) => {
                   const rateMqlSql = ad.mql > 0 ? ad.sql / ad.mql : 0
                   const rateSqlOpp = ad.sql > 0 ? ad.opp / ad.sql : 0
-                  const impact = ad.ad_status === "PAUSAR" ? computePauseImpact(ad, tabAds) : null
+                  const isInactive = ad.effective_status !== "ACTIVE"
+                  const impact = !isInactive && ad.ad_status === "PAUSAR" ? computePauseImpact(ad, tabAds) : null
                   const isSelected = selected.has(ad.ad_id)
                   const rowBg = ad.ad_status === "PAUSAR" ? "rgba(231,0,11,0.02)" : ad.ad_status === "MONITORAR" ? "rgba(217,119,6,0.015)" : i % 2 === 0 ? T.bg : T.cinza50
 
                   return (
-                    <tr key={ad.ad_id} style={{ background: rowBg }}>
+                    <tr key={ad.ad_id} style={{ background: rowBg, opacity: isInactive ? 0.5 : 1 }}>
                       <td style={{ ...S.td, textAlign: "center" }}>
                         <button onClick={() => toggleSelect(ad.ad_id)} style={{ background: "none", border: "none", cursor: "pointer", color: T.mutedFg, padding: 2 }}>
                           {isSelected ? <CheckSquare size={14} style={{ color: T.primary }} /> : <Square size={14} />}
@@ -506,12 +518,55 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                         <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
                           <CopyId id={ad.ad_id} />
                           <span style={{ fontSize: 10, fontFamily: "monospace", color: T.mutedFg }}>{ad.ad_id.slice(-6)}</span>
+                          <a
+                            href={`https://adsmanager.facebook.com/adsmanager/manage/ads/edit/standalone?act=205286032338340&business_id=3062589203783816&selected_ad_ids=${ad.ad_id}&current_step=0`}
+                            target="_blank" rel="noopener noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            style={{ padding: 2, borderRadius: 4, color: T.mutedFg, display: "inline-flex", alignItems: "center" }}
+                            title="Abrir no Ads Manager"
+                          >
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
+                              <path d="M1 9L9 1M9 1H4M9 1V6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </a>
                         </div>
                       </td>
                       <td style={S.td}>
                         <span style={{ color: T.fg, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block", maxWidth: 200 }} title={ad.ad_name}>{ad.ad_name}</span>
                       </td>
+                      <td style={{ ...S.td, textAlign: "center" }}>
+                        {thumbMap[ad.ad_id] ? (
+                          <button onClick={async e => {
+                            e.stopPropagation()
+                            setPreviewAd(ad.ad_id)
+                            setPreviewHtml(null)
+                            setPreviewLoading(true)
+                            try {
+                              const res = await fetch(`/api/meta-ads/ad-preview?id=${ad.ad_id}`)
+                              if (res.ok) {
+                                const { html } = await res.json()
+                                setPreviewHtml(html)
+                              }
+                            } catch { /* silent */ }
+                            finally { setPreviewLoading(false) }
+                          }}
+                            style={{ borderRadius: 4, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: "transparent", padding: 0 }}
+                            title="Ver criativo">
+                            <img src={thumbMap[ad.ad_id]} alt="" width={36} height={36}
+                              style={{ width: 36, height: 36, objectFit: "cover", display: "block" }} />
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 10, color: T.mutedFg }}>—</span>
+                        )}
+                      </td>
                       <td style={{ ...S.td, color: T.mutedFg, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis" }} title={ad.adset_name}>{ad.adset_name}</td>
+                      {tab === "Investimentos" && (() => {
+                        let s = ad.campaign_name
+                        s = s.replace(/^(\[[^\]]*\]\s*)+/, '').trim()
+                        s = s.replace(/\s*\|?\s*\d{2}\/\d{2}\/\d{4}.*$/, '').trim()
+                        const empr = s || "—"
+                        return <td style={{ ...S.td, color: T.mutedFg, fontSize: 10, maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis" }} title={empr}>{empr}</td>
+                      })()}
                       <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{ad.dias_ativos}</td>
                       <td style={{ ...S.td, textAlign: "right", fontSize: 10, color: T.mutedFg }}>{ad.checkpoint_atual}</td>
                       <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{fmt(ad.spend)}</td>
@@ -532,8 +587,14 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                       <td style={{ ...S.td, textAlign: "center" }}><RateBadge rate={rateSqlOpp} min={0.06} /></td>
                       <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace", fontWeight: 500 }}>{ad.score.toFixed(0)}</td>
                       <td style={{ ...S.td, textAlign: "center" }}><TendenciaBadge tendencia={ad.tendencia} /></td>
-                      <td style={{ ...S.td, textAlign: "center" }}><StatusBadge status={ad.ad_status} /></td>
-                      <td style={{ ...S.td, color: T.mutedFg, fontSize: 10, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis" }} title={generateRecommendation(ad)}>{generateRecommendation(ad)}</td>
+                      <td style={{ ...S.td, textAlign: "center" }}>
+                        {isInactive
+                          ? <span style={{ fontSize: 10, fontWeight: 500, padding: "2px 6px", borderRadius: 4, background: T.cinza50, color: T.mutedFg, border: `1px solid ${T.border}` }}>INATIVO</span>
+                          : <StatusBadge status={ad.ad_status} />}
+                      </td>
+                      <td style={{ ...S.td, color: T.mutedFg, fontSize: 10, maxWidth: 250, overflow: "hidden", textOverflow: "ellipsis" }} title={isInactive ? `Anúncio pausado (${ad.effective_status}).` : generateRecommendation(ad)}>
+                        {isInactive ? `Anúncio pausado (${ad.effective_status}).` : generateRecommendation(ad)}
+                      </td>
                       <td style={{ ...S.td, textAlign: "center" }}>
                         {impact && (
                           <span style={{ fontSize: 10, fontFamily: "monospace", display: "flex", alignItems: "center", justifyContent: "center", gap: 3, color: impact.positive ? GREEN : RED }}>
@@ -592,6 +653,54 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                 <button onClick={handlePause} style={{ display: "flex", alignItems: "center", gap: 6, background: RED, color: "#fff", border: "none", borderRadius: 8, padding: "7px 16px", fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>
                   <Pause size={12} /> Confirmar pausa
                 </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Preview do criativo */}
+      {previewAd && (
+        <>
+          <div onClick={() => { setPreviewAd(null); setPreviewHtml(null) }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 40 }} />
+          <div onClick={() => { setPreviewAd(null); setPreviewHtml(null) }} style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", padding: 32 }}>
+            <div onClick={e => e.stopPropagation()} style={{ position: "relative", borderRadius: 12, overflow: "hidden", border: `1px solid ${T.border}`, boxShadow: "0 16px 48px rgba(0,0,0,0.2)", background: T.bg, width: 540, maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 16px", borderBottom: `1px solid ${T.border}`, background: T.card }}>
+                <span style={{ fontSize: 11, color: T.mutedFg, fontFamily: "monospace" }}>{previewAd}</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <a
+                    href={`https://adsmanager.facebook.com/adsmanager/manage/ads/edit/standalone?act=205286032338340&business_id=3062589203783816&selected_ad_ids=${previewAd}&current_step=0`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{ fontSize: 10, color: T.primary, textDecoration: "none" }}
+                  >
+                    Abrir no Ads Manager
+                  </a>
+                  <button onClick={() => { setPreviewAd(null); setPreviewHtml(null) }} style={{ background: "none", border: "none", cursor: "pointer", color: T.mutedFg }}><X size={14} /></button>
+                </div>
+              </div>
+              <div style={{ overflowY: "auto", maxHeight: "calc(85vh - 40px)" }}>
+                {previewLoading && (
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 20px" }}>
+                    <Loader2 size={24} style={{ animation: "spin 1s linear infinite", color: T.primary }} />
+                  </div>
+                )}
+                {!previewLoading && previewHtml && (
+                  <div style={{ display: "flex", justifyContent: "center", padding: 16 }}>
+                    <iframe
+                      srcDoc={previewHtml}
+                      sandbox=""
+                      style={{ border: "none", width: "100%", minHeight: 500 }}
+                    />
+                  </div>
+                )}
+                {!previewLoading && !previewHtml && (
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "64px 20px", gap: 12 }}>
+                    {thumbMap[previewAd] && (
+                      <img src={thumbMap[previewAd]} alt="" style={{ maxWidth: "100%", maxHeight: "60vh", objectFit: "contain", borderRadius: 8 }} />
+                    )}
+                    <span style={{ fontSize: 11, color: T.mutedFg }}>Preview indisponível — mostrando thumbnail</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
