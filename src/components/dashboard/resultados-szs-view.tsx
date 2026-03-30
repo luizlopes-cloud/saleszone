@@ -18,7 +18,7 @@ interface ChannelResult {
     won: MetricPair;
   };
   lastMonthWon: number;
-  snapshots: { aguardandoDados: number; emContrato: number };
+  snapshots: { aguardandoDados: number; emContrato: number; totalOpen: number };
   ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers?: string[]; meetingsPerDay?: number; workDays?: number };
   dealsHistory: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[];
 }
@@ -267,7 +267,10 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div style={{ padding: "12px 14px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, flex: 1 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: T.fg, marginBottom: 8 }}>Deals Abertos no Funil</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: T.fg }}>Deals Abertos no Funil</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: T.fg }}>{fmtNum(snapshots.totalOpen)}</span>
+            </div>
             <AreaChart
               data={filteredHistory.map((h) => ({ date: h.date, value: h.openTotal || h.total }))}
               color={name === "Parceiros" ? "#a855f7" : name === "Expansão" ? "#eab308" : "#3b82f6"}
@@ -316,7 +319,7 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
                 zIndex: 10, background: T.fg, color: "#fff", padding: "8px 12px", borderRadius: 6,
                 fontSize: 10, width: 220, lineHeight: 1.5, boxShadow: T.elevSm, whiteSpace: "pre-line", textAlign: "left", textTransform: "none",
               }}>
-                {`Reuniões agendadas no Google Calendar (próx. 7 dias)\n\nClosers: ${(ocupacaoAgenda.closers || []).join(", ") || "—"}\nCapacidade: ${ocupacaoAgenda.closers?.length || 0} closers × ${ocupacaoAgenda.meetingsPerDay || 0} reuniões/dia × ${ocupacaoAgenda.workDays || 0} dias = ${ocupacaoAgenda.capacidade} slots`}
+                {`Atividades de reunião agendadas no Pipedrive (próx. 7 dias)\n\nClosers: ${(ocupacaoAgenda.closers || []).join(", ") || "—"}\nCapacidade: ${ocupacaoAgenda.closers?.length || 0} closer × ${ocupacaoAgenda.meetingsPerDay || 0} reuniões/dia × ${ocupacaoAgenda.workDays || 0} dias = ${ocupacaoAgenda.capacidade} slots`}
               </div>
             </span>
           </div>
