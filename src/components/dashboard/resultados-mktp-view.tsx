@@ -164,55 +164,66 @@ function MultiLineChart({ data }: { data: { date: string; byStage: Record<string
   const todayStr = new Date().toISOString().substring(0, 10);
   const todayIdx = data.findIndex((d) => d.date === todayStr);
   const activeIdx = hover ?? (todayIdx >= 0 ? todayIdx : data.length - 1);
+  const activeData = activeIdx >= 0 && activeIdx < data.length ? data[activeIdx] : null;
 
   return (
-    <svg width="100%" height={H + 18} viewBox={`0 0 ${W} ${H + 18}`} preserveAspectRatio="none"
-      onMouseMove={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        const x = ((e.clientX - rect.left) / rect.width) * W;
-        const idx = Math.round((x / W) * (data.length - 1));
-        if (idx >= 0 && idx < data.length) setHover(idx);
-      }}
-      onMouseLeave={() => setHover(null)}
-    >
-      {stages.map((stage) => {
-        const points = data.map((d, i) => {
-          const x = (i / (data.length - 1)) * W;
-          const y = H - ((d.byStage[stage] || 0) / maxVal) * (H - 5);
-          return `${x},${y}`;
-        });
-        const isDashed = stage === "reserva" || stage === "contrato";
-        return (
-          <path
-            key={stage}
-            d={`M${points.join(" L")}`}
-            fill="none"
-            stroke={STAGE_COLORS[stage]}
-            strokeWidth={1.5}
-            strokeDasharray={isDashed ? "4" : undefined}
-          />
-        );
-      })}
-      {activeIdx >= 0 && activeIdx < data.length && (() => {
-        const x = (activeIdx / (data.length - 1)) * W;
-        const d = data[activeIdx];
-        const label = stages.map((s) => `${STAGE_LABELS[s]}:${d.byStage[s] || 0}`).join("  ");
-        return (
-          <>
-            <line x1={x} y1={0} x2={x} y2={H} stroke={T.cinza300} strokeWidth={1} strokeDasharray="3" />
-            {stages.map((stage) => {
-              const val = d.byStage[stage] || 0;
-              if (val === 0) return null;
-              const y = H - (val / maxVal) * (H - 5);
-              return <circle key={stage} cx={x} cy={y} r={3} fill={STAGE_COLORS[stage]} stroke="#fff" strokeWidth={1} />;
-            })}
-            <text x={x} y={H + 13} textAnchor="middle" fontSize={8} fontWeight={500} fill={T.cinza600}>
-              {label} · {d.date.substring(5).replace("-", "/")}
-            </text>
-          </>
-        );
-      })()}
-    </svg>
+    <div>
+      {activeData && (
+        <div style={{ fontSize: 9, color: T.cinza600, marginBottom: 4, minHeight: 14, display: "flex", flexWrap: "wrap", gap: "2px 8px" }}>
+          <span style={{ fontWeight: 600 }}>{activeData.date.substring(5).replace("-", "/")}</span>
+          {stages.map((s) => {
+            const val = activeData.byStage[s] || 0;
+            return (
+              <span key={s} style={{ color: STAGE_COLORS[s], fontWeight: 500 }}>
+                {STAGE_LABELS[s]}: {fmtNum(val)}
+              </span>
+            );
+          })}
+        </div>
+      )}
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = ((e.clientX - rect.left) / rect.width) * W;
+          const idx = Math.round((x / W) * (data.length - 1));
+          if (idx >= 0 && idx < data.length) setHover(idx);
+        }}
+        onMouseLeave={() => setHover(null)}
+      >
+        {stages.map((stage) => {
+          const points = data.map((d, i) => {
+            const x = (i / (data.length - 1)) * W;
+            const y = H - ((d.byStage[stage] || 0) / maxVal) * (H - 5);
+            return `${x},${y}`;
+          });
+          const isDashed = stage === "reserva" || stage === "contrato";
+          return (
+            <path
+              key={stage}
+              d={`M${points.join(" L")}`}
+              fill="none"
+              stroke={STAGE_COLORS[stage]}
+              strokeWidth={1.5}
+              strokeDasharray={isDashed ? "4" : undefined}
+            />
+          );
+        })}
+        {activeIdx >= 0 && activeIdx < data.length && (() => {
+          const x = (activeIdx / (data.length - 1)) * W;
+          return (
+            <>
+              <line x1={x} y1={0} x2={x} y2={H} stroke={T.cinza300} strokeWidth={1} strokeDasharray="3" />
+              {stages.map((stage) => {
+                const val = activeData!.byStage[stage] || 0;
+                if (val === 0) return null;
+                const y = H - (val / maxVal) * (H - 5);
+                return <circle key={stage} cx={x} cy={y} r={3} fill={STAGE_COLORS[stage]} stroke="#fff" strokeWidth={1} />;
+              })}
+            </>
+          );
+        })()}
+      </svg>
+    </div>
   );
 }
 
