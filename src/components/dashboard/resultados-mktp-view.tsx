@@ -100,19 +100,31 @@ function ProgressBar({ label, real, meta, isMoney }: { label: string; real: numb
 }
 
 function AreaChart({ data, color }: { data: { date: string; value: number }[]; color: string }) {
+  const [hover, setHover] = useState<number | null>(null);
   if (data.length < 2) return <div style={{ fontSize: 11, color: T.cinza400, padding: 20, textAlign: "center" }}>Dados insuficientes</div>;
   const maxVal = Math.max(...data.map((d) => d.value), 1);
   const W = 500;
   const H = 70;
+  const todayStr = new Date().toISOString().substring(0, 10);
+  const todayIdx = data.findIndex((d) => d.date === todayStr);
   const points = data.map((d, i) => ({
     x: (i / (data.length - 1)) * W,
     y: H - (d.value / maxVal) * (H - 5),
   }));
   const line = points.map((p) => `${p.x},${p.y}`).join(" L");
   const area = `M${line} L${W},${H} L0,${H} Z`;
+  const activeIdx = hover ?? todayIdx;
 
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+    <svg width="100%" height={H + 18} viewBox={`0 0 ${W} ${H + 18}`} preserveAspectRatio="none"
+      onMouseMove={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * W;
+        const idx = Math.round((x / W) * (data.length - 1));
+        if (idx >= 0 && idx < data.length) setHover(idx);
+      }}
+      onMouseLeave={() => setHover(null)}
+    >
       <defs>
         <linearGradient id={`grad-${color.replace("#", "")}`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={color} />
@@ -121,6 +133,15 @@ function AreaChart({ data, color }: { data: { date: string; value: number }[]; c
       </defs>
       <path d={area} fill={`url(#grad-${color.replace("#", "")})`} opacity={0.3} />
       <path d={`M${line}`} fill="none" stroke={color} strokeWidth={2} />
+      {activeIdx >= 0 && activeIdx < points.length && (
+        <>
+          <line x1={points[activeIdx].x} y1={0} x2={points[activeIdx].x} y2={H} stroke={T.cinza300} strokeWidth={1} strokeDasharray="3" />
+          <circle cx={points[activeIdx].x} cy={points[activeIdx].y} r={4} fill={color} stroke="#fff" strokeWidth={1.5} />
+          <text x={points[activeIdx].x} y={H + 13} textAnchor="middle" fontSize={10} fontWeight={600} fill={T.fg}>
+            {fmtNum(data[activeIdx].value)} · {data[activeIdx].date.substring(5).replace("-", "/")}
+          </text>
+        </>
+      )}
     </svg>
   );
 }
@@ -134,14 +155,26 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 function MultiLineChart({ data }: { data: { date: string; byStage: Record<string, number> }[] }) {
+  const [hover, setHover] = useState<number | null>(null);
   if (data.length < 2) return <div style={{ fontSize: 11, color: T.cinza400, padding: 20, textAlign: "center" }}>Dados insuficientes</div>;
   const stages = Object.keys(STAGE_COLORS);
   const maxVal = Math.max(...data.flatMap((d) => stages.map((s) => d.byStage[s] || 0)), 1);
   const W = 500;
   const H = 70;
+  const todayStr = new Date().toISOString().substring(0, 10);
+  const todayIdx = data.findIndex((d) => d.date === todayStr);
+  const activeIdx = hover ?? todayIdx;
 
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
+    <svg width="100%" height={H + 18} viewBox={`0 0 ${W} ${H + 18}`} preserveAspectRatio="none"
+      onMouseMove={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * W;
+        const idx = Math.round((x / W) * (data.length - 1));
+        if (idx >= 0 && idx < data.length) setHover(idx);
+      }}
+      onMouseLeave={() => setHover(null)}
+    >
       {stages.map((stage) => {
         const points = data.map((d, i) => {
           const x = (i / (data.length - 1)) * W;
@@ -160,6 +193,25 @@ function MultiLineChart({ data }: { data: { date: string; byStage: Record<string
           />
         );
       })}
+      {activeIdx >= 0 && activeIdx < data.length && (() => {
+        const x = (activeIdx / (data.length - 1)) * W;
+        const d = data[activeIdx];
+        const label = stages.filter((s) => (d.byStage[s] || 0) > 0).map((s) => `${STAGE_LABELS[s]}:${d.byStage[s] || 0}`).join("  ");
+        return (
+          <>
+            <line x1={x} y1={0} x2={x} y2={H} stroke={T.cinza300} strokeWidth={1} strokeDasharray="3" />
+            {stages.map((stage) => {
+              const val = d.byStage[stage] || 0;
+              if (val === 0) return null;
+              const y = H - (val / maxVal) * (H - 5);
+              return <circle key={stage} cx={x} cy={y} r={3} fill={STAGE_COLORS[stage]} stroke="#fff" strokeWidth={1} />;
+            })}
+            <text x={x} y={H + 13} textAnchor="middle" fontSize={8} fontWeight={500} fill={T.cinza600}>
+              {label} · {d.date.substring(5).replace("-", "/")}
+            </text>
+          </>
+        );
+      })()}
     </svg>
   );
 }

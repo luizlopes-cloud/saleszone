@@ -223,6 +223,29 @@ export async function GET() {
       }
     }
 
+    /* ── 5b. Ocupação agenda (mktp_calendar_events, próximos 7 dias) ── */
+    const today = now.toISOString().substring(0, 10);
+    const next7 = new Date(now);
+    next7.setDate(next7.getDate() + 7);
+    const next7Date = next7.toISOString().substring(0, 10);
+
+    const calendarEvents = await paginate((o, ps) =>
+      admin
+        .from("mktp_calendar_events")
+        .select("closer_name")
+        .gte("dia", today)
+        .lte("dia", next7Date)
+        .eq("cancelou", false)
+        .range(o, o + ps - 1)
+    );
+
+    const CLOSERS = ["Nevine Saratt", "Willian Miranda"];
+    const MEETINGS_PER_DAY = 16;
+    const WORK_DAYS = 5;
+    const totalCapacity = CLOSERS.length * MEETINGS_PER_DAY * WORK_DAYS;
+    const totalAgendadas = calendarEvents.length;
+    const agendaPct = totalCapacity > 0 ? Math.round((totalAgendadas / totalCapacity) * 1000) / 10 : 0;
+
     /* ── 6. History (90 days) for charts ───────────────────── */
     const histMap: Record<string, Map<string, Record<string, number>>> = {};
     for (const ch of CHANNEL_ORDER) histMap[ch] = new Map();
@@ -291,7 +314,7 @@ export async function GET() {
         metrics,
         lastMonthWon: prevWon[name] || 0,
         snapshots: { aguardandoDados: snap.reserva, emContrato: snap.contrato },
-        ocupacaoAgenda: { agendadas: 0, capacidade: 0, percent: 0 },
+        ocupacaoAgenda: { agendadas: totalAgendadas, capacidade: totalCapacity, percent: agendaPct },
         dealsHistory,
       };
     });
