@@ -86,7 +86,7 @@ interface ChannelResult {
     won: MetricPair;
   };
   lastMonthWon: number;
-  snapshots: { aguardandoDados: number; emContrato: number };
+  snapshots: { aguardandoDados: number; emContrato: number; totalOpen: number };
   ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers: string[]; meetingsPerDay: number; workDays: number };
   dealsHistory: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[];
 }
@@ -148,29 +148,53 @@ export async function GET() {
     let totalSpend = 0;
     for (const v of adSpend.values()) totalSpend += v;
 
-    const snapshotDeals = await paginate((o, ps) =>
-      admin.from("szs_deals").select("stage_order, canal, status").eq("status", "open").in("stage_order", [STAGE_AG_DADOS, STAGE_CONTRATO]).range(o, o + ps - 1)
+    // Fetch ALL open deals for snapshots + total count
+    const allOpenDeals = await paginate((o, ps) =>
+      admin.from("szs_deals").select("stage_order, canal, status").eq("status", "open").range(o, o + ps - 1)
     );
-    const snapshots: Record<string, { agDados: number; contrato: number; agendado: number }> = {};
-    for (const ch of CHANNEL_ORDER) snapshots[ch] = { agDados: 0, contrato: 0, agendado: 0 };
-    for (const d of snapshotDeals) {
+    const snapshots: Record<string, { agDados: number; contrato: number; agendado: number; totalOpen: number }> = {};
+    for (const ch of CHANNEL_ORDER) snapshots[ch] = { agDados: 0, contrato: 0, agendado: 0, totalOpen: 0 };
+    for (const d of allOpenDeals) {
       const canalGroup = getCanalGroup(String(d.canal || ""));
       const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
+      snapshots[macro].totalOpen++;
       if (d.stage_order === STAGE_AG_DADOS) snapshots[macro].agDados++;
       else if (d.stage_order === STAGE_CONTRATO) snapshots[macro].contrato++;
     }
 
-    // Calendar: count meetings scheduled in next 7 days per closer
+    // Pipedrive activities: count meeting activities scheduled for next 7 days
+    // Join with szs_deals to get owner_name and map to channel
     const today = now.toISOString().substring(0, 10);
     const next7 = new Date(now);
     next7.setDate(next7.getDate() + 6);
     const next7Str = next7.toISOString().substring(0, 10);
-    const calendarRows = await paginate((o, ps) =>
-      admin.from("szs_calendar_events").select("closer_email, cancelou").gte("dia", today).lte("dia", next7Str).eq("cancelou", false).range(o, o + ps - 1)
+    const MEETING_TYPES = ["reuniao", "meeting", "reuniao_apresentacao_contr", "reuniao_avaliacao", "no_show"];
+    const meetingActivities = await paginate((o, ps) =>
+      admin.from("nekt_pipedrive_activities").select("deal_id, type")
+        .eq("done", false)
+        .gte("due_date", today)
+        .lte("due_date", next7Str)
+        .in("type", MEETING_TYPES)
+        .range(o, o + ps - 1)
     );
-    for (const ev of calendarRows) {
-      const macro = CLOSER_EMAIL_CHANNEL[ev.closer_email];
-      if (macro) snapshots[macro].agendado++;
+    // Build set of deal_ids with meetings
+    const meetingDealIds = [...new Set(meetingActivities.map((a: { deal_id: number }) => a.deal_id))];
+    // Fetch owner_name for these deals from szs_deals
+    const CLOSER_NAME_CHANNEL: Record<string, string> = {};
+    for (const [ch, closers] of Object.entries(CHANNEL_CLOSERS)) {
+      for (const c of closers) CLOSER_NAME_CHANNEL[c] = ch;
+    }
+    if (meetingDealIds.length > 0) {
+      const ownerRows = await paginate((o, ps) =>
+        admin.from("szs_deals").select("deal_id, owner_name").in("deal_id", meetingDealIds).range(o, o + ps - 1)
+      );
+      const dealOwner = new Map<number, string>();
+      for (const r of ownerRows) dealOwner.set(r.deal_id, r.owner_name || "");
+      for (const act of meetingActivities) {
+        const owner = dealOwner.get(act.deal_id) || "";
+        const macro = CLOSER_NAME_CHANNEL[owner];
+        if (macro) snapshots[macro].agendado++;
+      }
     }
 
     // History: byStage uses all sources; openTotal uses only source=open + tab=mql
@@ -227,7 +251,7 @@ export async function GET() {
         filterDescription: CHANNEL_FILTERS[name],
         metrics,
         lastMonthWon: prevWon[name] || 0,
-        snapshots: { aguardandoDados: snap.agDados, emContrato: snap.contrato },
+        snapshots: { aguardandoDados: snap.agDados, emContrato: snap.contrato, totalOpen: snap.totalOpen },
         ocupacaoAgenda: {
           agendadas: snap.agendado,
           capacidade: capacity,
