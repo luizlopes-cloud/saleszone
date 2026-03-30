@@ -264,7 +264,7 @@ export function NoShowView({ data, loading, lastUpdated, days, onDaysChange }: P
           ))}
         </div>
         <span style={{ fontSize: "12px", color: "#6B6E84" }}>
-          Pipeline SZI · {summary.total} no-shows
+          Pipeline SZI · Marketing · {summary.total} no-shows
         </span>
       </div>
 
