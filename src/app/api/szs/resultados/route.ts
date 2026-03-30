@@ -203,6 +203,24 @@ export async function GET() {
       }
     }
 
+    // Accumulated: deals that reached Ag.Dados (>=11) and Contrato (>=12) this month
+    // Uses szs_deals.max_stage_order (historical max stage reached)
+    const accumDeals = await paginate((o, ps) =>
+      admin.from("szs_deals").select("canal, max_stage_order, stage_order, lost_reason")
+        .gte("add_time", startDate)
+        .range(o, o + ps - 1)
+    );
+    const accumData: Record<string, { agDados: number; contrato: number }> = {};
+    for (const ch of CHANNEL_ORDER) accumData[ch] = { agDados: 0, contrato: 0 };
+    for (const d of accumDeals) {
+      if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
+      const mso = d.max_stage_order || d.stage_order || 0;
+      const canalGroup = getCanalGroup(String(d.canal || ""));
+      const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
+      if (mso >= 11) { accumData[macro].agDados++; accumData["Geral"].agDados++; }
+      if (mso >= 12) { accumData[macro].contrato++; accumData["Geral"].contrato++; }
+    }
+
     // Google Calendar: count meetings scheduled in next 7 days per closer
     const today = now.toISOString().substring(0, 10);
     const next7 = new Date(now);
@@ -289,8 +307,8 @@ export async function GET() {
               aguardandoDados: snap.agDados,
               emContrato: snap.contrato,
               totalOpen: snap.totalOpen,
-              agDadosAccum: counts.reserva || 0,
-              contratoAccum: counts.contrato || 0,
+              agDadosAccum: accumData[name].agDados,
+              contratoAccum: accumData[name].contrato,
               agDadosMeta: meta.agDados,
               contratoMeta: meta.contrato,
             }
