@@ -54,9 +54,9 @@ const CHANNEL_ACCENT: Record<string, string> = {
 };
 
 function progressColor(pct: number): string {
-  if (pct >= 80) return "#22c55e";
-  if (pct >= 60) return "#3b82f6";
-  if (pct >= 40) return "#f97316";
+  if (pct >= 100) return "#22c55e";
+  if (pct >= 80) return "#3b82f6";
+  if (pct >= 60) return "#f97316";
   return "#ef4444";
 }
 
@@ -404,10 +404,10 @@ export function ResultadosSZSView({ data, loading, lastUpdated }: Props) {
       ))}
 
       <div style={{ textAlign: "center", fontSize: 11, color: T.cinza400, marginTop: 8 }}>
-        Barras: <span style={{ color: "#22c55e" }}>■</span> ≥80%
-        {" · "}<span style={{ color: "#3b82f6" }}>■</span> 60-79%
-        {" · "}<span style={{ color: "#f97316" }}>■</span> 40-59%
-        {" · "}<span style={{ color: "#ef4444" }}>■</span> &lt;40%
+        Barras: <span style={{ color: "#22c55e" }}>■</span> ≥100%
+        {" · "}<span style={{ color: "#3b82f6" }}>■</span> 80-99%
+        {" · "}<span style={{ color: "#f97316" }}>■</span> 60-79%
+        {" · "}<span style={{ color: "#ef4444" }}>■</span> &lt;60%
       </div>
     </div>
   );
