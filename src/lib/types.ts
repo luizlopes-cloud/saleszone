@@ -987,3 +987,30 @@ export interface RatioHistoryData {
   empDaily?: Record<string, Record<string, Record<string, number>>>; // emp → date → { mql, sql, opp, won }
   dates?: string[]; // 28 dates (most recent first)
 }
+
+// --- Geral (Resultados SZNI) ---
+export interface GeralMetricPair { real: number; meta: number }
+
+export interface GeralChannelResult {
+  name: string;
+  filterDescription: string;
+  metrics: {
+    orcamento?: GeralMetricPair;
+    leads?: GeralMetricPair;
+    mql: GeralMetricPair;
+    sql: GeralMetricPair;
+    opp: GeralMetricPair;
+    reserva?: GeralMetricPair;
+    contrato?: GeralMetricPair;
+    won: GeralMetricPair;
+  };
+  lastMonthWon: number;
+  snapshots?: { reserva: number; contrato: number };
+  reservaHistory?: { date: string; reserva: number; contrato: number }[];
+  dealsHistory: { date: string; total: number; byStage: Record<string, number> }[];
+}
+
+export interface GeralData {
+  month: string;
+  channels: GeralChannelResult[];
+}
