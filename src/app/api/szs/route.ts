@@ -9,7 +9,9 @@ import {
   getSquadIdFromCanalGroup,
   getCidadeGroup,
   SZS_METAS_WON_BY_SQUAD,
+  getSquadMetasFromNekt,
 } from "@/lib/szs-utils";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 
 const mc = getModuleConfig("szs");
 const TABS: TabKey[] = ["mql", "sql", "opp", "won"];
@@ -58,25 +60,13 @@ export async function GET(req: NextRequest) {
 
     // Build counts per squadId|canalGroup
     const squadCidadeCounts = new Map<string, number[]>();
-    // Also track total (unfiltered) counts per squad for meta proportioning
-    const squadTotalMes = new Map<number, number>();
-    const squadFilteredMes = new Map<number, number>();
 
     for (const row of allRows) {
       const idx = dateIndex.get(row.date);
       if (idx === undefined) continue;
+      if (cityFilter && getCidadeGroup(row.empreendimento) !== cityFilter) continue;
       const canalGroup = row.canal_group || "Outros";
       const squadId = getSquadIdFromCanalGroup(canalGroup);
-      const isInMonth = dates[idx] && dates[idx].date >= monthStart;
-
-      // Always count total for meta proportioning
-      if (isInMonth) squadTotalMes.set(squadId, (squadTotalMes.get(squadId) || 0) + row.count);
-
-      // Apply city filter for display
-      if (cityFilter && getCidadeGroup(row.empreendimento) !== cityFilter) continue;
-
-      if (isInMonth) squadFilteredMes.set(squadId, (squadFilteredMes.get(squadId) || 0) + row.count);
-
       const gKey = `${squadId}|${canalGroup}`;
       if (!squadCidadeCounts.has(gKey)) squadCidadeCounts.set(gKey, new Array(NUM_DAYS).fill(0));
       squadCidadeCounts.get(gKey)![idx] += row.count;
@@ -88,7 +78,21 @@ export async function GET(req: NextRequest) {
     const day = now.getDate();
     const totalDaysInMonth = new Date(year, month, 0).getDate();
     const curMonthKey = `${year}-${String(month).padStart(2, "0")}`;
-    const monthMetas = SZS_METAS_WON_BY_SQUAD[curMonthKey] || {};
+    const metaDateStr = `01/${String(month).padStart(2, "0")}/${year}`;
+
+    // Fetch city-specific metas from nekt_meta26_metas
+    let monthMetas: Record<number, number> = SZS_METAS_WON_BY_SQUAD[curMonthKey] || {};
+    try {
+      const admin = createSquadSupabaseAdmin();
+      const { data: nektRow } = await admin
+        .from("nekt_meta26_metas")
+        .select("*")
+        .eq("data", metaDateStr)
+        .single();
+      if (nektRow) {
+        monthMetas = getSquadMetasFromNekt(nektRow as Record<string, unknown>, cityFilter);
+      }
+    } catch { /* fallback to hardcoded */ }
 
     const squads: SquadData[] = mc.squads.map((sq) => {
       const cidadeKeys: string[] = [];
@@ -109,11 +113,7 @@ export async function GET(req: NextRequest) {
       sqRows.sort((a, b) => b.totalMes - a.totalMes);
 
       const metaWon = monthMetas[sq.id] || 0;
-      // Proportion meta by city filter: if filtering by city, scale meta by the % of deals in that city
-      const totalSq = squadTotalMes.get(sq.id) || 0;
-      const filteredSq = squadFilteredMes.get(sq.id) || 0;
-      const cityRatio = cityFilter && totalSq > 0 ? filteredSq / totalSq : 1;
-      const metaToDate = tab === "won" ? (day / totalDaysInMonth) * metaWon * cityRatio : 0;
+      const metaToDate = tab === "won" ? (day / totalDaysInMonth) * metaWon : 0;
 
       return {
         id: sq.id,
@@ -160,19 +160,16 @@ export async function GET(req: NextRequest) {
       for (const sq of squads) {
         const c = squadCounts90.get(sq.id) || { mql: 0, sql: 0, opp: 0, won: 0 };
         const metaWon = monthMetas[sq.id] || 0;
-        const totalSq = squadTotalMes.get(sq.id) || 0;
-        const filteredSq = squadFilteredMes.get(sq.id) || 0;
-        const cRatio = cityFilter && totalSq > 0 ? filteredSq / totalSq : 1;
         const ratios = {
           opp_won: c.won > 0 ? c.opp / c.won : 0,
           sql_opp: c.opp > 0 ? c.sql / c.opp : 0,
           mql_sql: c.sql > 0 ? c.mql / c.sql : 0,
         };
         const metaMap: Record<TabKey, number> = {
-          won: (day / totalDaysInMonth) * metaWon * cRatio,
-          opp: (day / totalDaysInMonth) * ratios.opp_won * metaWon * cRatio,
-          sql: (day / totalDaysInMonth) * ratios.sql_opp * ratios.opp_won * metaWon * cRatio,
-          mql: (day / totalDaysInMonth) * ratios.mql_sql * ratios.sql_opp * ratios.opp_won * metaWon * cRatio,
+          won: (day / totalDaysInMonth) * metaWon,
+          opp: (day / totalDaysInMonth) * ratios.opp_won * metaWon,
+          sql: (day / totalDaysInMonth) * ratios.sql_opp * ratios.opp_won * metaWon,
+          mql: (day / totalDaysInMonth) * ratios.mql_sql * ratios.sql_opp * ratios.opp_won * metaWon,
         };
         sq.metaToDate = metaMap[tab] || 0;
       }

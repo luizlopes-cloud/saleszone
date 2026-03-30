@@ -143,7 +143,14 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, 
                 const clr = SQUAD_COLORS[row.sqId] || T.azul600;
                 const isFirst = ri === 0 || rows[ri - 1].sqId !== row.sqId;
                 const isLast = ri === rows.length - 1 || rows[ri + 1]?.sqId !== row.sqId;
-                const sqPVIdx = moduleConfig.presellers.indexOf(row.correctPV);
+                // Map each preseller to their squad (via preVenda match, fallback to squad 1)
+                const n = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+                const sqPVIndices = new Set<number>();
+                moduleConfig.presellers.forEach((p, pi) => {
+                  const pvSquad = moduleConfig.squads.find((s) => n(s.preVenda) === n(p));
+                  const pvSquadId = pvSquad?.id ?? moduleConfig.squads[0]?.id ?? 1;
+                  if (pvSquadId === row.sqId) sqPVIndices.add(pi);
+                });
                 const sqVIndices = moduleConfig.squadCloserMap[row.sqId] || [];
 
                 return (
@@ -157,7 +164,7 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, 
                     <td style={{ ...tdStyle, color: T.cinza800 }}>{row.emp}</td>
                     {moduleConfig.presellers.map((p, pi) => {
                       const val = row.cells.pv[p] || 0;
-                      const isZone = pi === sqPVIdx;
+                      const isZone = sqPVIndices.has(pi);
                       const isMis = val > 0 && !isZone;
                       return (
                         <td
