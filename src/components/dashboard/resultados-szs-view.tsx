@@ -20,6 +20,7 @@ interface ChannelResult {
   lastMonthWon: number;
   snapshots: { aguardandoDados: number; emContrato: number; totalOpen: number; agDadosMeta?: number; contratoMeta?: number; isAccumulated?: boolean };
   ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers?: string[]; meetingsPerDay?: number; workDays?: number };
+  noShow: { canceladas: number; total: number; percent: number };
   dealsHistory: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[];
 }
 
@@ -249,7 +250,7 @@ function MultiLineChart({ data }: { data: { date: string; byStage: Record<string
 
 function ChannelCard({ channel, historyDays }: { channel: ChannelResult; historyDays: number }) {
   const [tooltipOpen, setTooltipOpen] = useState(false);
-  const { metrics, snapshots, ocupacaoAgenda, dealsHistory, lastMonthWon, name } = channel;
+  const { metrics, snapshots, ocupacaoAgenda, noShow, dealsHistory, lastMonthWon, name } = channel;
   const icon = CHANNEL_ICONS[name] || "📊";
   const accent = CHANNEL_ACCENT[name] || "transparent";
 
@@ -324,7 +325,7 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
         </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
         <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
           <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Aguardando Dados</div>
           <div style={{ fontSize: 28, fontWeight: 700, color: "#fbbf24" }}>
@@ -363,6 +364,13 @@ function ChannelCard({ channel, historyDays }: { channel: ChannelResult; history
             {ocupacaoAgenda.percent}<span style={{ fontSize: 14 }}>%</span>
           </div>
           <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>{ocupacaoAgenda.agendadas}/{ocupacaoAgenda.capacidade} slots (7d)</div>
+        </div>
+        <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
+          <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>No-Show</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: noShow.percent > 20 ? "#ef4444" : noShow.percent > 10 ? "#f97316" : "#22c55e" }}>
+            {noShow.percent}<span style={{ fontSize: 14 }}>%</span>
+          </div>
+          <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>{noShow.canceladas}/{noShow.total} reuniões (7d)</div>
         </div>
       </div>
     </div>
