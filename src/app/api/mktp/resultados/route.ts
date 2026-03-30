@@ -99,11 +99,13 @@ export async function GET() {
     cutoff90.setDate(cutoff90.getDate() - 90);
     const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
+    const DEAL_COLS = "canal, status, stage_id, max_stage_order, add_time, won_time, lost_time, qualificacao_date, reuniao_date, lost_reason";
+
     /* ── 1. Fetch all deals from mktp_deals for current + previous month + 90d history ── */
     const allDeals = await paginate((o, ps) =>
       admin
         .from("mktp_deals")
-        .select("canal, status, stage_id, add_time, won_time, qualificacao_date, reuniao_date")
+        .select(DEAL_COLS)
         .gte("add_time", cutoffDate)
         .range(o, o + ps - 1)
     );
@@ -112,7 +114,7 @@ export async function GET() {
     const wonDeals = await paginate((o, ps) =>
       admin
         .from("mktp_deals")
-        .select("canal, status, stage_id, add_time, won_time, qualificacao_date, reuniao_date")
+        .select(DEAL_COLS)
         .eq("status", "won")
         .gte("won_time", prevStart)
         .lt("add_time", cutoffDate)
@@ -157,6 +159,37 @@ export async function GET() {
       const group = getCanalGroup(String(deal.canal || ""));
       prevWon[group] = (prevWon[group] || 0) + 1;
       prevWon["Funil Completo"] = (prevWon["Funil Completo"] || 0) + 1;
+    }
+
+    /* ── 3b. Reserva/Contrato acumulado no mês (coorte de deals fechados) ── */
+    // Deals fechados no mês (won ou lost) que passaram por Reserva (max_stage_order >= 12)
+    // ou Contrato (max_stage_order >= 13). Exclui Duplicado/Erro em JS (neq exclui NULLs).
+    const RESERVA_MIN_ORDER = 12;
+    const CONTRATO_MIN_ORDER = 13;
+
+    const funnelReserva: Record<string, number> = {};
+    const funnelContrato: Record<string, number> = {};
+    for (const ch of CHANNEL_ORDER) { funnelReserva[ch] = 0; funnelContrato[ch] = 0; }
+
+    for (const deal of deals) {
+      if (deal.lost_reason === "Duplicado/Erro") continue;
+      // Deal must have closed in current month (won or lost)
+      const closeDate = deal.status === "won" ? deal.won_time?.substring(0, 10) : deal.lost_time?.substring(0, 10);
+      const isOpen = deal.status === "open";
+      // Include open deals too (they're currently in the funnel)
+      if (!isOpen && (!closeDate || closeDate < startDate)) continue;
+
+      const mso = deal.max_stage_order || 0;
+      const group = getCanalGroup(String(deal.canal || ""));
+
+      if (mso >= RESERVA_MIN_ORDER) {
+        funnelReserva[group]++;
+        funnelReserva["Funil Completo"]++;
+      }
+      if (mso >= CONTRATO_MIN_ORDER) {
+        funnelContrato[group]++;
+        funnelContrato["Funil Completo"]++;
+      }
     }
 
     /* ── 4. Meta Ads spend ─────────────────────────────────── */
@@ -237,10 +270,10 @@ export async function GET() {
         metrics.leads = { real: counts.mql || 0, meta: meta.leads };
       }
       if (meta.reserva != null) {
-        metrics.reserva = { real: snap.reserva, meta: meta.reserva };
+        metrics.reserva = { real: funnelReserva[name] || 0, meta: meta.reserva };
       }
       if (meta.contrato != null) {
-        metrics.contrato = { real: snap.contrato, meta: meta.contrato };
+        metrics.contrato = { real: funnelContrato[name] || 0, meta: meta.contrato };
       }
 
       const histEntries = histMap[name];
