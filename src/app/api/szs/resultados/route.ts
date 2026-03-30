@@ -44,11 +44,13 @@ interface ChannelMetas {
   sql: number;
   opp: number;
   won: number;
+  agDados?: number;
+  contrato?: number;
 }
 
 const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
   "2026-03": {
-    Geral: { orcamento: 76500, leads: 2500, mql: 3720, sql: 1394, opp: 684, won: 266 },
+    Geral: { mql: 3143, sql: 1291, opp: 696, won: 266, agDados: 314, contrato: 314 },
     "Vendas Diretas": { orcamento: 76500, leads: 2500, mql: 1639, sql: 674, opp: 328, won: 98 },
     Parceiros: { mql: 249, sql: 154, opp: 140, won: 73 },
     "Expansão": { mql: 1832, sql: 566, opp: 216, won: 95 },
@@ -89,7 +91,7 @@ interface ChannelResult {
     won: MetricPair;
   };
   lastMonthWon: number;
-  snapshots: { aguardandoDados: number; emContrato: number; totalOpen: number };
+  snapshots: { aguardandoDados: number; emContrato: number; totalOpen: number; agDadosMeta?: number; contratoMeta?: number; isAccumulated?: boolean };
   ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers: string[]; meetingsPerDay: number; workDays: number };
   dealsHistory: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[];
 }
@@ -258,7 +260,17 @@ export async function GET() {
         filterDescription: CHANNEL_FILTERS[name],
         metrics,
         lastMonthWon: prevWon[name] || 0,
-        snapshots: { aguardandoDados: snap.agDados, emContrato: snap.contrato, totalOpen: snap.totalOpen },
+        snapshots: name === "Geral"
+          ? {
+              // Geral: use accumulated counts from szs_daily_counts (not snapshot)
+              aguardandoDados: counts.reserva || 0,
+              emContrato: counts.contrato || 0,
+              totalOpen: snap.totalOpen,
+              agDadosMeta: meta.agDados,
+              contratoMeta: meta.contrato,
+              isAccumulated: true,
+            }
+          : { aguardandoDados: snap.agDados, emContrato: snap.contrato, totalOpen: snap.totalOpen },
         ocupacaoAgenda: {
           agendadas: snap.agendado,
           capacidade: capacity,
