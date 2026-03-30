@@ -62,6 +62,7 @@ import SquadAtividadesView from "@/components/dashboard/squad-atividades-view";
 import { MensalView } from "@/components/dashboard/mensal-view";
 import { NoShowView } from "@/components/dashboard/noshow-view";
 import { ResultadosSZSView } from "@/components/dashboard/resultados-szs-view";
+import { ResultadosMKTPView } from "@/components/dashboard/resultados-mktp-view";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -123,6 +124,8 @@ export default function Dashboard() {
   const [mensalData, setMensalData] = useState<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [resultadosSZSData, setResultadosSZSData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [resultadosMKTPData, setResultadosMKTPData] = useState<any>(null);
   const [ratioData, setRatioData] = useState<RatioHistoryData | null>(null);
   const [ratioDays, setRatioDays] = useState(90);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
@@ -431,6 +434,20 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchResultadosMKTP = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/mktp/resultados`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setResultadosMKTPData(data);
+    } catch (err) {
+      console.error("Fetch resultados MKTP error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const fetchRatios = useCallback(async (days: number = 90) => {
     try {
       const res = await fetch(`${moduleConfig.apiBase}/ratios?days=${days}`);
@@ -524,6 +541,8 @@ export default function Dashboard() {
       fetchMensal();
     } else if (mainView === "resultados-szs" && !resultadosSZSData) {
       fetchResultadosSZS();
+    } else if (mainView === "resultados-mktp" && !resultadosMKTPData) {
+      fetchResultadosMKTP();
     }
   }, [activeTab, mainView, hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -556,6 +575,7 @@ export default function Dashboard() {
     setMensalData(null);
     setRatioData(null);
     setResultadosSZSData(null);
+    setResultadosMKTPData(null);
   };
 
   const fetchCurrentView = async () => {
@@ -730,6 +750,13 @@ export default function Dashboard() {
         {mainView === "resultados-szs" && (
           <ResultadosSZSView
             data={resultadosSZSData}
+            loading={loading}
+            lastUpdated={lastUpdated}
+          />
+        )}
+        {mainView === "resultados-mktp" && (
+          <ResultadosMKTPView
+            data={resultadosMKTPData}
             loading={loading}
             lastUpdated={lastUpdated}
           />
