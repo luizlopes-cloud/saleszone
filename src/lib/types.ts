@@ -881,37 +881,31 @@ export interface LostsData {
   };
 }
 
-// Monitor de No-Show — Deals que passaram pelo stage No Show (Pipeline SZI)
-export interface NoShowDealRow {
-  deal_id: number;
-  title: string;
-  stage_name: string;
-  current_stage: string;
-  owner_name: string;
-  preseller_name: string | null;
+// Monitor de No-Show — Eventos cancelados no Google Calendar (Pipeline SZI)
+export interface NoShowEventRow {
+  closer_email: string;
+  closer_name: string;
+  dia: string;
+  hora: string | null;
+  titulo: string;
   empreendimento: string | null;
-  pipeline_name: string;
-  add_time: string | null;
-  days_in_funnel: number;
-  canal: string | null;
-  stage_order: number;
-  status: "open" | "won" | "lost";
-  lost_reason: string | null;
+}
+
+export interface NoShowCloserRow {
+  closer_name: string;
+  closer_email: string;
+  scheduled: number;
+  cancelled: number;
+  rate: number;
+  avg7d: number;
 }
 
 export interface NoShowSummary {
-  total: number;
-  open_count: number;
-  won_count: number;
-  lost_count: number;
-  by_preseller: Record<string, number>;
+  total_scheduled: number;
+  total_cancelled: number;
+  noshow_rate: number;
+  by_closer: Record<string, number>;
   by_empreendimento: Record<string, number>;
-  by_owner: Record<string, number>;
-  by_canal: Record<string, number>;
-  avg_days_in_funnel: number | null;
-  calendar_noshow_rate: number | null;
-  calendar_total_events: number;
-  calendar_cancelled_events: number;
 }
 
 export interface NoShowAlert {
@@ -927,7 +921,8 @@ export interface NoShowAlert {
 export interface NoShowData {
   days: number;
   summary: NoShowSummary;
-  deals: NoShowDealRow[];
+  closers: NoShowCloserRow[];
+  events: NoShowEventRow[];
   alerts: NoShowAlert[];
   trend: { dates: string[]; totals: number[] };
 }

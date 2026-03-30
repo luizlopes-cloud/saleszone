@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from "react";
 import { T } from "@/lib/constants";
-import type { NoShowData, NoShowDealRow, NoShowAlert } from "@/lib/types";
+import type { NoShowData, NoShowEventRow, NoShowCloserRow, NoShowAlert } from "@/lib/types";
 import { DataSourceFooter } from "./ui";
 
 interface Props {
@@ -41,18 +41,6 @@ const SEVERITY_COLORS: Record<string, { bg: string; fg: string; border: string }
   critical: { bg: "#fef2f2", fg: "#dc2626", border: "#fecaca" },
   warning: { bg: "#fffbeb", fg: "#d97706", border: "#fde68a" },
   info: { bg: "#eff6ff", fg: "#2563eb", border: "#bfdbfe" },
-};
-
-const STATUS_COLORS: Record<string, { bg: string; fg: string }> = {
-  open: { bg: "#fef3c7", fg: "#92400e" },
-  won: { bg: "#d1fae5", fg: "#065f46" },
-  lost: { bg: "#fee2e2", fg: "#991b1b" },
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  open: "Em No-Show",
-  won: "Recuperado",
-  lost: "Perdido",
 };
 
 const PERIOD_OPTIONS = [
@@ -149,71 +137,83 @@ function TrendMini({ dates, totals }: { dates: string[]; totals: number[] }) {
   );
 }
 
-function DealsTable({ deals, title }: { deals: NoShowDealRow[]; title?: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const shown = expanded ? deals : deals.slice(0, 15);
-
-  if (deals.length === 0) return null;
+function ClosersTable({ closers }: { closers: NoShowCloserRow[] }) {
+  if (closers.length === 0) return null;
 
   return (
     <div style={{ backgroundColor: "#FFF", border: "1px solid #E6E7EA", borderRadius: "12px", padding: "16px" }}>
-      {title && (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
-          <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg }}>{title} ({deals.length})</h3>
-          {deals.length > 15 && (
-            <button
-              onClick={() => setExpanded((v) => !v)}
-              style={{ fontSize: "11px", color: T.primary, background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}
-            >
-              {expanded ? "Mostrar menos" : `Ver todos (${deals.length})`}
-            </button>
-          )}
-        </div>
-      )}
+      <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg, marginBottom: "12px" }}>Taxa por Closer</h3>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr>
-              <th style={thStyle}>Deal</th>
-              <th style={thStyle}>Status</th>
-              <th style={thStyle}>Owner</th>
-              <th style={thStyle}>Pré-vendedor</th>
-              <th style={thStyle}>Empreendimento</th>
-              <th style={thStyle}>Etapa Atual</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Dias</th>
-              <th style={thStyle}>Canal</th>
+              <th style={thStyle}>Closer</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Agendados</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Cancelados</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Taxa</th>
+              <th style={{ ...thStyle, textAlign: "right" }}>Média 7d</th>
             </tr>
           </thead>
           <tbody>
-            {shown.map((d) => {
-              const sc = STATUS_COLORS[d.status] || STATUS_COLORS.open;
+            {closers.map((c) => {
+              const rateColor = c.rate >= 40 ? "#dc2626" : c.rate >= 30 ? "#d97706" : "#16a34a";
               return (
-                <tr key={d.deal_id}>
-                  <td style={tdStyle}>
-                    <a
-                      href={`https://seazone-fd92b9.pipedrive.com/deal/${d.deal_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: T.primary, textDecoration: "none", fontSize: "12px" }}
-                    >
-                      #{d.deal_id}
-                    </a>
-                    <span style={{ marginLeft: "6px", fontSize: "11px", color: "#6B6E84" }}>{d.title.slice(0, 30)}</span>
-                  </td>
-                  <td style={tdStyle}>
-                    <span style={{ fontSize: "10px", fontWeight: 600, color: sc.fg, backgroundColor: sc.bg, borderRadius: "4px", padding: "2px 6px" }}>
-                      {STATUS_LABELS[d.status] || d.status}
-                    </span>
-                  </td>
-                  <td style={tdStyle}>{d.owner_name}</td>
-                  <td style={tdStyle}>{d.preseller_name || "—"}</td>
-                  <td style={tdStyle}>{d.empreendimento || "—"}</td>
-                  <td style={tdStyle}>{d.current_stage}</td>
-                  <td style={{ ...tdStyle, textAlign: "right" }}>{d.days_in_funnel}d</td>
-                  <td style={tdStyle}>{d.canal || "—"}</td>
+                <tr key={c.closer_email}>
+                  <td style={tdStyle}>{c.closer_name}</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>{c.scheduled}</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>{c.cancelled}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", color: rateColor, fontWeight: 600 }}>{c.rate}%</td>
+                  <td style={{ ...tdStyle, textAlign: "right" }}>{c.avg7d}%</td>
                 </tr>
               );
             })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function EventsTable({ events }: { events: NoShowEventRow[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const shown = expanded ? events : events.slice(0, 20);
+
+  if (events.length === 0) return null;
+
+  return (
+    <div style={{ backgroundColor: "#FFF", border: "1px solid #E6E7EA", borderRadius: "12px", padding: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+        <h3 style={{ fontSize: "13px", fontWeight: 600, color: T.fg }}>Eventos Cancelados ({events.length})</h3>
+        {events.length > 20 && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            style={{ fontSize: "11px", color: T.primary, background: "none", border: "none", cursor: "pointer", fontWeight: 500 }}
+          >
+            {expanded ? "Mostrar menos" : `Ver todos (${events.length})`}
+          </button>
+        )}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>Data</th>
+              <th style={thStyle}>Hora</th>
+              <th style={thStyle}>Closer</th>
+              <th style={thStyle}>Empreendimento</th>
+              <th style={thStyle}>Título</th>
+            </tr>
+          </thead>
+          <tbody>
+            {shown.map((e, i) => (
+              <tr key={`${e.dia}-${e.hora}-${e.closer_email}-${i}`}>
+                <td style={tdStyle}>{e.dia.split("-").reverse().join("/")}</td>
+                <td style={tdStyle}>{e.hora?.slice(0, 5) || "—"}</td>
+                <td style={tdStyle}>{e.closer_name}</td>
+                <td style={tdStyle}>{e.empreendimento || "—"}</td>
+                <td style={{ ...tdStyle, maxWidth: "300px", overflow: "hidden", textOverflow: "ellipsis" }}>{e.titulo}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -232,11 +232,7 @@ export function NoShowView({ data, loading, lastUpdated, days, onDaysChange }: P
     );
   }
 
-  const { summary, deals, alerts, trend } = data;
-
-  const openDeals = deals.filter((d) => d.status === "open");
-  const wonDeals = deals.filter((d) => d.status === "won");
-  const lostDeals = deals.filter((d) => d.status === "lost");
+  const { summary, closers, events, alerts, trend } = data;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
@@ -264,40 +260,23 @@ export function NoShowView({ data, loading, lastUpdated, days, onDaysChange }: P
           ))}
         </div>
         <span style={{ fontSize: "12px", color: "#6B6E84" }}>
-          Pipeline SZI · Marketing · {summary.total} no-shows
+          Pipeline SZI · Calendar · {summary.total_cancelled} cancelamentos
         </span>
       </div>
 
       {/* Summary cards */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
-        <SummaryCard label="Total No-Shows" value={summary.total} />
+        <SummaryCard label="Agendados" value={summary.total_scheduled} />
         <SummaryCard
-          label="Em No-Show"
-          value={summary.open_count}
-          sub="Aguardando reagendamento"
-          color="#d97706"
-        />
-        <SummaryCard
-          label="Recuperados"
-          value={summary.won_count}
-          sub="No-show → Won"
-          color="#16a34a"
-        />
-        <SummaryCard
-          label="Perdidos"
-          value={summary.lost_count}
-          sub="No-show → Lost"
+          label="Cancelados"
+          value={summary.total_cancelled}
           color="#dc2626"
         />
         <SummaryCard
-          label="Média Funil"
-          value={summary.avg_days_in_funnel != null ? `${summary.avg_days_in_funnel}d` : "—"}
-        />
-        <SummaryCard
-          label="Taxa Cancelamento"
-          value={summary.calendar_noshow_rate != null ? `${summary.calendar_noshow_rate}%` : "—"}
-          sub={`${summary.calendar_cancelled_events}/${summary.calendar_total_events} eventos`}
-          color={summary.calendar_noshow_rate != null && summary.calendar_noshow_rate > 30 ? "#d97706" : undefined}
+          label="Taxa No-Show"
+          value={`${summary.noshow_rate}%`}
+          sub={`${summary.total_cancelled}/${summary.total_scheduled} eventos`}
+          color={summary.noshow_rate > 30 ? "#d97706" : undefined}
         />
       </div>
 
@@ -309,50 +288,23 @@ export function NoShowView({ data, loading, lastUpdated, days, onDaysChange }: P
         </div>
       </div>
 
-      {/* Distribution: Pré-vendedor + Empreendimento */}
+      {/* Distribution: Closer + Empreendimento */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: "12px" }}>
-        <DistributionBars data={summary.by_preseller} total={summary.total} title="No-Shows por Responsável" />
-        <DistributionBars data={summary.by_empreendimento} total={summary.total} title="No-Shows por Empreendimento" />
+        <DistributionBars data={summary.by_closer} total={summary.total_cancelled} title="Cancelamentos por Closer" />
+        <DistributionBars data={summary.by_empreendimento} total={summary.total_cancelled} title="Cancelamentos por Empreendimento" />
       </div>
 
-      {/* Active no-shows (open) */}
-      {openDeals.length > 0 && (
-        <>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 0 4px", borderBottom: "2px solid #d97706", marginBottom: "4px" }}>
-            <h2 style={{ fontSize: "15px", fontWeight: 700, color: "#d97706" }}>Aguardando Reagendamento</h2>
-            <span style={{ fontSize: "11px", fontWeight: 600, color: "#FFF", backgroundColor: "#d97706", borderRadius: "9999px", padding: "2px 10px" }}>
-              {openDeals.length} deals
-            </span>
-          </div>
-          <DealsTable deals={openDeals} title="Deals em No-Show" />
-        </>
-      )}
+      {/* Closers table */}
+      <ClosersTable closers={closers} />
 
-      {/* Lost after no-show */}
-      {lostDeals.length > 0 && (
-        <>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 0 4px", borderBottom: "2px solid #dc2626", marginBottom: "4px" }}>
-            <h2 style={{ fontSize: "15px", fontWeight: 700, color: "#dc2626" }}>Perdidos após No-Show</h2>
-            <span style={{ fontSize: "11px", fontWeight: 600, color: "#FFF", backgroundColor: "#dc2626", borderRadius: "9999px", padding: "2px 10px" }}>
-              {lostDeals.length} deals
-            </span>
-          </div>
-          <DealsTable deals={lostDeals} title="Deals Perdidos" />
-        </>
-      )}
-
-      {/* Won after no-show (recoveries) */}
-      {wonDeals.length > 0 && (
-        <>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 0 4px", borderBottom: "2px solid #16a34a", marginBottom: "4px" }}>
-            <h2 style={{ fontSize: "15px", fontWeight: 700, color: "#16a34a" }}>Recuperados após No-Show</h2>
-            <span style={{ fontSize: "11px", fontWeight: 600, color: "#FFF", backgroundColor: "#16a34a", borderRadius: "9999px", padding: "2px 10px" }}>
-              {wonDeals.length} deals
-            </span>
-          </div>
-          <DealsTable deals={wonDeals} title="Deals Recuperados" />
-        </>
-      )}
+      {/* Cancelled events */}
+      <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "12px 0 4px", borderBottom: "2px solid #dc2626", marginBottom: "4px" }}>
+        <h2 style={{ fontSize: "15px", fontWeight: 700, color: "#dc2626" }}>Eventos Cancelados</h2>
+        <span style={{ fontSize: "11px", fontWeight: 600, color: "#FFF", backgroundColor: "#dc2626", borderRadius: "9999px", padding: "2px 10px" }}>
+          {events.length} eventos
+        </span>
+      </div>
+      <EventsTable events={events} />
 
       <DataSourceFooter lastUpdated={lastUpdated} />
     </div>
