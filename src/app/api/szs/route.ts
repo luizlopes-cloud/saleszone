@@ -62,10 +62,10 @@ export async function GET(req: NextRequest) {
     for (const row of allRows) {
       const idx = dateIndex.get(row.date);
       if (idx === undefined) continue;
-      const cidade = getCidadeGroup(row.empreendimento);
-      if (cityFilter && cidade !== cityFilter) continue;
-      const squadId = getSquadIdFromCanalGroup(row.canal_group || "Outros");
-      const gKey = `${squadId}|${cidade}`;
+      if (cityFilter && getCidadeGroup(row.empreendimento) !== cityFilter) continue;
+      const canalGroup = row.canal_group || "Outros";
+      const squadId = getSquadIdFromCanalGroup(canalGroup);
+      const gKey = `${squadId}|${canalGroup}`;
       if (!squadCidadeCounts.has(gKey)) squadCidadeCounts.set(gKey, new Array(NUM_DAYS).fill(0));
       squadCidadeCounts.get(gKey)![idx] += row.count;
     }

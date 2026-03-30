@@ -129,53 +129,59 @@ export async function GET(req: NextRequest) {
       if (d.status === "won") cur.won++;
     }
 
-    // Build counts by squadId|cidade
-    const squadCidadeCounts = new Map<string, Record<string, number>>();
+    // Build counts by squadId|canalGroup (sub-rows are canals, not cities)
+    const squadCanalCounts = new Map<string, Record<string, number>>();
 
     for (const row of [...countsData, ...stageData]) {
-      const squadId = getSquadIdFromCanalGroup(row.canal_group || "Outros");
-      const cidade = getCidadeGroup(row.empreendimento);
-      const gKey = `${squadId}|${cidade}`;
-      if (!squadCidadeCounts.has(gKey)) squadCidadeCounts.set(gKey, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      squadCidadeCounts.get(gKey)![row.tab] = (squadCidadeCounts.get(gKey)![row.tab] || 0) + (row.count || 0);
+      const canalGroup = row.canal_group || "Outros";
+      const squadId = getSquadIdFromCanalGroup(canalGroup);
+      const gKey = `${squadId}|${canalGroup}`;
+      if (!squadCanalCounts.has(gKey)) squadCanalCounts.set(gKey, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
+      squadCanalCounts.get(gKey)![row.tab] = (squadCanalCounts.get(gKey)![row.tab] || 0) + (row.count || 0);
     }
 
     // Build squads from mc.squads (3 squads)
     const squads: FunilSquad[] = mc.squads.map((sq) => {
-      const cidadeEntries: Array<{ cidade: string; counts: Record<string, number> }> = [];
-      for (const [gKey, counts] of squadCidadeCounts.entries()) {
+      const canalEntries: Array<{ canal: string; counts: Record<string, number> }> = [];
+      for (const [gKey, counts] of squadCanalCounts.entries()) {
         if (!gKey.startsWith(`${sq.id}|`)) continue;
-        cidadeEntries.push({ cidade: gKey.split("|")[1], counts });
+        canalEntries.push({ canal: gKey.split("|")[1], counts });
       }
 
-      const totalGroupMql = cidadeEntries.reduce((s, c) => s + (c.counts.mql || 0), 0);
+      const totalGroupMql = canalEntries.reduce((s, c) => s + (c.counts.mql || 0), 0);
       const isMarketing = sq.id === 1; // Squad 1 = Marketing
 
-      const empRows: FunilEmpreendimento[] = cidadeEntries.map(({ cidade, counts }) => {
-        const meta = metaMap.get(cidade) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
-        const mqlShare = totalGroupMql > 0 ? (counts.mql || 0) / totalGroupMql : (cidadeEntries.length > 0 ? 1 / cidadeEntries.length : 0);
+      // Meta Ads: aggregate all cities into squad-level totals (only Marketing squad)
+      const squadMeta = isMarketing
+        ? Array.from(metaMap.values()).reduce((acc, m) => ({ impressions: acc.impressions + m.impressions, clicks: acc.clicks + m.clicks, leads: acc.leads + m.leads, spend: acc.spend + m.spend }), { impressions: 0, clicks: 0, leads: 0, spend: 0 })
+        : { impressions: 0, clicks: 0, leads: 0, spend: 0 };
 
-        const cidadeSpend = isMarketing ? meta.spend * mqlShare : 0;
-        const cidadeImpressions = isMarketing ? Math.round(meta.impressions * mqlShare) : 0;
-        const cidadeClicks = isMarketing ? Math.round(meta.clicks * mqlShare) : 0;
-        const cidadeMetaLeads = isMarketing ? Math.round(meta.leads * mqlShare) : 0;
+      const empRows: FunilEmpreendimento[] = canalEntries.map(({ canal, counts }) => {
+        // Distribute Meta Ads proportionally by MQL share within canal entries
+        const mqlShare = totalGroupMql > 0 ? (counts.mql || 0) / totalGroupMql : (canalEntries.length > 0 ? 1 / canalEntries.length : 0);
+
+        const canalSpend = isMarketing ? squadMeta.spend * mqlShare : 0;
+        const canalImpressions = isMarketing ? Math.round(squadMeta.impressions * mqlShare) : 0;
+        const canalClicks = isMarketing ? Math.round(squadMeta.clicks * mqlShare) : 0;
+        const canalMetaLeads = isMarketing ? Math.round(squadMeta.leads * mqlShare) : 0;
 
         let leads: number, mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
 
         if (paidOnly && isMarketing) {
-          const baserowLeads = baserowLeadsMap.get(cidade) || 0;
-          const paid = paidCountsMap.get(cidade) || { mql: 0, sql: 0, opp: 0, won: 0 };
-          leads = Math.max(baserowLeads > 0 ? baserowLeads : cidadeMetaLeads, paid.mql);
-          mql = paid.mql; sql = paid.sql; opp = paid.opp; won = paid.won;
+          // Sum all city-level baserow/paid data for this canal
+          const totalBaserow = Array.from(baserowLeadsMap.values()).reduce((a, b) => a + b, 0);
+          const totalPaid = Array.from(paidCountsMap.values()).reduce((a, p) => ({ mql: a.mql + p.mql, sql: a.sql + p.sql, opp: a.opp + p.opp, won: a.won + p.won }), { mql: 0, sql: 0, opp: 0, won: 0 });
+          leads = Math.max(totalBaserow > 0 ? Math.round(totalBaserow * mqlShare) : canalMetaLeads, Math.round(totalPaid.mql * mqlShare));
+          mql = Math.round(totalPaid.mql * mqlShare); sql = Math.round(totalPaid.sql * mqlShare);
+          opp = Math.round(totalPaid.opp * mqlShare); won = Math.round(totalPaid.won * mqlShare);
           reserva = 0; contrato = 0;
         } else {
-          const baserowLeads = isMarketing ? (baserowLeadsMap.get(cidade) || 0) : 0;
-          leads = Math.max(baserowLeads > 0 ? baserowLeads : 0, counts.mql || 0);
+          leads = Math.max(0, counts.mql || 0);
           mql = counts.mql || 0; sql = counts.sql || 0; opp = counts.opp || 0; won = counts.won || 0;
           reserva = counts.reserva || 0; contrato = counts.contrato || 0;
         }
 
-        return buildFunil(cidade, cidadeImpressions, cidadeClicks, leads, mql, sql, opp, won, reserva, contrato, cidadeSpend);
+        return buildFunil(canal, canalImpressions, canalClicks, leads, mql, sql, opp, won, reserva, contrato, canalSpend);
       });
 
       empRows.sort((a, b) => (b.mql + b.sql + b.opp + b.won) - (a.mql + a.sql + a.opp + a.won));
