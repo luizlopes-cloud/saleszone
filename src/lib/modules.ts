@@ -159,7 +159,7 @@ const DECOR_SQUADS: readonly SquadDef[] = [
     marketing: "",
     preVenda: "Rubia Lorena Santos",
     venda: "Eduardo Albani",
-    empreendimentos: [], // discovered dynamically from DB
+    empreendimentos: [],
   },
 ] as const;
 

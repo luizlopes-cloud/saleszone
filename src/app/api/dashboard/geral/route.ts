@@ -365,35 +365,23 @@ export async function GET() {
       channelHistory[ch] = arr;
     }
 
-    // Override last data point with Pipedrive real-time data
+    // Override ONLY Geral's last data point with Pipedrive count (accurate total)
+    // VD/Parceiros keep squad_deals values (Pipedrive doesn't return canal field)
     if (pdOpenDeals.length > 0) {
-      // Stage order from stage_id (SZI pipeline 28)
       const PD_STAGE_ORDER: Record<number, number> = {
         392:1, 184:2, 186:3, 338:4, 346:5, 339:6, 187:7, 340:8, 208:9, 312:10, 313:11, 311:12, 191:13, 192:14,
       };
-
-      for (const ch of HIST_CHANNELS) {
-        const arr = channelHistory[ch];
-        if (!arr || arr.length === 0) continue;
-
+      const geralArr = channelHistory["Geral"];
+      if (geralArr && geralArr.length > 0) {
         let total = 0;
         const byStage: Record<string, number> = {};
         for (const s of HIST_STAGES) byStage[s] = 0;
-
         for (const d of pdOpenDeals) {
-          const macro = getMacroChannel(d.canal);
-          if (ch !== "Geral" && macro !== ch) continue;
           total++;
           const so = PD_STAGE_ORDER[d.stage_id] || 0;
           for (const s of HIST_STAGES) if (so >= HIST_STAGE_MIN[s]) byStage[s]++;
         }
-
-        arr[arr.length - 1] = {
-          date: arr[arr.length - 1].date,
-          total,
-          openTotal: total,
-          byStage,
-        };
+        geralArr[geralArr.length - 1] = { date: geralArr[geralArr.length - 1].date, total, openTotal: total, byStage };
       }
     }
 
