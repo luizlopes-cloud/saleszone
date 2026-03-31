@@ -205,68 +205,34 @@ export async function GET() {
       .maybeSingle();
     const orcamentoMeta = orcData?.orcamento_total || 0;
 
-    // ── 6. Pipedrive real-time open deals ──
-    let pipedriveToken = "";
-    try {
-      const { data: t } = await admin.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" });
-      pipedriveToken = (t || "").trim();
-    } catch { /* fallback to squad_deals only */ }
+    // ── 6. Pipedrive daily snapshot (from pipedrive_daily_snapshot table, updated 1x/day) ──
+    const today = now.toISOString().substring(0, 10);
+    const { data: pdSnapshot } = await admin
+      .from("pipedrive_daily_snapshot")
+      .select("total_open, by_stage")
+      .eq("pipeline_id", 28)
+      .eq("date", today)
+      .maybeSingle();
+    const pdTotalOpen = pdSnapshot?.total_open || 0;
+    const pdByStage = (pdSnapshot?.by_stage || {}) as Record<string, number>;
 
-    const pdOpenDeals: Array<{ canal: string; stage_id: number; owner_name: string }> = [];
-    if (pipedriveToken) {
-      let pdStart = 0;
-      while (true) {
-        const r = await fetch(`https://seazone-fd92b9.pipedrive.com/api/v1/pipelines/28/deals?api_token=${pipedriveToken}&start=${pdStart}&limit=500`);
-        const j = await r.json();
-        for (const d of j.data || []) {
-          const canalField = d["3dda4dab93b3fb5b2a1ef80845a540dc20e8f1e0"] || d.canal || null;
-          pdOpenDeals.push({ canal: String(canalField || ""), stage_id: d.stage_id, owner_name: d.owner_name || "" });
-        }
-        if (!j.additional_data?.pagination?.more_items_in_collection) break;
-        pdStart += 500;
-      }
-    }
-    console.log(`[geral] Pipedrive open deals: ${pdOpenDeals.length}`);
-
-    // Snapshots: Reserva/Contrato from Pipedrive (real-time) or squad_deals (fallback)
+    // Snapshots: Geral from daily snapshot, VD/Parceiros from squad_deals
     const snaps: Record<string, { reserva: number; contrato: number }> = {};
     for (const ch of CHANNEL_ORDER) snaps[ch] = { reserva: 0, contrato: 0 };
+    snaps.Geral.reserva = pdByStage["191"] || 0;
+    snaps.Geral.contrato = pdByStage["192"] || 0;
 
-    if (pdOpenDeals.length > 0) {
-      // Use Pipedrive real-time data — canal not available from /pipelines/ endpoint,
-      // so count all into Geral only (VD/Parceiros breakdown from squad_deals fallback)
-      for (const d of pdOpenDeals) {
-        if (d.stage_id === 191) snaps.Geral.reserva++;
-        if (d.stage_id === 192) snaps.Geral.contrato++;
-      }
-      // VD/Parceiros breakdown from squad_deals (approximate but has canal)
-      const openStageDeals = await paginate((o, ps) =>
-        admin.from("squad_deals").select("canal, stage_id").eq("status", "open").in("stage_id", [191, 192]).range(o, o + ps - 1),
-      );
-      for (const d of openStageDeals) {
-        const macro = getMacroChannel(d.canal);
-        if (macro === "Vendas Diretas") {
-          if (d.stage_id === 191) snaps["Vendas Diretas"].reserva++;
-          if (d.stage_id === 192) snaps["Vendas Diretas"].contrato++;
-        } else if (macro === "Parceiros") {
-          if (d.stage_id === 191) snaps.Parceiros.reserva++;
-          if (d.stage_id === 192) snaps.Parceiros.contrato++;
-        }
-      }
-    } else {
-      // Fallback: squad_deals
-      const openDeals = await paginate((o, ps) =>
-        admin.from("squad_deals").select("canal, stage_id, status").eq("status", "open").in("stage_id", [191, 192]).range(o, o + ps - 1),
-      );
-      for (const d of openDeals) {
-        const macro = getMacroChannel(d.canal);
-        const target = (macro === "Vendas Diretas" || macro === "Parceiros") ? macro : "Geral";
-        if (d.stage_id === 191) snaps[target].reserva++;
-        if (d.stage_id === 192) snaps[target].contrato++;
-        if (target !== "Geral") {
-          if (d.stage_id === 191) snaps.Geral.reserva++;
-          if (d.stage_id === 192) snaps.Geral.contrato++;
-        }
+    const openStageDeals = await paginate((o, ps) =>
+      admin.from("squad_deals").select("canal, stage_id").eq("status", "open").in("stage_id", [191, 192]).range(o, o + ps - 1),
+    );
+    for (const d of openStageDeals) {
+      const macro = getMacroChannel(d.canal);
+      if (macro === "Vendas Diretas") {
+        if (d.stage_id === 191) snaps["Vendas Diretas"].reserva++;
+        if (d.stage_id === 192) snaps["Vendas Diretas"].contrato++;
+      } else if (macro === "Parceiros") {
+        if (d.stage_id === 191) snaps.Parceiros.reserva++;
+        if (d.stage_id === 192) snaps.Parceiros.contrato++;
       }
     }
 
@@ -365,23 +331,20 @@ export async function GET() {
       channelHistory[ch] = arr;
     }
 
-    // Override ONLY Geral's last data point with Pipedrive count (accurate total)
-    // VD/Parceiros keep squad_deals values (Pipedrive doesn't return canal field)
-    if (pdOpenDeals.length > 0) {
+    // Override Geral's last data point with daily snapshot (accurate total from Pipedrive)
+    if (pdTotalOpen > 0) {
       const PD_STAGE_ORDER: Record<number, number> = {
         392:1, 184:2, 186:3, 338:4, 346:5, 339:6, 187:7, 340:8, 208:9, 312:10, 313:11, 311:12, 191:13, 192:14,
       };
       const geralArr = channelHistory["Geral"];
       if (geralArr && geralArr.length > 0) {
-        let total = 0;
         const byStage: Record<string, number> = {};
         for (const s of HIST_STAGES) byStage[s] = 0;
-        for (const d of pdOpenDeals) {
-          total++;
-          const so = PD_STAGE_ORDER[d.stage_id] || 0;
-          for (const s of HIST_STAGES) if (so >= HIST_STAGE_MIN[s]) byStage[s]++;
+        for (const [stageId, count] of Object.entries(pdByStage)) {
+          const so = PD_STAGE_ORDER[Number(stageId)] || 0;
+          for (const s of HIST_STAGES) if (so >= HIST_STAGE_MIN[s]) byStage[s] += count;
         }
-        geralArr[geralArr.length - 1] = { date: geralArr[geralArr.length - 1].date, total, openTotal: total, byStage };
+        geralArr[geralArr.length - 1] = { date: geralArr[geralArr.length - 1].date, total: pdTotalOpen, openTotal: pdTotalOpen, byStage };
       }
     }
 

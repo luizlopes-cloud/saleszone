@@ -206,27 +206,26 @@ export async function GET() {
     let totalSpend = 0;
     for (const v of spendByAd.values()) totalSpend += v;
 
-    /* ── 5. Snapshots from open deals ──────────────────────── */
-    // Snapshots from Pipedrive real-time (pipeline 37)
-    let mktpPdToken = "";
-    try { const { data: t } = await admin.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" }); mktpPdToken = (t || "").trim(); } catch {}
+    /* ── 5. Snapshots from pipedrive_daily_snapshot (pipeline 37) ── */
+    const today = now.toISOString().substring(0, 10);
 
-    const snapshots: Record<string, { reserva: number; contrato: number }> = {};
-    for (const ch of CHANNEL_ORDER) snapshots[ch] = { reserva: 0, contrato: 0 };
+    const snapshots: Record<string, { reserva: number; contrato: number; totalOpen: number }> = {};
+    for (const ch of CHANNEL_ORDER) snapshots[ch] = { reserva: 0, contrato: 0, totalOpen: 0 };
 
-    if (mktpPdToken) {
-      let pdS = 0;
-      while (true) {
-        const r = await fetch(`https://seazone-fd92b9.pipedrive.com/api/v1/pipelines/37/deals?api_token=${mktpPdToken}&start=${pdS}&limit=500`);
-        const j = await r.json();
-        for (const d of j.data || []) {
-          if (d.stage_id === STAGE_RESERVA) snapshots["Funil Completo"].reserva++;
-          if (d.stage_id === STAGE_CONTRATO) snapshots["Funil Completo"].contrato++;
-        }
-        if (!j.additional_data?.pagination?.more_items_in_collection) break;
-        pdS += 500;
-      }
+    const { data: pdSnap } = await admin
+      .from("pipedrive_daily_snapshot")
+      .select("total_open, by_stage")
+      .eq("pipeline_id", 37)
+      .eq("date", today)
+      .maybeSingle();
+
+    if (pdSnap) {
+      const byStage = (pdSnap.by_stage || {}) as Record<string, number>;
+      snapshots["Funil Completo"].totalOpen = pdSnap.total_open || 0;
+      snapshots["Funil Completo"].reserva = byStage["305"] || 0;
+      snapshots["Funil Completo"].contrato = byStage["271"] || 0;
     } else {
+      // Fallback: mktp_deals table
       const snapshotDeals = await paginate((o, ps) =>
         admin.from("mktp_deals").select("stage_id, canal").eq("status", "open").in("stage_id", [STAGE_RESERVA, STAGE_CONTRATO]).range(o, o + ps - 1)
       );
@@ -238,7 +237,6 @@ export async function GET() {
     }
 
     /* ── 5b. Ocupação agenda (mktp_calendar_events, próximos 7 dias) ── */
-    const today = now.toISOString().substring(0, 10);
     const next7 = new Date(now);
     next7.setDate(next7.getDate() + 7);
     const next7Date = next7.toISOString().substring(0, 10);
@@ -358,6 +356,12 @@ export async function GET() {
         arr.push({ date: allHistDates[i], total: cum.total, byStage });
       }
       cumulativeHist[ch] = arr;
+    }
+
+    // Override Funil Completo's last chart data point with snapshot total_open
+    if (pdSnap && cumulativeHist["Funil Completo"].length > 0) {
+      const last = cumulativeHist["Funil Completo"][cumulativeHist["Funil Completo"].length - 1];
+      last.total = snapshots["Funil Completo"].totalOpen;
     }
 
     /* ── 7. Build response ─────────────────────────────────── */
