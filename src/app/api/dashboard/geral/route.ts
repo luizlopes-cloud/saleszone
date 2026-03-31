@@ -233,15 +233,24 @@ export async function GET() {
     for (const ch of CHANNEL_ORDER) snaps[ch] = { reserva: 0, contrato: 0 };
 
     if (pdOpenDeals.length > 0) {
-      // Use Pipedrive real-time data
+      // Use Pipedrive real-time data — canal not available from /pipelines/ endpoint,
+      // so count all into Geral only (VD/Parceiros breakdown from squad_deals fallback)
       for (const d of pdOpenDeals) {
+        if (d.stage_id === 191) snaps.Geral.reserva++;
+        if (d.stage_id === 192) snaps.Geral.contrato++;
+      }
+      // VD/Parceiros breakdown from squad_deals (approximate but has canal)
+      const openStageDeals = await paginate((o, ps) =>
+        admin.from("squad_deals").select("canal, stage_id").eq("status", "open").in("stage_id", [191, 192]).range(o, o + ps - 1),
+      );
+      for (const d of openStageDeals) {
         const macro = getMacroChannel(d.canal);
-        const target = (macro === "Vendas Diretas" || macro === "Parceiros") ? macro : "Geral";
-        if (d.stage_id === 191) snaps[target].reserva++;
-        if (d.stage_id === 192) snaps[target].contrato++;
-        if (target !== "Geral") {
-          if (d.stage_id === 191) snaps.Geral.reserva++;
-          if (d.stage_id === 192) snaps.Geral.contrato++;
+        if (macro === "Vendas Diretas") {
+          if (d.stage_id === 191) snaps["Vendas Diretas"].reserva++;
+          if (d.stage_id === 192) snaps["Vendas Diretas"].contrato++;
+        } else if (macro === "Parceiros") {
+          if (d.stage_id === 191) snaps.Parceiros.reserva++;
+          if (d.stage_id === 192) snaps.Parceiros.contrato++;
         }
       }
     } else {
@@ -356,37 +365,8 @@ export async function GET() {
       channelHistory[ch] = arr;
     }
 
-    // Override last data point with Pipedrive real-time data
-    if (pdOpenDeals.length > 0) {
-      // Stage order from stage_id (SZI pipeline 28)
-      const PD_STAGE_ORDER: Record<number, number> = {
-        392:1, 184:2, 186:3, 338:4, 346:5, 339:6, 187:7, 340:8, 208:9, 312:10, 313:11, 311:12, 191:13, 192:14,
-      };
-
-      for (const ch of HIST_CHANNELS) {
-        const arr = channelHistory[ch];
-        if (!arr || arr.length === 0) continue;
-
-        let total = 0;
-        const byStage: Record<string, number> = {};
-        for (const s of HIST_STAGES) byStage[s] = 0;
-
-        for (const d of pdOpenDeals) {
-          const macro = getMacroChannel(d.canal);
-          if (ch !== "Geral" && macro !== ch) continue;
-          total++;
-          const so = PD_STAGE_ORDER[d.stage_id] || 0;
-          for (const s of HIST_STAGES) if (so >= HIST_STAGE_MIN[s]) byStage[s]++;
-        }
-
-        arr[arr.length - 1] = {
-          date: arr[arr.length - 1].date,
-          total,
-          openTotal: total,
-          byStage,
-        };
-      }
-    }
+    // No Pipedrive override for chart history — all channels use consistent squad_deals data
+    // Pipedrive is only used for Reserva/Contrato snapshots (cards) above
 
     // ── Build channels ──
     const metas = METAS_BY_MONTH[monthKey] || {};
