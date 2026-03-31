@@ -207,26 +207,33 @@ export async function GET() {
     for (const v of spendByAd.values()) totalSpend += v;
 
     /* ── 5. Snapshots from open deals ──────────────────────── */
-    const snapshotDeals = await paginate((o, ps) =>
-      admin
-        .from("mktp_deals")
-        .select("stage_id, canal")
-        .eq("status", "open")
-        .in("stage_id", [STAGE_RESERVA, STAGE_CONTRATO])
-        .range(o, o + ps - 1)
-    );
+    // Snapshots from Pipedrive real-time (pipeline 37)
+    let mktpPdToken = "";
+    try { const { data: t } = await admin.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" }); mktpPdToken = (t || "").trim(); } catch {}
 
     const snapshots: Record<string, { reserva: number; contrato: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { reserva: 0, contrato: 0 };
 
-    for (const d of snapshotDeals) {
-      const group = getCanalGroup(String(d.canal || ""));
-      if (d.stage_id === STAGE_RESERVA) {
-        snapshots[group].reserva++;
-        snapshots["Funil Completo"].reserva++;
-      } else if (d.stage_id === STAGE_CONTRATO) {
-        snapshots[group].contrato++;
-        snapshots["Funil Completo"].contrato++;
+    if (mktpPdToken) {
+      let pdS = 0;
+      while (true) {
+        const r = await fetch(`https://seazone-fd92b9.pipedrive.com/api/v1/pipelines/37/deals?api_token=${mktpPdToken}&start=${pdS}&limit=500`);
+        const j = await r.json();
+        for (const d of j.data || []) {
+          if (d.stage_id === STAGE_RESERVA) snapshots["Funil Completo"].reserva++;
+          if (d.stage_id === STAGE_CONTRATO) snapshots["Funil Completo"].contrato++;
+        }
+        if (!j.additional_data?.pagination?.more_items_in_collection) break;
+        pdS += 500;
+      }
+    } else {
+      const snapshotDeals = await paginate((o, ps) =>
+        admin.from("mktp_deals").select("stage_id, canal").eq("status", "open").in("stage_id", [STAGE_RESERVA, STAGE_CONTRATO]).range(o, o + ps - 1)
+      );
+      for (const d of snapshotDeals) {
+        const group = getCanalGroup(String(d.canal || ""));
+        if (d.stage_id === STAGE_RESERVA) { snapshots[group].reserva++; snapshots["Funil Completo"].reserva++; }
+        if (d.stage_id === STAGE_CONTRATO) { snapshots[group].contrato++; snapshots["Funil Completo"].contrato++; }
       }
     }
 
