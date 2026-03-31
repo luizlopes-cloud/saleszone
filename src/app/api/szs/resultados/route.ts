@@ -175,27 +175,24 @@ export async function GET(request: NextRequest) {
     let totalSpend = 0;
     for (const v of adSpend.values()) totalSpend += v;
 
-    // Snapshots from Pipedrive real-time (stage 152=Ag.Dados, 76=Contrato)
+    // Snapshots from pipedrive_daily_snapshot (pipeline 14)
     const todayStr = now.toISOString().substring(0, 10);
-    let szsPdToken = "";
-    try { const { data: t } = await admin.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" }); szsPdToken = (t || "").trim(); } catch {}
 
     const snapshots: Record<string, { agDados: number; contrato: number; agendado: number; totalOpen: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { agDados: 0, contrato: 0, agendado: 0, totalOpen: 0 };
 
-    if (szsPdToken) {
-      let pdStart = 0;
-      while (true) {
-        const r = await fetch(`https://seazone-fd92b9.pipedrive.com/api/v1/pipelines/14/deals?api_token=${szsPdToken}&start=${pdStart}&limit=500`);
-        const j = await r.json();
-        for (const d of j.data || []) {
-          snapshots.Geral.totalOpen++;
-          if (d.stage_id === 152) snapshots.Geral.agDados++;
-          if (d.stage_id === 76) snapshots.Geral.contrato++;
-        }
-        if (!j.additional_data?.pagination?.more_items_in_collection) break;
-        pdStart += 500;
-      }
+    const { data: pdSnap } = await admin
+      .from("pipedrive_daily_snapshot")
+      .select("total_open, by_stage")
+      .eq("pipeline_id", 14)
+      .eq("date", todayStr)
+      .maybeSingle();
+
+    if (pdSnap) {
+      const byStage = (pdSnap.by_stage || {}) as Record<string, number>;
+      snapshots.Geral.totalOpen = pdSnap.total_open || 0;
+      snapshots.Geral.agDados = byStage["152"] || 0;
+      snapshots.Geral.contrato = byStage["76"] || 0;
     } else {
       // Fallback: szs_open_snapshots
       const todaySnap = await paginate((o, ps) =>
@@ -297,6 +294,13 @@ export async function GET(request: NextRequest) {
         arr.push({ date: allHistDates[i], total: cum["total"], openTotal: cum["total"], byStage });
       }
       snapHistMap[ch] = arr;
+    }
+
+    // Override Geral's last chart data point with snapshot total_open
+    if (pdSnap && snapHistMap.Geral.length > 0) {
+      const last = snapHistMap.Geral[snapHistMap.Geral.length - 1];
+      last.total = snapshots.Geral.totalOpen;
+      last.openTotal = snapshots.Geral.totalOpen;
     }
 
     // Accumulated: deals that reached Ag.Dados (>=11) and Contrato (>=12) this month
