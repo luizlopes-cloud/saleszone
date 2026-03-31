@@ -271,15 +271,14 @@ export async function GET() {
     let noShowCanceladas = noShowRows.filter((e: any) => e.cancelou).length;
     const noShowPct = noShowTotal > 0 ? Math.round((noShowCanceladas / noShowTotal) * 1000) / 10 : 0;
 
-    /* ── 6. History — cumulative open deals from mktp_deals ── */
-    // Fetch ALL open deals with max_stage_order to build both charts.
-    // Stage thresholds (same as sync-mktp-deals): MQL>=1, SQL>=5, OPP>=9, WON=won
-    const openDeals = await paginate((o, ps) =>
+    /* ── 6. History — cumulative open deals from mktp_deals (delta approach) ── */
+    // Fetch deals active within the 90d window: open, or won/lost within window
+    const histDeals = await paginate((o, ps) =>
       admin
         .from("mktp_deals")
-        .select("canal, add_time, max_stage_order")
-        .eq("status", "open")
+        .select("canal, add_time, max_stage_order, status, won_time, lost_time, lost_reason")
         .not("add_time", "is", null)
+        .or(`status.eq.open,won_time.gte.${cutoffDate},lost_time.gte.${cutoffDate}`)
         .range(o, o + ps - 1)
     );
 
@@ -287,34 +286,51 @@ export async function GET() {
     const STAGES = ["mql", "sql", "opp", "reserva", "contrato"] as const;
     const STAGE_MIN: Record<string, number> = { mql: 1, sql: 5, opp: 9, reserva: 12, contrato: 13 };
 
-    type DailyEntry = Record<string, number>; // total + stage keys
-    function emptyEntry(): DailyEntry { return { total: 0, mql: 0, sql: 0, opp: 0, reserva: 0, contrato: 0 }; }
+    // Build date array for 90d window
+    const allHistDates: string[] = [];
+    for (let i = 90; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      allHistDates.push(d.toISOString().substring(0, 10));
+    }
+    const dateIndexMap = new Map<string, number>();
+    for (let i = 0; i < allHistDates.length; i++) dateIndexMap.set(allHistDates[i], i);
+    const histN = allHistDates.length;
 
-    const dailyByGroup: Record<string, Map<string, DailyEntry>> = {};
-    const baselineByGroup: Record<string, DailyEntry> = {};
+    // delta[channel][key][dateIdx]
+    const histDelta: Record<string, Record<string, number[]>> = {};
     for (const ch of CHANNEL_ORDER) {
-      dailyByGroup[ch] = new Map();
-      baselineByGroup[ch] = emptyEntry();
+      histDelta[ch] = {};
+      histDelta[ch]["total"] = new Array(histN + 1).fill(0);
+      for (const s of STAGES) histDelta[ch][s] = new Array(histN + 1).fill(0);
     }
 
-    for (const d of openDeals) {
-      const day = d.add_time.substring(0, 10);
-      const group = getCanalGroup(String(d.canal || ""));
+    for (const d of histDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const addDay = d.add_time?.substring(0, 10) || "";
+      const closeDay = d.status === "won" ? d.won_time?.substring(0, 10) : d.status === "lost" ? d.lost_time?.substring(0, 10) : null;
       const mso = d.max_stage_order || 0;
-      const targets = [group, "Funil Completo"] as const;
+      const group = getCanalGroup(String(d.canal || ""));
 
-      if (day < cutoffDate) {
-        for (const ch of targets) {
-          baselineByGroup[ch].total++;
-          for (const s of STAGES) if (mso >= STAGE_MIN[s]) baselineByGroup[ch][s]++;
-        }
-      } else {
-        for (const ch of targets) {
-          const map = dailyByGroup[ch];
-          if (!map.has(day)) map.set(day, emptyEntry());
-          const e = map.get(day)!;
-          e.total++;
-          for (const s of STAGES) if (mso >= STAGE_MIN[s]) e[s]++;
+      let addIdx = dateIndexMap.get(addDay) ?? (addDay < allHistDates[0] ? 0 : -1);
+      if (addIdx < 0) continue;
+
+      let closeIdx: number | null = null;
+      if (closeDay) {
+        const ci = dateIndexMap.get(closeDay);
+        if (ci !== undefined) closeIdx = ci;
+        else if (closeDay < allHistDates[0]) continue;
+      }
+
+      const targets = [group, "Funil Completo"] as const;
+      for (const ch of targets) {
+        histDelta[ch]["total"][addIdx]++;
+        if (closeIdx !== null) histDelta[ch]["total"][closeIdx]--;
+        for (const s of STAGES) {
+          if (mso >= STAGE_MIN[s]) {
+            histDelta[ch][s][addIdx]++;
+            if (closeIdx !== null) histDelta[ch][s][closeIdx]--;
+          }
         }
       }
     }
@@ -322,15 +338,17 @@ export async function GET() {
     // Build cumulative history per channel
     const cumulativeHist: Record<string, { date: string; total: number; byStage: Record<string, number> }[]> = {};
     for (const ch of CHANNEL_ORDER) {
-      const dailyMap = dailyByGroup[ch];
-      const dates = Array.from(dailyMap.keys()).sort();
-      const cum = { ...baselineByGroup[ch] };
       const arr: { date: string; total: number; byStage: Record<string, number> }[] = [];
-      for (const date of dates) {
-        const e = dailyMap.get(date)!;
-        cum.total += e.total;
-        for (const s of STAGES) cum[s] += e[s];
-        arr.push({ date, total: cum.total, byStage: { mql: cum.mql, sql: cum.sql, opp: cum.opp, reserva: cum.reserva, contrato: cum.contrato } });
+      const cum: Record<string, number> = { total: 0 };
+      for (const s of STAGES) cum[s] = 0;
+      for (let i = 0; i < histN; i++) {
+        cum.total += histDelta[ch]["total"][i];
+        const byStage: Record<string, number> = {};
+        for (const s of STAGES) {
+          cum[s] += histDelta[ch][s][i];
+          byStage[s] = cum[s];
+        }
+        arr.push({ date: allHistDates[i], total: cum.total, byStage });
       }
       cumulativeHist[ch] = arr;
     }

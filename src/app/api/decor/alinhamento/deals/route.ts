@@ -84,18 +84,22 @@ export async function GET() {
         link: `https://${PIPEDRIVE_DOMAIN}/deal/${deal.deal_id}`,
       };
 
-      // Check PV misalignment
-      if (matchedPV && !matchOwner(info.correctPV, deal.owner_name)) {
-        if (!byPerson.has(matchedPV)) byPerson.set(matchedPV, { role: "pv", deals: [] });
-        byPerson.get(matchedPV)!.deals.push(dealInfo);
+      // Check PV misalignment (only when multiple squads — single squad has no cross-assignment)
+      if (mc.squads.length > 1) {
+        if (matchedPV && !matchOwner(info.correctPV, deal.owner_name)) {
+          if (!byPerson.has(matchedPV)) byPerson.set(matchedPV, { role: "pv", deals: [] });
+          byPerson.get(matchedPV)!.deals.push(dealInfo);
+        }
       }
 
-      // Check V misalignment
-      if (matchedV) {
-        const vIdx = V_COLS.indexOf(matchedV);
-        if (!info.correctVIndices.includes(vIdx)) {
-          if (!byPerson.has(matchedV)) byPerson.set(matchedV, { role: "v", deals: [] });
-          byPerson.get(matchedV)!.deals.push(dealInfo);
+      // Check V misalignment (only when multiple squads)
+      if (mc.squads.length > 1) {
+        if (matchedV) {
+          const vIdx = V_COLS.indexOf(matchedV);
+          if (!info.correctVIndices.includes(vIdx)) {
+            if (!byPerson.has(matchedV)) byPerson.set(matchedV, { role: "v", deals: [] });
+            byPerson.get(matchedV)!.deals.push(dealInfo);
+          }
         }
       }
     }

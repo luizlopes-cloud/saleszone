@@ -228,43 +228,96 @@ export async function GET() {
       }
     }
 
-    // ── 7. History (last 90 days) from squad_daily_counts ──
-    // Use source="open" for snapshot of currently open deals per day
-    // Use all sources for incremental stage counts (mql/sql/opp/won added that day)
-    const historyRows = await paginate((o, ps) =>
-      supabase
-        .from("squad_daily_counts")
-        .select("date, tab, count, source")
-        .in("tab", ["mql", "sql", "opp", "won", "reserva", "contrato"])
-        .gte("date", cutoffDate)
+    // ── 7. History (last 30 days) from squad_deals using delta/prefix-sum ──
+    const cutoff30 = new Date(now);
+    cutoff30.setDate(cutoff30.getDate() - 30);
+    const cutoff30Str = cutoff30.toISOString().substring(0, 10);
+
+    const histDeals = await paginate((o, ps) =>
+      admin
+        .from("squad_deals")
+        .select("canal, max_stage_order, stage_order, status, lost_reason, add_time, won_time, lost_time")
+        .not("empreendimento", "is", null)
+        .or(`status.eq.open,won_time.gte.${cutoff30Str},lost_time.gte.${cutoff30Str}`)
         .range(o, o + ps - 1),
     );
-    // Open deals snapshot per day (source=open only)
-    const openByDate = new Map<string, Record<string, number>>();
-    // All sources aggregated for stage history
-    const allByDate = new Map<string, Record<string, number>>();
-    for (const r of historyRows) {
-      // All sources
-      if (!allByDate.has(r.date)) allByDate.set(r.date, {});
-      allByDate.get(r.date)![r.tab] = (allByDate.get(r.date)![r.tab] || 0) + (r.count || 0);
-      // Open only
-      if (r.source === "open") {
-        if (!openByDate.has(r.date)) openByDate.set(r.date, {});
-        openByDate.get(r.date)![r.tab] = (openByDate.get(r.date)![r.tab] || 0) + (r.count || 0);
+
+    // Build date array for last 30 days
+    const allHistDates: string[] = [];
+    for (let i = 30; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      allHistDates.push(d.toISOString().substring(0, 10));
+    }
+    const dateIndex = new Map<string, number>();
+    for (let i = 0; i < allHistDates.length; i++) dateIndex.set(allHistDates[i], i);
+    const N = allHistDates.length;
+
+    // Delta arrays per channel and stage
+    const HIST_STAGES = ["mql", "sql", "opp"] as const;
+    const HIST_STAGE_MIN: Record<string, number> = { mql: TH_MQL, sql: TH_SQL, opp: TH_OPP };
+    const HIST_CHANNELS = ["Geral", "Vendas Diretas", "Parceiros"] as const;
+
+    // delta[channel][stage][dateIdx] — +1 at add, -1 at close
+    const delta: Record<string, Record<string, number[]>> = {};
+    for (const ch of HIST_CHANNELS) {
+      delta[ch] = {};
+      for (const s of HIST_STAGES) delta[ch][s] = new Array(N + 1).fill(0);
+      delta[ch]["total"] = new Array(N + 1).fill(0);
+    }
+
+    for (const d of histDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const macro = getMacroChannel(d.canal);
+      const mso = d.max_stage_order ?? d.stage_order ?? 0;
+      const addDay = d.add_time?.substring(0, 10) || "";
+      const closeDay = d.status === "won" ? d.won_time?.substring(0, 10) : d.status === "lost" ? d.lost_time?.substring(0, 10) : null;
+
+      // Determine addIdx: clamp to 0 if before window
+      let addIdx = dateIndex.get(addDay) ?? (addDay < allHistDates[0] ? 0 : -1);
+      if (addIdx < 0) continue; // add_time after last date — skip
+
+      // Determine closeIdx: null if still open or close after last date
+      let closeIdx: number | null = null;
+      if (closeDay) {
+        const ci = dateIndex.get(closeDay);
+        if (ci !== undefined) closeIdx = ci;
+        else if (closeDay < allHistDates[0]) continue; // closed before window — skip entirely
+        // else: closed after window — treat as still open within window
+      }
+
+      const targets = (macro === "Vendas Diretas" || macro === "Parceiros") ? [macro, "Geral"] : ["Geral"];
+
+      for (const ch of targets) {
+        delta[ch]["total"][addIdx]++;
+        if (closeIdx !== null) delta[ch]["total"][closeIdx]--;
+
+        for (const s of HIST_STAGES) {
+          if (mso >= HIST_STAGE_MIN[s]) {
+            delta[ch][s][addIdx]++;
+            if (closeIdx !== null) delta[ch][s][closeIdx]--;
+          }
+        }
       }
     }
-    const dealsHistory = Array.from(allByDate.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, tabs]) => {
-        const openTabs = openByDate.get(date) || {};
-        const openTotal = Object.values(openTabs).reduce((s, v) => s + v, 0);
-        return {
-          date,
-          total: openTotal, // "Deals Abertos" = open deals only
-          openTotal,
-          byStage: tabs,    // "Deals por Etapa" = all sources (incremental)
-        };
-      });
+
+    // Build cumulative per channel
+    const channelHistory: Record<string, { date: string; total: number; openTotal: number; byStage: Record<string, number> }[]> = {};
+    for (const ch of HIST_CHANNELS) {
+      const arr: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[] = [];
+      const cum: Record<string, number> = { total: 0 };
+      for (const s of HIST_STAGES) cum[s] = 0;
+      for (let i = 0; i < N; i++) {
+        cum["total"] += delta[ch]["total"][i];
+        const byStage: Record<string, number> = {};
+        for (const s of HIST_STAGES) {
+          cum[s] += delta[ch][s][i];
+          byStage[s] = cum[s];
+        }
+        arr.push({ date: allHistDates[i], total: cum["total"], openTotal: cum["total"], byStage });
+      }
+      channelHistory[ch] = arr;
+    }
 
     // ── Build channels ──
     const metas = METAS_BY_MONTH[monthKey] || {};
@@ -301,23 +354,15 @@ export async function GET() {
               : "Todos os canais sem filtro. Reservas e contratos mostram acumulado no mês.",
         metrics,
         lastMonthWon: prevWon[name] || 0,
-        dealsHistory,
+        dealsHistory: channelHistory[name] || [],
       };
 
-      // Vendas Diretas/Parceiros: snapshots
-      if (name !== "Geral") {
-        result.snapshots = snap;
-      }
+      // All channels get snapshots
+      result.snapshots = snap;
 
-      // Geral: reservaHistory (acumulado semanal)
+      // Geral: reservaHistory (latest accumulated values)
       if (name === "Geral") {
-        const monthHistory = dealsHistory.filter((h) => h.date >= startDate);
-        let accRes = 0, accCont = 0;
-        result.reservaHistory = monthHistory.map((h) => {
-          accRes += h.byStage.reserva || 0;
-          accCont += h.byStage.contrato || 0;
-          return { date: h.date, reserva: accRes, contrato: accCont };
-        });
+        result.reservaHistory = [{ date: monthKey, reserva: geralReserva, contrato: geralContrato }];
       }
 
       return result;
