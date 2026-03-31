@@ -1001,6 +1001,8 @@ export interface GeralChannelResult {
   };
   lastMonthWon: number;
   snapshots?: { reserva: number; contrato: number };
+  ocupacaoAgenda?: { agendadas: number; capacidade: number; percent: number };
+  noShow?: { canceladas: number; total: number; percent: number };
   reservaHistory?: { date: string; reserva: number; contrato: number }[];
   dealsHistory: { date: string; total: number; byStage: Record<string, number> }[];
 }
