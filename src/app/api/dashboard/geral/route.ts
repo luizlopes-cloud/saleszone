@@ -205,30 +205,64 @@ export async function GET() {
       .maybeSingle();
     const orcamentoMeta = orcData?.orcamento_total || 0;
 
-    // ── 6. Snapshots: open deals in Reserva/Contrato stages ──
-    const openDeals = await paginate((o, ps) =>
-      admin
-        .from("squad_deals")
-        .select("canal, stage_id, status")
-        .eq("status", "open")
-        .in("stage_id", [191, 192])
-        .range(o, o + ps - 1),
-    );
+    // ── 6. Pipedrive real-time open deals ──
+    let pipedriveToken = "";
+    try {
+      const { data: t } = await admin.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" });
+      pipedriveToken = (t || "").trim();
+    } catch { /* fallback to squad_deals only */ }
+
+    const pdOpenDeals: Array<{ canal: string; stage_id: number; owner_name: string }> = [];
+    if (pipedriveToken) {
+      let pdStart = 0;
+      while (true) {
+        const r = await fetch(`https://seazone-fd92b9.pipedrive.com/api/v1/pipelines/28/deals?api_token=${pipedriveToken}&start=${pdStart}&limit=500`);
+        const j = await r.json();
+        for (const d of j.data || []) {
+          const canalField = d["3dda4dab93b3fb5b2a1ef80845a540dc20e8f1e0"] || d.canal || null;
+          pdOpenDeals.push({ canal: String(canalField || ""), stage_id: d.stage_id, owner_name: d.owner_name || "" });
+        }
+        if (!j.additional_data?.pagination?.more_items_in_collection) break;
+        pdStart += 500;
+      }
+    }
+    console.log(`[geral] Pipedrive open deals: ${pdOpenDeals.length}`);
+
+    // Snapshots: Reserva/Contrato from Pipedrive (real-time) or squad_deals (fallback)
     const snaps: Record<string, { reserva: number; contrato: number }> = {};
     for (const ch of CHANNEL_ORDER) snaps[ch] = { reserva: 0, contrato: 0 };
-    for (const d of openDeals) {
-      const macro = getMacroChannel(d.canal);
-      const target = (macro === "Vendas Diretas" || macro === "Parceiros") ? macro : "Geral";
-      if (d.stage_id === 191) snaps[target].reserva++;
-      if (d.stage_id === 192) snaps[target].contrato++;
-      // Always add to Geral too
-      if (target !== "Geral") {
-        if (d.stage_id === 191) snaps.Geral.reserva++;
-        if (d.stage_id === 192) snaps.Geral.contrato++;
+
+    if (pdOpenDeals.length > 0) {
+      // Use Pipedrive real-time data
+      for (const d of pdOpenDeals) {
+        const macro = getMacroChannel(d.canal);
+        const target = (macro === "Vendas Diretas" || macro === "Parceiros") ? macro : "Geral";
+        if (d.stage_id === 191) snaps[target].reserva++;
+        if (d.stage_id === 192) snaps[target].contrato++;
+        if (target !== "Geral") {
+          if (d.stage_id === 191) snaps.Geral.reserva++;
+          if (d.stage_id === 192) snaps.Geral.contrato++;
+        }
+      }
+    } else {
+      // Fallback: squad_deals
+      const openDeals = await paginate((o, ps) =>
+        admin.from("squad_deals").select("canal, stage_id, status").eq("status", "open").in("stage_id", [191, 192]).range(o, o + ps - 1),
+      );
+      for (const d of openDeals) {
+        const macro = getMacroChannel(d.canal);
+        const target = (macro === "Vendas Diretas" || macro === "Parceiros") ? macro : "Geral";
+        if (d.stage_id === 191) snaps[target].reserva++;
+        if (d.stage_id === 192) snaps[target].contrato++;
+        if (target !== "Geral") {
+          if (d.stage_id === 191) snaps.Geral.reserva++;
+          if (d.stage_id === 192) snaps.Geral.contrato++;
+        }
       }
     }
 
-    // ── 7. History (last 30 days) from squad_deals using delta/prefix-sum ──
+    // ── 7. History — fetch open deals directly from Pipedrive for accurate "today" count ──
+    // Then use squad_deals for historical snapshot (last 30 days)
     const cutoff30 = new Date(now);
     cutoff30.setDate(cutoff30.getDate() - 30);
     const cutoff30Str = cutoff30.toISOString().substring(0, 10);
@@ -236,7 +270,7 @@ export async function GET() {
     const histDeals = await paginate((o, ps) =>
       admin
         .from("squad_deals")
-        .select("canal, max_stage_order, stage_order, status, lost_reason, add_time, won_time, lost_time")
+        .select("canal, max_stage_order, stage_order, status, lost_reason, add_time, won_time, lost_time, update_time")
         .not("empreendimento", "is", null)
         .or(`status.eq.open,won_time.gte.${cutoff30Str},lost_time.gte.${cutoff30Str}`)
         .range(o, o + ps - 1),
@@ -271,7 +305,10 @@ export async function GET() {
       const macro = getMacroChannel(d.canal);
       const mso = d.max_stage_order ?? d.stage_order ?? 0;
       const addDay = d.add_time?.substring(0, 10) || "";
-      const closeDay = d.status === "won" ? d.won_time?.substring(0, 10) : d.status === "lost" ? d.lost_time?.substring(0, 10) : null;
+      // Close day: won_time for won, lost_time (or update_time fallback) for lost
+      const closeDay = d.status === "won" ? d.won_time?.substring(0, 10)
+        : d.status === "lost" ? (d.lost_time || d.update_time || d.add_time)?.substring(0, 10)
+        : null;
 
       // Determine addIdx: clamp to 0 if before window
       let addIdx = dateIndex.get(addDay) ?? (addDay < allHistDates[0] ? 0 : -1);
@@ -317,6 +354,38 @@ export async function GET() {
         arr.push({ date: allHistDates[i], total: cum["total"], openTotal: cum["total"], byStage });
       }
       channelHistory[ch] = arr;
+    }
+
+    // Override last data point with Pipedrive real-time data
+    if (pdOpenDeals.length > 0) {
+      // Stage order from stage_id (SZI pipeline 28)
+      const PD_STAGE_ORDER: Record<number, number> = {
+        392:1, 184:2, 186:3, 338:4, 346:5, 339:6, 187:7, 340:8, 208:9, 312:10, 313:11, 311:12, 191:13, 192:14,
+      };
+
+      for (const ch of HIST_CHANNELS) {
+        const arr = channelHistory[ch];
+        if (!arr || arr.length === 0) continue;
+
+        let total = 0;
+        const byStage: Record<string, number> = {};
+        for (const s of HIST_STAGES) byStage[s] = 0;
+
+        for (const d of pdOpenDeals) {
+          const macro = getMacroChannel(d.canal);
+          if (ch !== "Geral" && macro !== ch) continue;
+          total++;
+          const so = PD_STAGE_ORDER[d.stage_id] || 0;
+          for (const s of HIST_STAGES) if (so >= HIST_STAGE_MIN[s]) byStage[s]++;
+        }
+
+        arr[arr.length - 1] = {
+          date: arr[arr.length - 1].date,
+          total,
+          openTotal: total,
+          byStage,
+        };
+      }
     }
 
     // ── Build channels ──
