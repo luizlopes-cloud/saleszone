@@ -348,6 +348,31 @@ export async function GET() {
       }
     }
 
+    // ── 8. Ocupação Agenda + No-Show (calendar events, next 7 days / last 7 days) ──
+    const CLOSER_EMAILS = ["filipe.padoveze@seazone.com.br", "luana.schaikoski@seazone.com.br", "priscila.pestana@seazone.com.br"];
+    const MEETINGS_PER_DAY = 8;
+    const WORK_DAYS = 5;
+    const next7 = new Date(now); next7.setDate(next7.getDate() + 6);
+    const next7Str = next7.toISOString().substring(0, 10);
+    const past7 = new Date(now); past7.setDate(past7.getDate() - 6);
+    const past7Str = past7.toISOString().substring(0, 10);
+
+    const [agendaRows, noShowRows] = await Promise.all([
+      paginate((o, ps) =>
+        admin.from("squad_calendar_events").select("closer_email").gte("dia", today).lte("dia", next7Str).eq("cancelou", false).range(o, o + ps - 1),
+      ),
+      paginate((o, ps) =>
+        admin.from("squad_calendar_events").select("cancelou").gte("dia", past7Str).lte("dia", today).range(o, o + ps - 1),
+      ),
+    ]);
+
+    const agendadas = agendaRows.filter((e: any) => CLOSER_EMAILS.includes(e.closer_email)).length;
+    const capacidade = CLOSER_EMAILS.length * MEETINGS_PER_DAY * WORK_DAYS;
+    const agendaPct = capacidade > 0 ? Math.round((agendadas / capacidade) * 1000) / 10 : 0;
+    const noShowTotal = noShowRows.length;
+    const noShowCanceladas = noShowRows.filter((e: any) => e.cancelou).length;
+    const noShowPct = noShowTotal > 0 ? Math.round((noShowCanceladas / noShowTotal) * 1000) / 10 : 0;
+
     // ── Build channels ──
     const metas = METAS_BY_MONTH[monthKey] || {};
 
@@ -386,8 +411,12 @@ export async function GET() {
         dealsHistory: channelHistory[name] || [],
       };
 
-      // All channels get snapshots
+      // All channels get snapshots; only Geral gets agenda + noshow
       result.snapshots = snap;
+      if (name === "Geral") {
+        result.ocupacaoAgenda = { agendadas, capacidade, percent: agendaPct };
+        result.noShow = { canceladas: noShowCanceladas, total: noShowTotal, percent: noShowPct };
+      }
 
       // Geral: reservaHistory (latest accumulated values)
       if (name === "Geral") {

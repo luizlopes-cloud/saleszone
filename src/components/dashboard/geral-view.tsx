@@ -187,7 +187,7 @@ function MultiLineChart({ data }: { data: { date: string; byStage: Record<string
 
 function ChannelCard({ channel, historyDays }: { channel: GeralChannelResult; historyDays: number }) {
   const [tooltipOpen, setTooltipOpen] = useState(false);
-  const { metrics, snapshots, reservaHistory, dealsHistory, lastMonthWon, name } = channel;
+  const { metrics, snapshots, ocupacaoAgenda, noShow, reservaHistory, dealsHistory, lastMonthWon, name } = channel;
   const icon = CHANNEL_ICONS[name] || "📊";
   const accent = CHANNEL_ACCENT[name] || "transparent";
   const isGeral = name === "Geral";
@@ -295,10 +295,19 @@ function ChannelCard({ channel, historyDays }: { channel: GeralChannelResult; hi
             <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
               <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Ocupação Agenda</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: "#60a5fa" }}>
-                —<span style={{ fontSize: 14 }}>%</span>
+                {ocupacaoAgenda ? ocupacaoAgenda.percent.toFixed(1) : "—"}<span style={{ fontSize: 14 }}>%</span>
               </div>
-              <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>mock</div>
+              <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>{ocupacaoAgenda ? `${ocupacaoAgenda.agendadas}/${ocupacaoAgenda.capacidade} slots (7d)` : "sem dados"}</div>
             </div>
+            {noShow && (
+            <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
+              <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>No-Show</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: noShow.percent > 20 ? "#ef4444" : noShow.percent > 10 ? "#f59e0b" : "#22c55e" }}>
+                {noShow.percent.toFixed(1)}<span style={{ fontSize: 14 }}>%</span>
+              </div>
+              <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>{noShow.canceladas}/{noShow.total} reuniões (7d)</div>
+            </div>
+            )}
           </>
         ) : null}
       </div>
