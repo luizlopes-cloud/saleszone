@@ -222,14 +222,14 @@ function ChannelCard({ channel, historyDays }: { channel: GeralChannelResult; hi
             <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
               <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Reservas no Mês</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: "#f97316" }}>
-                {fmtNum(reservaHistory.reduce((s, h) => s + h.reserva, 0))}
+                {fmtNum(reservaHistory.length > 0 ? reservaHistory[reservaHistory.length - 1].reserva : 0)}
               </div>
               <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>acumulado</div>
             </div>
             <div style={{ padding: "14px 16px", background: T.card, borderRadius: 8, border: `1px solid ${T.border}`, textAlign: "center" }}>
               <div style={{ fontSize: 10, color: T.cinza600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Contratos no Mês</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: "#22c55e" }}>
-                {fmtNum(reservaHistory.reduce((s, h) => s + h.contrato, 0))}
+                {fmtNum(reservaHistory.length > 0 ? reservaHistory[reservaHistory.length - 1].contrato : 0)}
               </div>
               <div style={{ fontSize: 11, color: T.cinza400, marginTop: 4 }}>acumulado</div>
             </div>

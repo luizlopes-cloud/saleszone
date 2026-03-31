@@ -569,6 +569,7 @@ export default function Dashboard() {
     setActiveModule(modId);
     localStorage.setItem("activeModule", modId);
     clearAllCaches();
+    setMainView("acompanhamento");
   };
 
   const clearAllCaches = () => {
