@@ -233,15 +233,24 @@ export async function GET() {
     for (const ch of CHANNEL_ORDER) snaps[ch] = { reserva: 0, contrato: 0 };
 
     if (pdOpenDeals.length > 0) {
-      // Use Pipedrive real-time data
+      // Use Pipedrive real-time data — canal not available from /pipelines/ endpoint,
+      // so count all into Geral only (VD/Parceiros breakdown from squad_deals fallback)
       for (const d of pdOpenDeals) {
+        if (d.stage_id === 191) snaps.Geral.reserva++;
+        if (d.stage_id === 192) snaps.Geral.contrato++;
+      }
+      // VD/Parceiros breakdown from squad_deals (approximate but has canal)
+      const openStageDeals = await paginate((o, ps) =>
+        admin.from("squad_deals").select("canal, stage_id").eq("status", "open").in("stage_id", [191, 192]).range(o, o + ps - 1),
+      );
+      for (const d of openStageDeals) {
         const macro = getMacroChannel(d.canal);
-        const target = (macro === "Vendas Diretas" || macro === "Parceiros") ? macro : "Geral";
-        if (d.stage_id === 191) snaps[target].reserva++;
-        if (d.stage_id === 192) snaps[target].contrato++;
-        if (target !== "Geral") {
-          if (d.stage_id === 191) snaps.Geral.reserva++;
-          if (d.stage_id === 192) snaps.Geral.contrato++;
+        if (macro === "Vendas Diretas") {
+          if (d.stage_id === 191) snaps["Vendas Diretas"].reserva++;
+          if (d.stage_id === 192) snaps["Vendas Diretas"].contrato++;
+        } else if (macro === "Parceiros") {
+          if (d.stage_id === 191) snaps.Parceiros.reserva++;
+          if (d.stage_id === 192) snaps.Parceiros.contrato++;
         }
       }
     } else {

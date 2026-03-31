@@ -175,21 +175,41 @@ export async function GET(request: NextRequest) {
     let totalSpend = 0;
     for (const v of adSpend.values()) totalSpend += v;
 
-    // Use szs_open_snapshots for current totals (today's snapshot)
+    // Snapshots from Pipedrive real-time (stage 152=Ag.Dados, 76=Contrato)
     const todayStr = now.toISOString().substring(0, 10);
-    const todaySnap = await paginate((o, ps) =>
-      admin.from("szs_open_snapshots").select("*").eq("date", todayStr).range(o, o + ps - 1)
-    );
+    let szsPdToken = "";
+    try { const { data: t } = await admin.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" }); szsPdToken = (t || "").trim(); } catch {}
+
     const snapshots: Record<string, { agDados: number; contrato: number; agendado: number; totalOpen: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { agDados: 0, contrato: 0, agendado: 0, totalOpen: 0 };
-    for (const s of todaySnap) {
-      const macro = MACRO_CHANNELS[s.canal_group] || "Vendas Diretas";
-      snapshots[macro].totalOpen += s.total_open || 0;
-      snapshots[macro].agDados += s.ag_dados || 0;
-      snapshots[macro].contrato += s.contrato || 0;
-      snapshots["Geral"].totalOpen += s.total_open || 0;
-      snapshots["Geral"].agDados += s.ag_dados || 0;
-      snapshots["Geral"].contrato += s.contrato || 0;
+
+    if (szsPdToken) {
+      let pdStart = 0;
+      while (true) {
+        const r = await fetch(`https://seazone-fd92b9.pipedrive.com/api/v1/pipelines/14/deals?api_token=${szsPdToken}&start=${pdStart}&limit=500`);
+        const j = await r.json();
+        for (const d of j.data || []) {
+          snapshots.Geral.totalOpen++;
+          if (d.stage_id === 152) snapshots.Geral.agDados++;
+          if (d.stage_id === 76) snapshots.Geral.contrato++;
+        }
+        if (!j.additional_data?.pagination?.more_items_in_collection) break;
+        pdStart += 500;
+      }
+    } else {
+      // Fallback: szs_open_snapshots
+      const todaySnap = await paginate((o, ps) =>
+        admin.from("szs_open_snapshots").select("*").eq("date", todayStr).range(o, o + ps - 1)
+      );
+      for (const s of todaySnap) {
+        const macro = MACRO_CHANNELS[s.canal_group] || "Vendas Diretas";
+        snapshots[macro].totalOpen += s.total_open || 0;
+        snapshots[macro].agDados += s.ag_dados || 0;
+        snapshots[macro].contrato += s.contrato || 0;
+        snapshots.Geral.totalOpen += s.total_open || 0;
+        snapshots.Geral.agDados += s.ag_dados || 0;
+        snapshots.Geral.contrato += s.contrato || 0;
+      }
     }
 
     // Build chart history from szs_deals (last 28 days) using delta/prefix-sum
