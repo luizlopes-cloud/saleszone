@@ -192,27 +192,91 @@ export async function GET(request: NextRequest) {
       snapshots["Geral"].contrato += s.contrato || 0;
     }
 
-    // Build chart history from szs_daily_counts (last 28 days)
+    // Build chart history from szs_deals (last 28 days) using delta/prefix-sum
     const cutoff28 = new Date(now);
     cutoff28.setDate(cutoff28.getDate() - 28);
     const cutoff28Str = cutoff28.toISOString().substring(0, 10);
-    const histChartRows = await paginate((o, ps) =>
-      admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count").gte("date", cutoff28Str).range(o, o + ps - 1)
+
+    const histDeals = await paginate((o, ps) =>
+      admin
+        .from("szs_deals")
+        .select("canal, max_stage_order, stage_order, status, lost_reason, add_time, won_time, lost_time, empreendimento")
+        .or(`status.eq.open,won_time.gte.${cutoff28Str},lost_time.gte.${cutoff28Str}`)
+        .range(o, o + ps - 1),
     );
-    const snapHistMap: Record<string, Map<string, { totalOpen: number; byStage: Record<string, number> }>> = {};
-    for (const ch of CHANNEL_ORDER) snapHistMap[ch] = new Map();
-    for (const r of histChartRows) {
-      if (cityFilter && getCidadeGroup(r.empreendimento || "") !== cityFilter) continue;
-      const macro = MACRO_CHANNELS[r.canal_group] || "Vendas Diretas";
-      const tab = r.tab as string;
-      if (!["mql", "sql", "opp", "won", "reserva", "contrato"].includes(tab)) continue;
-      for (const ch of [macro, "Geral"]) {
-        const map = snapHistMap[ch];
-        if (!map.has(r.date)) map.set(r.date, { totalOpen: 0, byStage: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 } });
-        const entry = map.get(r.date)!;
-        entry.totalOpen += r.count || 0;
-        entry.byStage[tab] = (entry.byStage[tab] || 0) + (r.count || 0);
+
+    // Build date array for last 28 days
+    const allHistDates: string[] = [];
+    for (let i = 28; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      allHistDates.push(d.toISOString().substring(0, 10));
+    }
+    const dateIndexMap = new Map<string, number>();
+    for (let i = 0; i < allHistDates.length; i++) dateIndexMap.set(allHistDates[i], i);
+    const histN = allHistDates.length;
+
+    // Stage thresholds for SZS
+    const HIST_STAGES_SZS = ["mql", "sql", "opp"] as const;
+    const HIST_STAGE_MIN_SZS: Record<string, number> = { mql: 1, sql: 4, opp: 9 };
+
+    // delta[channel][stage][dateIdx]
+    const histDelta: Record<string, Record<string, number[]>> = {};
+    for (const ch of CHANNEL_ORDER) {
+      histDelta[ch] = {};
+      for (const s of HIST_STAGES_SZS) histDelta[ch][s] = new Array(histN + 1).fill(0);
+      histDelta[ch]["total"] = new Array(histN + 1).fill(0);
+    }
+
+    for (const d of histDeals) {
+      if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
+      if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
+      const canalGroup = getCanalGroup(String(d.canal || ""));
+      const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
+      const mso = d.max_stage_order || d.stage_order || 0;
+      const addDay = d.add_time?.substring(0, 10) || "";
+      const closeDay = d.status === "won" ? d.won_time?.substring(0, 10) : d.status === "lost" ? d.lost_time?.substring(0, 10) : null;
+
+      let addIdx = dateIndexMap.get(addDay) ?? (addDay < allHistDates[0] ? 0 : -1);
+      if (addIdx < 0) continue;
+
+      let closeIdx: number | null = null;
+      if (closeDay) {
+        const ci = dateIndexMap.get(closeDay);
+        if (ci !== undefined) closeIdx = ci;
+        else if (closeDay < allHistDates[0]) continue;
       }
+
+      const targets = [macro, "Geral"];
+      for (const ch of targets) {
+        if (!histDelta[ch]) continue;
+        histDelta[ch]["total"][addIdx]++;
+        if (closeIdx !== null) histDelta[ch]["total"][closeIdx]--;
+        for (const s of HIST_STAGES_SZS) {
+          if (mso >= HIST_STAGE_MIN_SZS[s]) {
+            histDelta[ch][s][addIdx]++;
+            if (closeIdx !== null) histDelta[ch][s][closeIdx]--;
+          }
+        }
+      }
+    }
+
+    // Build cumulative per channel
+    const snapHistMap: Record<string, { date: string; total: number; openTotal: number; byStage: Record<string, number> }[]> = {};
+    for (const ch of CHANNEL_ORDER) {
+      const arr: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[] = [];
+      const cum: Record<string, number> = { total: 0 };
+      for (const s of HIST_STAGES_SZS) cum[s] = 0;
+      for (let i = 0; i < histN; i++) {
+        cum["total"] += histDelta[ch]["total"][i];
+        const byStage: Record<string, number> = {};
+        for (const s of HIST_STAGES_SZS) {
+          cum[s] += histDelta[ch][s][i];
+          byStage[s] = cum[s];
+        }
+        arr.push({ date: allHistDates[i], total: cum["total"], openTotal: cum["total"], byStage });
+      }
+      snapHistMap[ch] = arr;
     }
 
     // Accumulated: deals that reached Ag.Dados (>=11) and Contrato (>=12) this month
@@ -333,16 +397,8 @@ export async function GET(request: NextRequest) {
       if (meta.orcamento != null) metrics.orcamento = { real: Math.round(totalSpend), meta: meta.orcamento };
       if (meta.leads != null) metrics.leads = { real: counts.mql || 0, meta: meta.leads };
 
-      // Charts use snapshot history (szs_open_snapshots)
-      const snapHist = snapHistMap[name];
-      const dealsHistory = Array.from(snapHist.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, entry]) => ({
-          date,
-          total: 0,
-          openTotal: entry.totalOpen,
-          byStage: entry.byStage,
-        }));
+      // Charts use delta-computed history from szs_deals
+      const dealsHistory = snapHistMap[name] || [];
 
       return {
         name,
