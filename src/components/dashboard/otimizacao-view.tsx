@@ -748,46 +748,35 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                       <li><span style={{ color: RED }}>R$/MQL apertado demais</span> — teto de R$136 ficava abaixo do P75 real dos anúncios que geraram vendas. Pausava 20% dos ativos, incluindo 15 que geraram 18 vendas reais.</li>
                       <li><span style={{ color: RED }}>R$/SQL e R$/OPP frouxos demais</span> — tetos 34-53% acima do P90 real, permitindo criativos ineficientes continuarem consumindo verba.</li>
                     </ul>
-                    <p style={{ lineHeight: 1.5, margin: 0 }}>Os benchmarks foram definidos com base no P90 dos 81 anúncios que geraram WON e tinham pelo menos 10 MQL — o limite superior do que anúncios bons realmente custam, baseado em 151 vendas reais.</p>
+                    <p style={{ lineHeight: 1.5, margin: 0 }}>Os benchmarks foram calibrados com base no P90 dos 81 anúncios que geraram WON e tinham pelo menos 10 MQL, baseado em 151 vendas reais. Desde então foram apertados progressivamente — MQL caiu de R$170 para R$121, SQL de R$554 para R$435, WON de R$10.190 para R$5.000.</p>
                   </div>
 
-                  {/* Benchmarks calibrados */}
+                  {/* Benchmarks atuais */}
                   <div>
-                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 8px" }}>Benchmarks calibrados</p>
+                    <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 8px" }}>Benchmarks atuais</p>
                     <div style={{ overflowX: "auto" }}>
                       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                         <thead>
                           <tr style={{ borderBottom: `1px solid ${T.border}` }}>
-                            {["Etapa","Antes","Calibrado","Variação"].map((h, hi) => (
-                              <th key={h} style={{ textAlign: hi === 0 ? "left" : "right", padding: "6px 8px", color: T.mutedFg, fontWeight: 600 }}>{h}</th>
+                            {["Etapa","Benchmark (decisão)","Nota"].map((h, hi) => (
+                              <th key={h} style={{ textAlign: hi === 1 ? "right" : "left", padding: "6px 8px", color: T.mutedFg, fontWeight: 600 }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
                         <tbody>
-                          <tr style={{ borderBottom: `1px solid ${T.cinza100}` }}>
-                            <td style={{ padding: "5px 8px", color: T.fg }}>R$/MQL</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 136</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", color: GREEN }}>R$ 170</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", color: GREEN }}>+25% mais folga</td>
-                          </tr>
-                          <tr style={{ borderBottom: `1px solid ${T.cinza100}` }}>
-                            <td style={{ padding: "5px 8px", color: T.fg }}>R$/SQL</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 834</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", color: RED }}>R$ 554</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", color: RED }}>-34% mais apertado</td>
-                          </tr>
-                          <tr style={{ borderBottom: `1px solid ${T.cinza100}` }}>
-                            <td style={{ padding: "5px 8px", color: T.fg }}>R$/OPP</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 4.520</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", color: RED }}>R$ 2.953</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", color: RED }}>-35% mais apertado</td>
-                          </tr>
-                          <tr>
-                            <td style={{ padding: "5px 8px", color: T.fg }}>R$/WON</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 11.894</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace" }}>R$ 10.190 (meta) / R$ 17.784 (teto)</td>
-                            <td style={{ padding: "5px 8px", textAlign: "right" }}>—</td>
-                          </tr>
+                          {[
+                            ["R$/MQL","R$ 121","acima de R$121 = fora do bench"],
+                            ["R$/SQL","R$ 435","acima de R$435 = fora do bench"],
+                            ["R$/OPP","R$ 2.953","acima de R$2.953 = fora do bench"],
+                            ["R$/WON","R$ 5.000","acima de R$5.000 → PAUSAR direto"],
+                            ["Spend Cap","R$ 5.000","spend ≥ R$5k sem venda → PAUSAR"],
+                          ].map(([etapa, bench, nota], i, arr) => (
+                            <tr key={etapa} style={{ borderBottom: i < arr.length - 1 ? `1px solid ${T.cinza100}` : "none" }}>
+                              <td style={{ padding: "5px 8px", color: T.fg }}>{etapa}</td>
+                              <td style={{ padding: "5px 8px", textAlign: "right", fontFamily: "monospace", color: RED }}>{bench}</td>
+                              <td style={{ padding: "5px 8px", color: T.mutedFg }}>{nota}</td>
+                            </tr>
+                          ))}
                         </tbody>
                       </table>
                     </div>
@@ -855,11 +844,13 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                     <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Lógica de decisão por checkpoint</p>
                     <p style={{ lineHeight: 1.5, margin: "0 0 8px" }}>Cada checkpoint tem uma regra diferente — o modelo fica mais exigente conforme o anúncio avança no tempo sem provar resultado:</p>
                     {[
-                      { title: "Antes do Day 3 — alerta antecipado", body: "Normalmente retorna AGUARDAR. Exceção: se custo/MQL já estiver acima de 3× o benchmark com pelo menos R$100 investidos, o anúncio recebe MONITORAR. Para Investimentos: benchmark R$170, então o alerta dispara acima de R$510 de custo/MQL.", rules: [["Custo/MQL normal","AGUARDAR",T.mutedFg],["Custo/MQL > 3× bench + spend ≥ R$100","MONITORAR",AMBER]] },
+                      { title: "Antes do Day 3 — alerta antecipado", body: "Normalmente retorna AGUARDAR. Exceção: se custo/MQL já estiver acima de 3× o benchmark com pelo menos R$100 investidos, o anúncio recebe MONITORAR. Para Investimentos: benchmark R$121, então o alerta dispara acima de R$363 de custo/MQL.", rules: [["Custo/MQL normal","AGUARDAR",T.mutedFg],["Custo/MQL > 3× bench + spend ≥ R$100","MONITORAR",AMBER]] },
                       { title: "Day 3 — checkpoint MQL", body: "Avalia custo/MQL E taxa MQL→SQL:", rules: [["Ambos ok","MANTER",GREEN],["Só um ruim","MONITORAR",AMBER],["Ambos ruins","PAUSAR",RED],["Sem MQL após Day 3","PAUSAR",RED]] },
                       { title: "Day 7 — checkpoint SQL", body: "Avalia custo/SQL E taxa SQL→OPP. Se custo/SQL alto com taxa boa, verifica o custo/MQL implícito: custo/SQL = custo/MQL ÷ taxa MQL→SQL. Taxa boa + custo/SQL alto = custo/MQL também alto.", rules: [["Ambos ok","MANTER",GREEN],["Ambos ruins","PAUSAR",RED],["Custo alto + taxa boa + custo/MQL > bench","PAUSAR",RED],["Custo ok + taxa ruim","MONITORAR",AMBER],["Sem SQL após Day 7","PAUSAR",RED]] },
                       { title: "Day 15 — checkpoint OPP", body: "Não há mais benefício da dúvida — já passou dois checkpoints. Se qualquer métrica estiver fora, é sinal claro de problema no funil.", rules: [["Ambos ok","MANTER",GREEN],["Qualquer um ruim","PAUSAR",RED],["Sem OPP após Day 15","PAUSAR",RED]] },
-                      { title: "Day 35 — checkpoint WON", body: "Avalia custo/WON sobre histórico completo (35 dias).", rules: [["Custo/WON < R$10.190","MANTER",GREEN],["Entre R$10.190 e R$17.784","MONITORAR",AMBER],["Acima de R$17.784","PAUSAR",RED]] },
+                      { title: "Spend Cap — R$5.000 sem venda", body: "Regra com prioridade máxima, roda antes de qualquer checkpoint. Se o anúncio já consumiu R$5.000 ou mais e não gerou nenhuma venda (WON=0), recebe PAUSAR independente de qualquer outra métrica.", rules: [["Spend ≥ R$5.000 e WON = 0","PAUSAR",RED]] },
+                      { title: "Day 16+ — média móvel passa a valer", body: "Após o checkpoint de OPP, a proteção por conversões expira. Mesmo que o anúncio tenha WON ou OPP, se a média móvel recente estiver ruim ele recebe PAUSAR:", rules: [["R$/MQL 7d acima do benchmark","PAUSAR",RED],["R$/SQL 7d acima do benchmark","PAUSAR",RED]] },
+                      { title: "Day 35 — checkpoint WON", body: "Avalia custo/WON sobre histórico completo (35 dias). Anúncio que chegou até aqui já provou gerar OPP.", rules: [["Custo/WON até R$5.000","MANTER",GREEN],["Acima de R$5.000","PAUSAR",RED]] },
                     ].map(item => (
                       <div key={item.title} style={{ background: T.bg, borderRadius: 8, padding: 10, border: `1px solid ${T.border}`, marginBottom: 6 }}>
                         <p style={{ fontSize: 11, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>{item.title}</p>
@@ -894,10 +885,10 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                     <p style={{ fontSize: 12, fontWeight: 500, color: T.fg, margin: "0 0 4px" }}>Como o score é calculado</p>
                     <p style={{ lineHeight: 1.5, margin: "0 0 8px" }}>Score hierárquico em camadas — a camada mais alta em que o anúncio se enquadra define a base de pontos:</p>
                     {[
-                      ["WON","1000+ pts",GREEN,"Base 1000 + até 400 pts pelo custo/WON (interpolado entre R$10.190 e R$17.784) + taxa WON/OPP × 200 + bônus de velocidade (max 200 pts)."],
+                      ["WON","1000+ pts",GREEN,"Base 1000 + até 400 pts pelo custo/WON (score máximo abaixo de R$5.000, zero acima de R$5.000) + taxa WON/OPP × 200 + bônus de velocidade (max 200 pts)."],
                       ["OPP","0–450 pts",T.primary,"Até 300 pts pelo custo/OPP (interpolado entre R$2.953 e R$4.520) + taxa OPP/SQL × 150 + bônus de velocidade (max 100 pts)."],
-                      ["SQL","0–300 pts",AMBER,"Até 200 pts pelo custo/SQL (interpolado entre R$554 e R$834) + taxa SQL/MQL × 100 + bônus de velocidade (max 50 pts)."],
-                      ["MQL","0–125 pts",T.mutedFg,"Até 100 pts pelo custo/MQL (interpolado entre R$170 e R$200) + bônus de velocidade (max 25 pts)."],
+                      ["SQL","0–300 pts",AMBER,"Até 200 pts pelo custo/SQL (interpolado entre R$435 e R$579) + taxa SQL/MQL × 100 + bônus de velocidade (max 50 pts)."],
+                      ["MQL","0–125 pts",T.mutedFg,"Até 100 pts pelo custo/MQL (interpolado entre R$121 e R$170) + bônus de velocidade (max 25 pts)."],
                     ].map(([tier, pts, color, desc]) => (
                       <div key={tier} style={{ background: T.cinza50, borderRadius: 8, padding: 10, border: `1px solid ${T.border}`, marginBottom: 6 }}>
                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 3 }}>
@@ -943,7 +934,7 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                 </ol>
               </div>
 
-              <p style={{ fontSize: 10, color: T.cinza300, textAlign: "center" }}>Otimização Diária v2.0 — Seazone</p>
+              <p style={{ fontSize: 10, color: T.cinza300, textAlign: "center" }}>Otimização Diária v2.1 — Seazone</p>
             </div>
           </div>
         </>
