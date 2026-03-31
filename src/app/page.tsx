@@ -127,6 +127,8 @@ export default function Dashboard() {
   const [resultadosSZSData, setResultadosSZSData] = useState<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [resultadosMKTPData, setResultadosMKTPData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [resultadosDecorData, setResultadosDecorData] = useState<any>(null);
   const [geralData, setGeralData] = useState<GeralData | null>(null);
   const [ratioData, setRatioData] = useState<RatioHistoryData | null>(null);
   const [ratioDays, setRatioDays] = useState(90);
@@ -450,6 +452,20 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchResultadosDecor = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/decor/resultados`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setResultadosDecorData(data);
+    } catch (err) {
+      console.error("Fetch resultados Decor error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const fetchGeral = useCallback(async () => {
     setLoading(true);
     try {
@@ -559,6 +575,8 @@ export default function Dashboard() {
       fetchResultadosSZS();
     } else if (mainView === "resultados-mktp" && !resultadosMKTPData) {
       fetchResultadosMKTP();
+    } else if (mainView === "resultados-decor" && !resultadosDecorData) {
+      fetchResultadosDecor();
     } else if (mainView === "geral" && !geralData) {
       fetchGeral();
     }
@@ -595,6 +613,7 @@ export default function Dashboard() {
     setRatioData(null);
     setResultadosSZSData(null);
     setResultadosMKTPData(null);
+    setResultadosDecorData(null);
     setGeralData(null);
   };
 
@@ -781,6 +800,13 @@ export default function Dashboard() {
         {mainView === "resultados-mktp" && (
           <ResultadosMKTPView
             data={resultadosMKTPData}
+            loading={loading}
+            lastUpdated={lastUpdated}
+          />
+        )}
+        {mainView === "resultados-decor" && (
+          <ResultadosMKTPView
+            data={resultadosDecorData}
             loading={loading}
             lastUpdated={lastUpdated}
           />
