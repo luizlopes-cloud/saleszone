@@ -115,10 +115,15 @@ function median(arr: number[]): number {
   return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+const _mc = getModuleConfig("szi");
+
 function findSquadId(name: string): number | null {
+  const n = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   for (const sq of SQUADS) {
-    if (sq.preVenda === name) return sq.id;
+    if (n(sq.preVenda) === n(name)) return sq.id;
   }
+  // Fallback: PV not matching any squad.preVenda → Squad 1
+  if (_mc.presellers.some((p) => n(p) === n(name))) return SQUADS[0]?.id ?? 1;
   return null;
 }
 
