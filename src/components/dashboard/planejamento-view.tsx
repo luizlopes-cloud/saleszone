@@ -1096,7 +1096,6 @@ export function PlanejamentoView({ data, loading, daysBack, onDaysChange, module
               <option value={0}>Todas as Squads</option>
               <option value={1}>Squad 1</option>
               <option value={2}>Squad 2</option>
-              <option value={3}>Squad 3</option>
             </select>
             <span style={{ fontSize: "10px", color: T.cinza400 }}>
               Total acumulado ({DAYS_OPTIONS.find((o) => o.value === daysBack)?.label.toLowerCase() || "últimos 12 meses"})
