@@ -403,8 +403,8 @@ export async function GET(req: NextRequest) {
     const totalSpendMonth = totalSpend;
     const totalLeadsMonth = totalLeads;
 
-    // Alerta de gasto por squad: se gasto >5% ou <5% do target (total/3)
-    const targetPerSquad = totalSpendMonth / 3;
+    // Alerta de gasto por squad: se gasto >5% ou <5% do target (total/squads)
+    const targetPerSquad = totalSpendMonth / SQUADS.length;
     if (targetPerSquad > 0) {
       for (const sq of squads) {
         const deviation = Math.abs(sq.totalSpendMonth - targetPerSquad) / targetPerSquad;
