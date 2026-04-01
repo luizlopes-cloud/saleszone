@@ -349,7 +349,9 @@ export async function GET() {
     }
 
     // ── 8. Ocupação Agenda + No-Show (calendar events, next 7 days / last 7 days) ──
-    const CLOSER_EMAILS = ["filipe.padoveze@seazone.com.br", "luana.schaikoski@seazone.com.br", "priscila.pestana@seazone.com.br"];
+    // Dynamic: read closer emails from squad_closer_rules
+    const { data: closerRules } = await admin.from("squad_closer_rules").select("email").eq("setor", "SZI");
+    const CLOSER_EMAILS = (closerRules || []).map((r: { email: string }) => r.email);
     const MEETINGS_PER_DAY = 8;
     const WORK_DAYS = 5;
     const next7 = new Date(now); next7.setDate(next7.getDate() + 6);

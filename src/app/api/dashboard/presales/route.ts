@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { SQUADS } from "@/lib/constants";
+import { getModuleConfig } from "@/lib/modules";
 import type { PresalesData, PresellerSummary, PresalesDealRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -130,7 +131,8 @@ export async function GET() {
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    const MAIN_PVS = ["Luciana Patrício", "Luciana Patricio", "Natália Saramago", "Hellen Dias", "Jeniffer Correa"];
+    const mc = getModuleConfig("szi");
+    const MAIN_PVS = mc.presellers;
     const deals = (rows || []).filter((d) => MAIN_PVS.includes(d.preseller_name));
     const now = new Date();
 
