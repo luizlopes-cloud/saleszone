@@ -22,7 +22,7 @@ interface SquadOcupacao {
 }
 
 function calcSquadOcupacao(ocioData: OciosidadeData): SquadOcupacao[] {
-  const SQUAD_NAMES: Record<number, string> = { 1: "Squad 1", 2: "Squad 2", 3: "Squad 3" };
+  const SQUAD_NAMES: Record<number, string> = { 1: "Squad 1", 2: "Squad 2" };
   const squads = new Map<number, { names: string[]; past7: number[]; next3: number[] }>();
 
   for (const closer of ocioData.closers) {

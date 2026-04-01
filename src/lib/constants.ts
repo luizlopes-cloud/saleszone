@@ -4,9 +4,9 @@ export const SQUADS = [
     id: 1,
     name: "Squad 1",
     marketing: "Mari",
-    preVenda: "Luciana Patrício",
-    venda: "Priscila Pestana Perrone",
-    empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
+    preVenda: "Luciana Patricio",
+    venda: "Luana Schaikoski",
+    empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot", "Jurerê Spot II", "Jurerê Spot III", "Vistas de Anitá II"],
   },
   {
     id: 2,
@@ -14,27 +14,18 @@ export const SQUADS = [
     marketing: "Jean",
     preVenda: "Natália Saramago",
     venda: "Filipe Padoveze",
-    empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
-  },
-  {
-    id: 3,
-    name: "Squad 3",
-    marketing: "Jean",
-    preVenda: "Hellen Dias",
-    venda: "Luana Schaikoski",
-    empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II"],
+    empreendimentos: ["Barra Grande Spot", "Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
   },
 ] as const;
 
 // Pre-venda and Venda people for alignment view
-export const PV_COLS = ["Luciana Patrício", "Natália Saramago", "Hellen Dias"];
-export const V_COLS = ["Priscila Pestana Perrone", "Filipe Padoveze", "Luana Schaikoski"];
+export const PV_COLS = ["Luciana Patricio", "Hellen Dias", "Natália Saramago"];
+export const V_COLS = ["Luana Schaikoski", "Filipe Padoveze"];
 
 // Squad → índices em V_COLS (quais closers pertencem a cada squad)
 export const SQUAD_V_MAP: Record<number, number[]> = {
-  1: [0],    // Priscila Pestana Perrone
+  1: [0],    // Luana Schaikoski
   2: [1],    // Filipe Padoveze
-  3: [2],    // Luana Schaikoski
 };
 
 // UI Tokens
@@ -71,7 +62,7 @@ export const T = {
   font: "'Helvetica Neue', -apple-system, BlinkMacSystemFont, sans-serif",
 } as const;
 
-export const SQUAD_COLORS: Record<number, string> = { 1: T.azul600, 2: T.roxo600, 3: T.teal600 };
+export const SQUAD_COLORS: Record<number, string> = { 1: T.azul600, 2: T.roxo600 };
 
 // MQL Balanceamento — opções possíveis do Baserow (multi-select fields)
 export const MQL_INTENCOES = [
@@ -96,7 +87,6 @@ export const MQL_PAGAMENTOS = [
 export const SQUAD_FROM_COMMERCIAL: Record<string, number> = {
   szi_01: 1,
   szi_02: 2,
-  szi_03: 3,
 };
 export const TAB_COLORS: Record<string, string> = {
   mql: T.azul600,

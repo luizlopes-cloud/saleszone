@@ -32,7 +32,6 @@ const SQUAD_OPTIONS = [
   { id: 0, label: "Global" },
   { id: 1, label: "Squad 1" },
   { id: 2, label: "Squad 2" },
-  { id: 3, label: "Squad 3" },
 ];
 
 const SZS_SQUAD_OPTIONS = [
@@ -222,7 +221,7 @@ function RatioChart({ history, selectedRatio, period, squadIds, squadColors: cha
     return points.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(p.date).toFixed(1)},${yScale(ratioToConvPct(getRatio(p, selectedRatio))).toFixed(1)}`).join(" ");
   }
 
-  const SQUAD_LABELS: Record<number, string> = { 0: "Global", 1: "Squad 1", 2: "Squad 2", 3: "Squad 3" };
+  const SQUAD_LABELS: Record<number, string> = { 0: "Global", 1: "Squad 1", 2: "Squad 2" };
 
   return (
     <div style={{ position: "relative" }}>
