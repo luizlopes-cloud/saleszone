@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { SQUADS, V_COLS, SQUAD_V_MAP } from "@/lib/constants";
+import { getModuleConfig } from "@/lib/modules";
+
+const mc = getModuleConfig("szi");
 import type { PerformanceData, PerformancePersonRow, PerformancePresellerRow, PerformanceSquadSummary, PerformanceEmpBreakdown, PerformanceEmpRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -367,8 +370,7 @@ export async function GET(request: Request) {
     }
 
     const allPresellers: PerformancePresellerRow[] = [];
-    for (const sq of SQUADS) {
-      const pvName = sq.preVenda;
+    for (const pvName of mc.presellers) {
       const pvNorm = norm(pvName);
 
       // Funnel: deals from squad_deals where preseller_name matches (normalized)
@@ -382,10 +384,14 @@ export async function GET(request: Request) {
         .map((d) => d.response_time_minutes)
         .filter((m): m is number => m != null && m >= 0);
 
+      // Map PV to squad: match preVenda, fallback to squad 1
+      const pvSquad = SQUADS.find((s) => norm(s.preVenda) === pvNorm);
+      const pvSquadId = pvSquad?.id ?? SQUADS[0]?.id ?? 1;
+
       allPresellers.push({
         name: pvName,
         role: "preseller",
-        squadId: sq.id,
+        squadId: pvSquadId,
         ...funnel,
         mqlToSql: rate(funnel.sql, funnel.mql),
         sqlToOpp: rate(funnel.opp, funnel.sql),
