@@ -149,7 +149,6 @@ export async function GET(req: NextRequest) {
         if (!gKey.startsWith(`${sq.id}|`)) continue;
         canalEntries.push({ canal: gKey.split("|")[1], counts });
       }
-      }
 
       const totalGroupMql = canalEntries.reduce((s, c) => s + (c.counts.mql || 0), 0);
       const isMarketing = sq.id === 1; // Squad 1 = Marketing
