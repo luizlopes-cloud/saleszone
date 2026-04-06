@@ -14,40 +14,6 @@ const mc = getModuleConfig("szs");
 
 export const dynamic = "force-dynamic";
 
-<<<<<<< HEAD
-const SZS_METAS_WON: Record<string, Record<string, number>> = {
-  "2026-01": { Marketing: 66, Parceiros: 67, Expansão: 72, Spots: 48, Outros: 27 },
-  "2026-02": { Marketing: 69, Parceiros: 71, Expansão: 84, Spots: 26, Outros: 26 },
-  "2026-03": { Marketing: 70, Parceiros: 73, Expansão: 95, Spots: 39, Outros: 28 },
-  "2026-04": { Marketing: 73, Parceiros: 75, Expansão: 102, Spots: 17, Outros: 31 },
-  "2026-05": { Marketing: 73, Parceiros: 77, Expansão: 109, Spots: 0, Outros: 26 },
-  "2026-06": { Marketing: 73, Parceiros: 77, Expansão: 114, Spots: 49, Outros: 33 },
-  "2026-07": { Marketing: 71, Parceiros: 75, Expansão: 121, Spots: 0, Outros: 29 },
-  "2026-08": { Marketing: 71, Parceiros: 89, Expansão: 120, Spots: 0, Outros: 31 },
-  "2026-09": { Marketing: 78, Parceiros: 101, Expansão: 140, Spots: 28, Outros: 32 },
-  "2026-10": { Marketing: 71, Parceiros: 114, Expansão: 140, Spots: 0, Outros: 29 },
-  "2026-11": { Marketing: 73, Parceiros: 128, Expansão: 141, Spots: 0, Outros: 29 },
-  "2026-12": { Marketing: 75, Parceiros: 139, Expansão: 139, Spots: 31, Outros: 31 },
-};
-const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Mônica", "Expansão", "Spots", "Outros"];
-
-// Regiões para filtro de cidade
-const REGION_ORDER = ["Salvador", "São Paulo", "Florianópolis", "Outros"];
-
-function getRegiao(cidade: string): string {
-  if (!cidade) return "Outros";
-  const lower = cidade.toLowerCase();
-  // Salvador: Salvador, BA, Bahia (evitar "ba" solo que pega outras cidades)
-  if (lower.includes("salvador") || lower.includes(", ba") || lower.includes(",ba") || lower.includes("bahia")) return "Salvador";
-  // São Paulo: SP, RJ, Maceió, AL, Recife, PE, Natal, RN
-  if (lower.includes("são paulo") || lower.includes(" sp") || lower.includes(",sp") || lower.includes("rio de janeiro") || lower.includes(", rj") || lower.includes("maceió") || lower.includes(", al") || lower.includes("recife") || lower.includes(", pe") || lower.includes("natal") || lower.includes(", rn")) return "São Paulo";
-  // Florianópolis: SC, cidades de Santa Catarina
-  if (lower.includes("florianópolis") || lower.includes("florianopolis") || lower.includes(", sc") || lower.includes(",sc") || lower.includes("santa catarina") || lower.includes("ita") || lower.includes("blumenau") || lower.includes("garopaba") || lower.includes("tubarão") || lower.includes("tubarao") || lower.includes("laguna") || lower.includes("penha") || lower.includes("balneário") || lower.includes("balneario") || lower.includes("bombinhas") || lower.includes("piçarras") || lower.includes("picarras") || lower.includes("barra") || lower.includes("lagos") || lower.includes(", rs")) return "Florianópolis";
-  return "Outros";
-}
-
-=======
->>>>>>> upstream/main
 function rate(num: number, den: number): number {
   return den > 0 ? Math.round((num / den) * 10000) / 10000 : 0;
 }
@@ -116,36 +82,6 @@ export async function GET(req: NextRequest) {
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
 
-<<<<<<< HEAD
-    const [metaData, countsData, stageData, metasData] = await Promise.all([
-      fetchAll(
-        supabase
-          .from("szs_meta_ads")
-          .select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month")
-          .gte("snapshot_date", startDate)
-      ),
-      fetchAll(
-        supabase
-          .from("szs_daily_counts")
-          .select("tab, empreendimento, canal_group, count")
-          .in("tab", ["mql", "sql", "opp", "won"])
-          .gte("date", startDate)
-      ),
-      // Snapshot: current deals in stage (no date filter)
-      fetchAll(
-        supabase
-          .from("szs_daily_counts")
-          .select("tab, empreendimento, canal_group, count")
-          .in("tab", ["reserva", "contrato"])
-      ),
-      // Metas do mês
-      fetchAll(
-        supabase
-          .from("szs_metas")
-          .select("squad_id, tab, meta")
-          .eq("month", `${month}-01`)
-      ),
-=======
     const [yearStr, monthStr] = month.split("-");
     const mesFim = `${yearStr}-${String(Number(monthStr) + 1).padStart(2, "0")}-01`;
     const admin = createSquadSupabaseAdmin();
@@ -156,7 +92,6 @@ export async function GET(req: NextRequest) {
       fetchAll(supabase.from("szs_daily_counts").select("tab, empreendimento, canal_group, count").in("tab", ["reserva", "contrato"])),
       fetchAll(admin.from("baserow_szs_leads").select("cidade").gte("data_criacao_ads", startDate).lt("data_criacao_ads", mesFim)),
       fetchAll(admin.from("szs_deals").select("empreendimento, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").not("empreendimento", "is", null).gte("add_time", startDate)),
->>>>>>> upstream/main
     ]);
 
     // Meta Ads aggregated by cidade group
@@ -207,33 +142,13 @@ export async function GET(req: NextRequest) {
       squadCanalCounts.get(gKey)![row.tab] = (squadCanalCounts.get(gKey)![row.tab] || 0) + (row.count || 0);
     }
 
-<<<<<<< HEAD
-    for (const row of stageData) {
-      const canalGroup = row.canal_group || "Outros";
-      const cidade = row.empreendimento;
-      const gKey = `${canalGroup}|${cidade}`;
-      if (!groupCidadeCountsMap.has(gKey)) groupCidadeCountsMap.set(gKey, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      groupCidadeCountsMap.get(gKey)![row.tab] = (groupCidadeCountsMap.get(gKey)![row.tab] || 0) + (row.count || 0);
-    }
-
-    // Build squads: each canal_group = one squad, cidades = empreendimentos
-    const squads: FunilSquad[] = CANAL_GROUP_ORDER.map((canalGroup, idx) => {
-      // Find all cidades for this canal group (filtered by region if selected)
-      const cidadeEntries: Array<{ cidade: string; counts: Record<string, number> }> = [];
-      for (const [gKey, counts] of groupCidadeCountsMap.entries()) {
-        if (!gKey.startsWith(canalGroup + "|")) continue;
-        const cidade = gKey.split("|")[1];
-        // Apply region filter if selected
-        if (selectedRegiao && getRegiao(cidade) !== selectedRegiao) continue;
-        cidadeEntries.push({ cidade, counts });
-=======
     // Build squads from mc.squads (3 squads)
     const squads: FunilSquad[] = mc.squads.map((sq) => {
       const canalEntries: Array<{ canal: string; counts: Record<string, number> }> = [];
       for (const [gKey, counts] of squadCanalCounts.entries()) {
         if (!gKey.startsWith(`${sq.id}|`)) continue;
         canalEntries.push({ canal: gKey.split("|")[1], counts });
->>>>>>> upstream/main
+      }
       }
 
       const totalGroupMql = canalEntries.reduce((s, c) => s + (c.counts.mql || 0), 0);
@@ -286,82 +201,13 @@ export async function GET(req: NextRequest) {
       };
     });
 
-<<<<<<< HEAD
-    // Get metas for the month from DB (szs_metas table)
-    const metasObj: Record<string, Record<string, number>> = {};
-    for (const m of metasData) {
-      const canalGroup = CANAL_GROUP_ORDER[m.squad_id - 1] || "Outros";
-      if (!metasObj[canalGroup]) metasObj[canalGroup] = {};
-      // Map tab names: mql, sql, opp, won
-      const tabKey = m.tab === "mql" ? "mql" : m.tab === "sql" ? "sql" : m.tab === "opp" ? "opp" : m.tab === "won" ? "won" : m.tab;
-      metasObj[canalGroup][tabKey] = m.meta;
-    }
-
-    // Merge metas: prefer DB metas (szs_metas), fallback to hardcoded SZS_METAS_WON
-    const allMetas: Record<string, Record<string, number>> = { ...SZS_METAS_WON[month] };
-    for (const [canal, metaObj] of Object.entries(metasObj)) {
-      allMetas[canal] = { ...allMetas[canal], ...metaObj };
-    }
-
-    // Build region-level data for filtering
-    const regiaoCounts: Record<string, Record<string, number>> = {
-      Salvador: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 },
-      "São Paulo": { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 },
-      Florianópolis: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 },
-      Outros: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 },
-    };
-
-    for (const [gKey, counts] of groupCidadeCountsMap.entries()) {
-      const cidade = gKey.split("|")[1];
-      const regiao = getRegiao(cidade);
-      for (const tab of ["mql", "sql", "opp", "won", "reserva", "contrato"] as const) {
-        regiaoCounts[regiao][tab] += counts[tab] || 0;
-      }
-    }
-
-    // Build metas by region (based on canal_group distribution within each region)
-    // We need to know which canal_groups exist in each region
-    const regiaoCanalGroups: Record<string, Set<string>> = {
-      Salvador: new Set(),
-      "São Paulo": new Set(),
-      Florianópolis: new Set(),
-      Outros: new Set(),
-    };
-
-    for (const [gKey] of groupCidadeCountsMap.entries()) {
-      const canalGroup = gKey.split("|")[0];
-      const cidade = gKey.split("|")[1];
-      const regiao = getRegiao(cidade);
-      regiaoCanalGroups[regiao].add(canalGroup);
-    }
-
-    // Calculate metas per region based on canal_group distribution
-    const regiaoMetas: Record<string, Record<string, number>> = {};
-    for (const regiao of REGION_ORDER) {
-      const canalGroups = regiaoCanalGroups[regiao];
-      if (canalGroups.size === 0) continue;
-
-      regiaoMetas[regiao] = { mql: 0, sql: 0, opp: 0, won: 0 };
-      for (const canalGroup of canalGroups) {
-        const canalMeta = allMetas[canalGroup] || {};
-        regiaoMetas[regiao].mql += canalMeta.mql || 0;
-        regiaoMetas[regiao].sql += canalMeta.sql || 0;
-        regiaoMetas[regiao].opp += canalMeta.opp || 0;
-        regiaoMetas[regiao].won += canalMeta.won || 0;
-      }
-    }
-
-    // Filter out empty squads (no data and no meta)
-    const nonEmptySquads = squads.filter((sq) => sq.empreendimentos.length > 0 || (allMetas[sq.name]?.won || 0) > 0);
-=======
     const monthMetas = SZS_METAS_WON_BY_SQUAD[month] || {};
     const nonEmptySquads = squads.filter((sq) => sq.empreendimentos.length > 0 || (monthMetas[sq.id] || 0) > 0);
->>>>>>> upstream/main
 
     const allEmps = nonEmptySquads.flatMap((sq) => sq.empreendimentos);
     const grand = sumFunil(allEmps, "Total");
 
-    const result: FunilData = { month, squads: nonEmptySquads, grand, metas: allMetas, regioes: { counts: regiaoCounts, metas: regiaoMetas } };
+    const result: FunilData = { month, squads: nonEmptySquads, grand };
     return NextResponse.json(result);
   } catch (error) {
     console.error("SZS Funil error:", error);
