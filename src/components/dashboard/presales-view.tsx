@@ -54,7 +54,11 @@ function statusLabel(minutes: number | null): string {
   return "Lento";
 }
 
+<<<<<<< HEAD
 const MAIN_PVS = ["Hellen Dias", "Jeniffer Correa"];
+=======
+// Legacy SZI fallback — overridden by moduleConfig.presellers at runtime
+>>>>>>> upstream/main
 
 export function PresalesView({ data, loading, moduleConfig, lastUpdated }: Props) {
   if (loading && !data) {
@@ -121,10 +125,19 @@ export function PresalesView({ data, loading, moduleConfig, lastUpdated }: Props
       return 0;
     });
   }, [recentDeals, filtroPV, filtroDe, filtroAte, sortKey, sortDir]);
+<<<<<<< HEAD
   const pvOrder = ["Hellen Dias", "Jeniffer Correa"];
   const mainPVs = pvOrder
     .map((n) => presellers.find((p) => p.name === n))
     .filter((p): p is PresellerSummary => p != null);
+=======
+  const pvOrder = moduleConfig.presellers;
+  const mainPVs = pvOrder.length > 0
+    ? pvOrder
+        .map((n) => presellers.find((p) => p.name === n))
+        .filter((p): p is PresellerSummary => p != null)
+    : presellers;
+>>>>>>> upstream/main
 
   return (
     <>
@@ -171,7 +184,8 @@ export function PresalesView({ data, loading, moduleConfig, lastUpdated }: Props
           </thead>
           <tbody>
             {mainPVs.map((ps) => {
-              const squad = moduleConfig.squads.find((s) => s.preVenda === ps.name);
+              const n = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+              const squad = moduleConfig.squads.find((s) => n(s.preVenda) === n(ps.name)) || (moduleConfig.presellers.some((p) => n(p) === n(ps.name)) ? moduleConfig.squads[0] : undefined);
               const sqColor = ps.squadId ? SQUAD_COLORS[ps.squadId] || T.azul600 : T.cinza600;
               const barColor = ps.pctSub30 >= 70 ? "#16a34a" : ps.pctSub30 >= 40 ? "#d97706" : "#dc2626";
               const pendColor = ps.dealsPendentes > 5 ? "#dc2626" : ps.dealsPendentes > 0 ? "#d97706" : T.cinza400;

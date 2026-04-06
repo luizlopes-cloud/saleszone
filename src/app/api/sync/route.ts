@@ -76,6 +76,7 @@ const FUNCTION_MAP: Record<string, Array<{ name: string; body?: Record<string, u
     { name: "sync-szs-dashboard", body: { mode: "alignment" } },
     { name: "sync-szs-dashboard", body: { mode: "metas" } },
     { name: "sync-szs-dashboard", body: { mode: "monthly-rollup" } },
+    { name: "sync-szs-dashboard", body: { mode: "snapshot" } },
   ],
   "szs-dashboard-light": [
     { name: "sync-szs-dashboard", body: { mode: "daily-open" } },
@@ -83,6 +84,7 @@ const FUNCTION_MAP: Record<string, Array<{ name: string; body?: Record<string, u
     { name: "sync-szs-dashboard", body: { mode: "alignment" } },
     { name: "sync-szs-dashboard", body: { mode: "metas" } },
     { name: "sync-szs-dashboard", body: { mode: "monthly-rollup" } },
+    { name: "sync-szs-dashboard", body: { mode: "snapshot" } },
   ],
   "szs-meta-ads": [{ name: "sync-szs-meta-ads" }],
   "szs-calendar": [{ name: "sync-szs-calendar" }],

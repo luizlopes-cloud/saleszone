@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { SQUADS } from "@/lib/constants";
+import { paginate } from "@/lib/paginate";
 import type { PlanejamentoData, PlanejamentoEmpRow, PlanejamentoMetrics } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -70,22 +71,22 @@ export async function GET(request: Request) {
       .lt("snapshot_date", startDate);
     if (metaCutoffDate) histMetaQuery.gte("snapshot_date", metaCutoffDate);
 
-    const [countsRes, curMetaRes, histMetaRes] = await Promise.all([
+    const [countsRes, curMetaData, histMetaData] = await Promise.all([
       // Deal counts from squad_deals via RPC (stage-based)
       supabase.rpc("get_planejamento_counts", rpcParams),
-      // Current month Meta Ads (max spend_month/leads_month per ad)
-      supabase
-        .from("squad_meta_ads")
-        .select("ad_id, empreendimento, leads_month, spend_month")
-        .gte("snapshot_date", startDate)
-        .range(0, 49999),
-      // Historical Meta Ads
-      histMetaQuery.range(0, 49999),
+      // Current month Meta Ads (paginated)
+      paginate((o, ps) =>
+        supabase
+          .from("squad_meta_ads")
+          .select("ad_id, empreendimento, leads_month, spend_month")
+          .gte("snapshot_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // Historical Meta Ads (paginated)
+      paginate((o, ps) => histMetaQuery.range(o, o + ps - 1)),
     ]);
 
     if (countsRes.error) throw new Error(`RPC get_planejamento_counts: ${countsRes.error.message}`);
-    if (curMetaRes.error) throw new Error(`Current Meta Ads: ${curMetaRes.error.message}`);
-    if (histMetaRes.error) throw new Error(`Historical Meta Ads: ${histMetaRes.error.message}`);
 
     // Split RPC results into current month vs historical (average)
     const curCounts = new Map<string, Record<string, number>>();
@@ -120,7 +121,7 @@ export async function GET(request: Request) {
 
     // Aggregate current Meta Ads: max spend_month/leads_month per ad
     const curAdMax = new Map<string, { empreendimento: string; leads_month: number; spend_month: number }>();
-    for (const row of curMetaRes.data || []) {
+    for (const row of curMetaData) {
       const cur = curAdMax.get(row.ad_id);
       if (!cur || (Number(row.spend_month) || 0) > cur.spend_month) {
         curAdMax.set(row.ad_id, {
@@ -140,7 +141,7 @@ export async function GET(request: Request) {
 
     // Aggregate historical Meta Ads per empreendimento (average per month)
     const histMetaEmpMonth = new Map<string, Map<string, { leads: number; spend: number }>>();
-    for (const row of histMetaRes.data || []) {
+    for (const row of histMetaData) {
       const month = (row.snapshot_date as string).substring(0, 7);
       const emp = row.empreendimento;
       const adMonthKey = `${row.ad_id}|${month}`;

@@ -602,7 +602,7 @@ npm run lint         # ESLint
 - **Workflow:** `.github/workflows/sync-fireflies.yml` — cron `0 8 * * *` (5h BRT)
 - **Script:** `scripts/sync_fireflies.py` — busca transcripts, matching, avaliação Claude Sonnet
 - **Script auxiliar:** `/tmp/eval_pending.py` — avalia transcrições pendentes (com fireflies_id mas sem avaliacao)
-- **Fireflies API Key:** `97200a22-1632-4022-ae7e-8151f5a64e17` (guardar no vault do Supabase)
+- **Fireflies API Key:** armazenada no Vault do Supabase e nos GitHub Secrets (FIREFLIES_API_KEY)
 - **Secrets GitHub:** FIREFLIES_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, ANTHROPIC_API_KEY
 - **Status:** Script funcional. ANTHROPIC_API_KEY pendente nos GitHub Secrets (conta `matheusalbertoambrosi@gmail.com`)
 - **REGRA:** Requests (não urllib) para Fireflies API — urllib dá 403
@@ -637,7 +637,7 @@ npm run lint         # ESLint
   - `/resumo-heartbeat-comercial` — 4 canais comerciais (C08AE1Y6BGR, C0ANV4SP38Q, C0AN63WCQ30, C0AN85JLRL2)
   - `/resumo-heartbeat-mktp` — #heartbeats-marketplace (C0AN9SUPY5P)
   - `/resumo-heartbeat-cro` — #heartbeats-cro (C06SLRZVBTL, privado)
-- **App Slack:** "Heartbeats" (bot token: xoxb-462947370822-..., bot user: U0AN8G720UA). Gera notificações push (DMs normais não notificam)
+- **App Slack:** "Heartbeats" (bot token em env var SLACK_BOT_TOKEN, bot user: U0AN8G720UA). Gera notificações push (DMs normais não notificam)
 - **Automação launchd (3 jobs):**
   - `com.seazone.heartbeat-reminder` — Quinta 9h: @channel em 7 canais (exceto SZNI) lembrando de enviar heartbeat
   - `com.seazone.heartbeat-followup` — Sexta 9h: menciona individualmente quem não postou (compara membros vs quem postou desde quarta)
