@@ -426,6 +426,8 @@ export function ResultadosView({ data, loading, mediaFilter, setMediaFilter, las
           const rateKey = RATE_KEYS[s.key];
           const rateLabel = getRateLabels(isSZS)[s.key];
           const rateValue = rateKey ? (g[rateKey] as number) : undefined;
+          // Get meta for this stage (from data.metas)
+          const meta = data.metas?.["Total"]?.[s.key] || (data.metas ? Object.values(data.metas).reduce((sum, m) => sum + (m[s.key] || 0), 0) : 0);
           return (
             <div
               key={s.key}
@@ -443,7 +445,7 @@ export function ResultadosView({ data, loading, mediaFilter, setMediaFilter, las
                 {s.label}
               </div>
               <div style={{ fontSize: "22px", fontWeight: 700, color: s.color, fontVariantNumeric: "tabular-nums" }}>
-                {fmt(value)}
+                {fmt(value)}{meta > 0 ? <span style={{ fontSize: "14px", fontWeight: 400, color: T.cinza400 }}> / {fmt(meta)}</span> : null}
               </div>
               {rateValue !== undefined && rateLabel && (
                 <div style={{ fontSize: "10px", color: T.cinza400, marginTop: "2px" }}>
