@@ -21,6 +21,18 @@ const SZS_METAS_WON: Record<string, Record<string, number>> = {
 };
 const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Mônica", "Expansão", "Spots", "Outros"];
 
+// Regiões para filtro de cidade
+const REGION_ORDER = ["Salvador", "São Paulo", "Florianópolis", "Outros"];
+
+function getRegiao(cidade: string): string {
+  if (!cidade) return "Outros";
+  const lower = cidade.toLowerCase();
+  if (lower.includes("salvador") || lower.includes("bahia") || lower.includes("ba")) return "Salvador";
+  if (lower.includes("são paulo") || lower.includes("sp") || lower.includes("rio de janeiro") || lower.includes("rj") || lower.includes("maceió") || lower.includes("al") || lower.includes("recife") || lower.includes("pe") || lower.includes("natal") || lower.includes("rn")) return "São Paulo";
+  if (lower.includes("florianópolis") || lower.includes("florianopolis") || lower.includes("sc") || lower.includes("santa Catarina") || lower.includes("ita") || lower.includes("blumenau") || lower.includes("garopaba") || lower.includes("tubarão") || lower.includes("laguna") || lower.includes("penha") || lower.includes("balneário") || lower.includes("Bombinhas") || lower.includes("piçarras") || lower.includes("barra") || lower.includes("lagos") || lower.includes("rio")) return "Florianópolis";
+  return "Outros";
+}
+
 function rate(num: number, den: number): number {
   return den > 0 ? Math.round((num / den) * 10000) / 10000 : 0;
 }
@@ -116,7 +128,9 @@ export async function GET(req: NextRequest) {
   try {
     const monthParam = req.nextUrl.searchParams.get("month");
     const filterParam = req.nextUrl.searchParams.get("filter");
+    const regiaoParam = req.nextUrl.searchParams.get("regiao");
     const paidOnly = filterParam === "paid";
+    const selectedRegiao = regiaoParam || null;
     const now = new Date();
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
@@ -197,11 +211,13 @@ export async function GET(req: NextRequest) {
 
     // Build squads: each canal_group = one squad, cidades = empreendimentos
     const squads: FunilSquad[] = CANAL_GROUP_ORDER.map((canalGroup, idx) => {
-      // Find all cidades for this canal group
+      // Find all cidades for this canal group (filtered by region if selected)
       const cidadeEntries: Array<{ cidade: string; counts: Record<string, number> }> = [];
       for (const [gKey, counts] of groupCidadeCountsMap.entries()) {
         if (!gKey.startsWith(canalGroup + "|")) continue;
         const cidade = gKey.split("|")[1];
+        // Apply region filter if selected
+        if (selectedRegiao && getRegiao(cidade) !== selectedRegiao) continue;
         cidadeEntries.push({ cidade, counts });
       }
 
@@ -283,13 +299,61 @@ export async function GET(req: NextRequest) {
     // Also include the hardcoded SZS_METAS_WON as fallback
     const allMetas = { ...SZS_METAS_WON[month], ...metasObj };
 
+    // Build region-level data for filtering
+    const regiaoCounts: Record<string, Record<string, number>> = {
+      Salvador: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 },
+      "São Paulo": { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 },
+      Florianópolis: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 },
+      Outros: { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 },
+    };
+
+    for (const [gKey, counts] of groupCidadeCountsMap.entries()) {
+      const cidade = gKey.split("|")[1];
+      const regiao = getRegiao(cidade);
+      for (const tab of ["mql", "sql", "opp", "won", "reserva", "contrato"] as const) {
+        regiaoCounts[regiao][tab] += counts[tab] || 0;
+      }
+    }
+
+    // Build metas by region (based on canal_group distribution within each region)
+    // We need to know which canal_groups exist in each region
+    const regiaoCanalGroups: Record<string, Set<string>> = {
+      Salvador: new Set(),
+      "São Paulo": new Set(),
+      Florianópolis: new Set(),
+      Outros: new Set(),
+    };
+
+    for (const [gKey] of groupCidadeCountsMap.entries()) {
+      const canalGroup = gKey.split("|")[0];
+      const cidade = gKey.split("|")[1];
+      const regiao = getRegiao(cidade);
+      regiaoCanalGroups[regiao].add(canalGroup);
+    }
+
+    // Calculate metas per region based on canal_group distribution
+    const regiaoMetas: Record<string, Record<string, number>> = {};
+    for (const regiao of REGION_ORDER) {
+      const canalGroups = regiaoCanalGroups[regiao];
+      if (canalGroups.size === 0) continue;
+
+      regiaoMetas[regiao] = { mql: 0, sql: 0, opp: 0, won: 0 };
+      for (const canalGroup of canalGroups) {
+        const canalMeta = allMetas[canalGroup] || {};
+        regiaoMetas[regiao].mql += canalMeta.mql || 0;
+        regiaoMetas[regiao].sql += canalMeta.sql || 0;
+        regiaoMetas[regiao].opp += canalMeta.opp || 0;
+        regiaoMetas[regiao].won += canalMeta.won || 0;
+      }
+    }
+
     // Filter out empty squads (no data and no meta)
     const nonEmptySquads = squads.filter((sq) => sq.empreendimentos.length > 0 || (allMetas[sq.name]?.won || 0) > 0);
 
     const allEmps = nonEmptySquads.flatMap((sq) => sq.empreendimentos);
     const grand = sumFunil(allEmps, "Total");
 
-    const result: FunilData = { month, squads: nonEmptySquads, grand, metas: allMetas };
+    const result: FunilData = { month, squads: nonEmptySquads, grand, metas: allMetas, regioes: { counts: regiaoCounts, metas: regiaoMetas } };
     return NextResponse.json(result);
   } catch (error) {
     console.error("SZS Funil error:", error);
