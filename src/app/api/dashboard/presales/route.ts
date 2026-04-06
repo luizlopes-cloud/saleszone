@@ -136,12 +136,8 @@ export async function GET() {
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-<<<<<<< HEAD
-    const MAIN_PVS = ["Hellen Dias", "Jeniffer Correa"];
-=======
     const mc = getModuleConfig("szi");
     const MAIN_PVS = mc.presellers;
->>>>>>> upstream/main
     const deals = (rows || []).filter((d) => MAIN_PVS.includes(d.preseller_name));
     const now = new Date();
 
