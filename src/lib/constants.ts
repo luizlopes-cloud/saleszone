@@ -3,38 +3,29 @@ export const SQUADS = [
   {
     id: 1,
     name: "Squad 1",
-    marketing: "Mari",
-    preVenda: "Luciana Patrício",
-    venda: "Priscila Pestana Perrone",
-    empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
+    marketing: "Jean",
+    preVenda: "Hellen Dias",
+    venda: "Luana Schaikoski",
+    empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II", "Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
   },
   {
     id: 2,
     name: "Squad 2",
     marketing: "Jean",
-    preVenda: "Natália Saramago",
+    preVenda: "Jeniffer",
     venda: "Filipe Padoveze",
     empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
-  },
-  {
-    id: 3,
-    name: "Squad 3",
-    marketing: "Jean",
-    preVenda: "Hellen Dias",
-    venda: "Luana Schaikoski",
-    empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II"],
   },
 ] as const;
 
 // Pre-venda and Venda people for alignment view
-export const PV_COLS = ["Luciana Patrício", "Natália Saramago", "Hellen Dias"];
-export const V_COLS = ["Priscila Pestana Perrone", "Filipe Padoveze", "Luana Schaikoski"];
+export const PV_COLS = ["Hellen Dias", "Jeniffer"];
+export const V_COLS = ["Luana Schaikoski", "Filipe Padoveze"];
 
 // Squad → índices em V_COLS (quais closers pertencem a cada squad)
 export const SQUAD_V_MAP: Record<number, number[]> = {
-  1: [0],    // Priscila Pestana Perrone
+  1: [0],    // Luana Schaikoski
   2: [1],    // Filipe Padoveze
-  3: [2],    // Luana Schaikoski
 };
 
 // UI Tokens
@@ -71,7 +62,7 @@ export const T = {
   font: "'Helvetica Neue', -apple-system, BlinkMacSystemFont, sans-serif",
 } as const;
 
-export const SQUAD_COLORS: Record<number, string> = { 1: T.azul600, 2: T.roxo600, 3: T.teal600 };
+export const SQUAD_COLORS: Record<number, string> = { 1: T.azul600, 2: T.roxo600 };
 
 // MQL Balanceamento — opções possíveis do Baserow (multi-select fields)
 export const MQL_INTENCOES = [
