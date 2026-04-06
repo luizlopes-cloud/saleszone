@@ -11,6 +11,8 @@ interface ResultadosViewProps {
   loading: boolean;
   mediaFilter: MediaFilter;
   setMediaFilter: (f: MediaFilter) => void;
+  regiaoFilter?: string | null;
+  setRegiaoFilter?: (r: string | null) => void;
   lastUpdated?: Date | null;
   moduleId?: string;
 }
@@ -379,7 +381,7 @@ function CidadeDetailTable({ cidades, isSZS = false }: { cidades: FunilCidade[];
   );
 }
 
-export function ResultadosView({ data, loading, mediaFilter, setMediaFilter, lastUpdated, moduleId }: ResultadosViewProps) {
+export function ResultadosView({ data, loading, mediaFilter, setMediaFilter, regiaoFilter, setRegiaoFilter, lastUpdated, moduleId }: ResultadosViewProps) {
   const [expandedSquads, setExpandedSquads] = useState<Set<number>>(new Set([1, 2, 3]));
 
   const isSZS = moduleId === "szs";
@@ -418,16 +420,48 @@ export function ResultadosView({ data, loading, mediaFilter, setMediaFilter, las
       {/* Filter toggle */}
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <MediaFilterToggle value={mediaFilter} onChange={setMediaFilter} />
+        {/* Region filter for SZS */}
+        {isSZS && data?.regioes && (
+          <div style={{ display: "flex", gap: "2px", marginLeft: "12px" }}>
+            {(["Salvador", "São Paulo", "Florianópolis", "Outros"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRegiaoFilter?.(regiaoFilter === r ? null : r)}
+                style={{
+                  padding: "4px 10px",
+                  borderRadius: "6px",
+                  border: "1px solid",
+                  borderColor: regiaoFilter === r ? T.azul600 : T.border,
+                  backgroundColor: regiaoFilter === r ? T.azul600 + "15" : "#FFF",
+                  color: regiaoFilter === r ? T.azul600 : T.cinza600,
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: 500,
+                }}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {/* Summary cards */}
       <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
         {getStages(isSZS).map((s) => {
-          const value = g[s.key as keyof FunilEmpreendimento] as number;
+          // Use region-filtered data if a region is selected
+          let value = g[s.key as keyof FunilEmpreendimento] as number;
+          let meta = data.metas?.["Total"]?.[s.key] || (data.metas ? Object.values(data.metas).reduce((sum, m) => sum + (m[s.key] || 0), 0) : 0);
+
+          if (isSZS && regiaoFilter && data.regioes) {
+            const regiaoData = data.regioes.counts[regiaoFilter] || {};
+            const regiaoMeta = data.regioes.metas[regiaoFilter] || {};
+            value = regiaoData[s.key] || 0;
+            meta = regiaoMeta[s.key] || 0;
+          }
+
           const rateKey = RATE_KEYS[s.key];
           const rateLabel = getRateLabels(isSZS)[s.key];
           const rateValue = rateKey ? (g[rateKey] as number) : undefined;
-          // Get meta for this stage (from data.metas)
-          const meta = data.metas?.["Total"]?.[s.key] || (data.metas ? Object.values(data.metas).reduce((sum, m) => sum + (m[s.key] || 0), 0) : 0);
           return (
             <div
               key={s.key}
