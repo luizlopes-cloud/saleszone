@@ -184,7 +184,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
               gap: "4px",
             }}
           >
-            <Megaphone size={12} /> Meta Ads <ChevronDown size={10} style={{ transition: "transform 0.2s", transform: metaDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
+            <Megaphone size={12} /> Growth <ChevronDown size={10} style={{ transition: "transform 0.2s", transform: metaDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
           </button>
           {metaDropdownOpen && (
             <div
