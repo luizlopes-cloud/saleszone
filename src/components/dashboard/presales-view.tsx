@@ -54,7 +54,11 @@ function statusLabel(minutes: number | null): string {
   return "Lento";
 }
 
+<<<<<<< HEAD
+const MAIN_PVS = ["Hellen Dias", "Jeniffer Correa"];
+=======
 // Legacy SZI fallback — overridden by moduleConfig.presellers at runtime
+>>>>>>> upstream/main
 
 export function PresalesView({ data, loading, moduleConfig, lastUpdated }: Props) {
   if (loading && !data) {
@@ -121,12 +125,19 @@ export function PresalesView({ data, loading, moduleConfig, lastUpdated }: Props
       return 0;
     });
   }, [recentDeals, filtroPV, filtroDe, filtroAte, sortKey, sortDir]);
+<<<<<<< HEAD
+  const pvOrder = ["Hellen Dias", "Jeniffer Correa"];
+  const mainPVs = pvOrder
+    .map((n) => presellers.find((p) => p.name === n))
+    .filter((p): p is PresellerSummary => p != null);
+=======
   const pvOrder = moduleConfig.presellers;
   const mainPVs = pvOrder.length > 0
     ? pvOrder
         .map((n) => presellers.find((p) => p.name === n))
         .filter((p): p is PresellerSummary => p != null)
     : presellers;
+>>>>>>> upstream/main
 
   return (
     <>

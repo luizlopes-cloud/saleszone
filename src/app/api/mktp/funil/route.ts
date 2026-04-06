@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
 
-    const [metaRes, countsRes, stageRes] = await Promise.all([
+    const [metaRes, countsRes, stageRes, metasRes] = await Promise.all([
       supabase
         .from("mktp_meta_ads")
         .select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month")
@@ -99,11 +99,17 @@ export async function GET(req: NextRequest) {
         .from("mktp_daily_counts")
         .select("tab, empreendimento, count")
         .in("tab", ["reserva", "contrato"]),
+      // Metas do mês
+      supabase
+        .from("mktp_metas")
+        .select("squad_id, tab, meta")
+        .eq("month", `${month}-01`),
     ]);
 
     if (metaRes.error) throw new Error(`Meta Ads query error: ${metaRes.error.message}`);
     if (countsRes.error) throw new Error(`Daily counts query error: ${countsRes.error.message}`);
     if (stageRes.error) throw new Error(`Stage counts query error: ${stageRes.error.message}`);
+    if (metasRes.error) console.warn(`Metas query warning: ${metasRes.error.message}`);
 
     // Agregar Meta Ads: max spend_month/leads_month por ad
     const adMax = new Map<string, { empreendimento: string; impressions: number; clicks: number; leads_month: number; spend_month: number }>();
@@ -189,7 +195,17 @@ export async function GET(req: NextRequest) {
     const allEmps = squads.flatMap((sq) => sq.empreendimentos);
     const grand = sumFunil(allEmps, "Total");
 
-    const result: FunilData = { month, squads, grand };
+    // Build metas object from mktp_metas table
+    const metasObj: Record<string, Record<string, number>> = {};
+    if (metasRes.data) {
+      for (const m of metasRes.data) {
+        const squadName = "Marketplace"; // MKTP has only 1 squad
+        if (!metasObj[squadName]) metasObj[squadName] = {};
+        metasObj[squadName][m.tab] = m.meta;
+      }
+    }
+
+    const result: FunilData = { month, squads, grand, metas: metasObj };
     return NextResponse.json(result);
   } catch (error) {
     console.error("MKTP Funil error:", error);

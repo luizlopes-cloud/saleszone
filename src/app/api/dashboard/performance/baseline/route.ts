@@ -8,6 +8,10 @@ export const dynamic = "force-dynamic";
 // Data de contratação manual por closer (YYYY-MM)
 // "auto" = usar mês do primeiro deal
 const CLOSER_HIRE_DATES: Record<string, string> = {
+<<<<<<< HEAD
+  "Filipe Padoveze": "auto",
+=======
+>>>>>>> upstream/main
   "Luana Schaikoski": "2024-03",
   "Filipe Padoveze": "auto",
 };
