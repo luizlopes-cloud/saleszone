@@ -352,6 +352,7 @@ export interface FunilData {
   month: string; // YYYY-MM
   squads: FunilSquad[];
   grand: FunilEmpreendimento;
+  metas?: Record<string, Record<string, number>>; // { canal: { mql: meta, sql: meta, ... } }
 }
 
 // Planejamento — Conversão por mídia paga vs histórico

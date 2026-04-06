@@ -121,7 +121,7 @@ export async function GET(req: NextRequest) {
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
 
-    const [metaData, countsData, stageData] = await Promise.all([
+    const [metaData, countsData, stageData, metasData] = await Promise.all([
       fetchAll(
         supabase
           .from("szs_meta_ads")
@@ -141,6 +141,13 @@ export async function GET(req: NextRequest) {
           .from("szs_daily_counts")
           .select("tab, empreendimento, canal_group, count")
           .in("tab", ["reserva", "contrato"])
+      ),
+      // Metas do mês
+      fetchAll(
+        supabase
+          .from("szs_metas")
+          .select("squad_id, tab, meta")
+          .eq("month", `${month}-01`)
       ),
     ]);
 
@@ -263,16 +270,26 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    // Get metas for the month
-    const monthMetas = SZS_METAS_WON[month] || {};
+    // Get metas for the month from DB (szs_metas table)
+    const metasObj: Record<string, Record<string, number>> = {};
+    for (const m of metasData) {
+      const canalGroup = CANAL_GROUP_ORDER[m.squad_id - 1] || "Outros";
+      if (!metasObj[canalGroup]) metasObj[canalGroup] = {};
+      // Map tab names: mql, sql, opp, won
+      const tabKey = m.tab === "mql" ? "mql" : m.tab === "sql" ? "sql" : m.tab === "opp" ? "opp" : m.tab === "won" ? "won" : m.tab;
+      metasObj[canalGroup][tabKey] = m.meta;
+    }
+
+    // Also include the hardcoded SZS_METAS_WON as fallback
+    const allMetas = { ...SZS_METAS_WON[month], ...metasObj };
 
     // Filter out empty squads (no data and no meta)
-    const nonEmptySquads = squads.filter((sq) => sq.empreendimentos.length > 0 || (monthMetas[sq.name] || 0) > 0);
+    const nonEmptySquads = squads.filter((sq) => sq.empreendimentos.length > 0 || (allMetas[sq.name]?.won || 0) > 0);
 
     const allEmps = nonEmptySquads.flatMap((sq) => sq.empreendimentos);
     const grand = sumFunil(allEmps, "Total");
 
-    const result: FunilData = { month, squads: nonEmptySquads, grand };
+    const result: FunilData = { month, squads: nonEmptySquads, grand, metas: allMetas };
     return NextResponse.json(result);
   } catch (error) {
     console.error("SZS Funil error:", error);
