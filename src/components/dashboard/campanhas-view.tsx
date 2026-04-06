@@ -20,6 +20,7 @@ function formatBRL(v: number): string {
 
 export function CampanhasView({ data, loading, mediaFilter, setMediaFilter, lastUpdated, moduleId }: Props) {
   const isSZS = moduleId === "szs";
+  const contaLabel = moduleId === "mktp" ? "Conta MKTP" : moduleId === "szs" ? "Conta SZS" : "Conta SZI";
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [showInfo, setShowInfo] = useState(false);
 
@@ -264,7 +265,7 @@ export function CampanhasView({ data, loading, mediaFilter, setMediaFilter, last
 
       <div style={{ marginTop: "10px", textAlign: "right" }}>
         <span style={{ fontSize: "11px", color: T.cinza400 }}>
-          Meta Ads · Conta SZI · Dados do mês
+          Meta Ads · {contaLabel} · Dados do mês
         </span>
       </div>
       <DataSourceFooter lastUpdated={lastUpdated} />
