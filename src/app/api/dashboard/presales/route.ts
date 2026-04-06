@@ -130,7 +130,7 @@ export async function GET() {
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    const MAIN_PVS = ["Hellen Dias", "Jeniffer"];
+    const MAIN_PVS = ["Hellen Dias", "Jeniffer Correa"];
     const deals = (rows || []).filter((d) => MAIN_PVS.includes(d.preseller_name));
     const now = new Date();
 
