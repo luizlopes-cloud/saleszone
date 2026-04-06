@@ -1,9 +1,4 @@
 {
-  "functions": {
-    "src/app/api/growth/audit-mql/webhook/route.ts": { "maxDuration": 240 },
-    "src/app/api/growth/audit-mql/summary/route.ts": { "maxDuration": 120 },
-    "src/app/api/growth/audit-mql/check/route.ts":   { "maxDuration": 120 }
-  },
   "crons": [
     {
       "path": "/api/growth/audit-mql/summary",
