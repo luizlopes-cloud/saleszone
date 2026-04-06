@@ -30,26 +30,18 @@ const SZI_SQUADS: readonly SquadDef[] = [
   {
     id: 1,
     name: "Squad 1",
-    marketing: "Mari",
-    preVenda: "Luciana Patrício",
-    venda: "Priscila Pestana Perrone",
-    empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
+    marketing: "Jean",
+    preVenda: "Hellen Dias",
+    venda: "Luana Schaikoski",
+    empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II", "Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
   },
   {
     id: 2,
     name: "Squad 2",
     marketing: "Jean",
-    preVenda: "Natália Saramago",
+    preVenda: "Jeniffer",
     venda: "Filipe Padoveze",
     empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
-  },
-  {
-    id: 3,
-    name: "Squad 3",
-    marketing: "Jean",
-    preVenda: "Hellen Dias",
-    venda: "Luana Schaikoski",
-    empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II"],
   },
 ] as const;
 
@@ -60,12 +52,11 @@ const SZI_CONFIG: ModuleConfig = {
   pipelineId: 28,
   metaAdsAccountId: "act_205286032338340",
   squads: SZI_SQUADS,
-  closers: ["Priscila Pestana Perrone", "Filipe Padoveze", "Luana Schaikoski"],
-  presellers: ["Luciana Patrício", "Natália Saramago", "Hellen Dias"],
+  closers: ["Luana Schaikoski", "Filipe Padoveze"],
+  presellers: ["Hellen Dias", "Jeniffer"],
   squadCloserMap: {
-    1: [0],    // Priscila Pestana Perrone
+    1: [0],    // Luana Schaikoski
     2: [1],    // Filipe Padoveze
-    3: [2],    // Luana Schaikoski
   },
   tablePrefix: "squad",
   apiBase: "/api/dashboard",
