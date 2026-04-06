@@ -2,11 +2,21 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
+import { getSquadIdFromCanalGroup } from "@/lib/szs-utils";
+import { paginate } from "@/lib/paginate";
 import type { PlanejamentoData, PlanejamentoEmpRow, PlanejamentoMetrics } from "@/lib/types";
 
 const mc = getModuleConfig("szs");
 
 export const dynamic = "force-dynamic";
+
+function getCidadeGroup(cidade: string): string {
+  const lower = cidade.toLowerCase();
+  if (lower.includes("são paulo") || lower.includes("sao paulo")) return "São Paulo";
+  if (lower.includes("salvador")) return "Salvador";
+  if (lower.includes("florianópolis") || lower.includes("florianopolis")) return "Florianópolis";
+  return "Outros";
+}
 
 function rate(num: number, den: number): number {
   return den > 0 ? Math.round((num / den) * 10000) / 10000 : 0;
@@ -39,13 +49,9 @@ function sumMetrics(rows: PlanejamentoMetrics[]): PlanejamentoMetrics {
   return buildMetrics(leads, mql, sql, opp, won, spend);
 }
 
-// Map empreendimento → squad id
-const EMP_TO_SQUAD = new Map<string, number>();
-for (const sq of mc.squads) {
-  for (const emp of sq.empreendimentos) {
-    EMP_TO_SQUAD.set(emp, sq.id);
-  }
-}
+// SZS: all planejamento data is Marketing canal (is_marketing=true, rd_source paga)
+// Squad assignment uses canal-based mapping; Marketing = squad 1
+const MARKETING_SQUAD_ID = getSquadIdFromCanalGroup("Marketing");
 
 export async function GET(request: Request) {
   try {
@@ -61,8 +67,8 @@ export async function GET(request: Request) {
       : null;
 
     const rpcParams = daysBack !== 0
-      ? { months_back: 12, days_back: daysBack }
-      : { months_back: 12 };
+      ? { p_months_back: 12, p_days_back: daysBack }
+      : { p_months_back: 12, p_days_back: 0 };
 
     const histMetaQuery = supabase
       .from("szs_meta_ads")
@@ -70,51 +76,43 @@ export async function GET(request: Request) {
       .lt("snapshot_date", startDate);
     if (metaCutoffDate) histMetaQuery.gte("snapshot_date", metaCutoffDate);
 
-    const [countsRes, curMetaRes, histMetaRes] = await Promise.all([
+    const [countsRes, curMetaData, histMetaData] = await Promise.all([
       supabase.rpc("get_szs_planejamento_counts", rpcParams),
-      supabase
-        .from("szs_meta_ads")
-        .select("ad_id, empreendimento, leads_month, spend_month")
-        .gte("snapshot_date", startDate)
-        .range(0, 49999),
-      histMetaQuery.range(0, 49999),
+      paginate((o, ps) =>
+        supabase
+          .from("szs_meta_ads")
+          .select("ad_id, empreendimento, leads_month, spend_month")
+          .gte("snapshot_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      paginate((o, ps) => histMetaQuery.range(o, o + ps - 1)),
     ]);
 
     if (countsRes.error) throw new Error(`RPC get_szs_planejamento_counts: ${countsRes.error.message}`);
-    if (curMetaRes.error) throw new Error(`Current Meta Ads: ${curMetaRes.error.message}`);
-    if (histMetaRes.error) throw new Error(`Historical Meta Ads: ${histMetaRes.error.message}`);
 
     const curCounts = new Map<string, Record<string, number>>();
-    const histByEmpMonth = new Map<string, Map<string, Record<string, number>>>();
-    for (const row of countsRes.data || []) {
-      if (row.month === curMonth) {
-        curCounts.set(row.empreendimento, {
-          mql: Number(row.mql) || 0,
-          sql: Number(row.sql) || 0,
-          opp: Number(row.opp) || 0,
-          won: Number(row.won) || 0,
-        });
-      } else {
-        if (!histByEmpMonth.has(row.empreendimento)) histByEmpMonth.set(row.empreendimento, new Map());
-        histByEmpMonth.get(row.empreendimento)!.set(row.month, {
-          mql: Number(row.mql) || 0,
-          sql: Number(row.sql) || 0,
-          opp: Number(row.opp) || 0,
-          won: Number(row.won) || 0,
-        });
-      }
-    }
     const histCounts = new Map<string, Record<string, number>>();
-    for (const [emp, monthMap] of histByEmpMonth) {
-      const total: Record<string, number> = { mql: 0, sql: 0, opp: 0, won: 0 };
-      for (const counts of monthMap.values()) {
-        for (const tab of ["mql", "sql", "opp", "won"]) total[tab] += counts[tab] || 0;
+    for (const row of countsRes.data || []) {
+      const group = getCidadeGroup(row.empreendimento);
+      if (row.month === curMonth) {
+        if (!curCounts.has(group)) curCounts.set(group, { mql: 0, sql: 0, opp: 0, won: 0 });
+        const c = curCounts.get(group)!;
+        c.mql += Number(row.mql) || 0;
+        c.sql += Number(row.sql) || 0;
+        c.opp += Number(row.opp) || 0;
+        c.won += Number(row.won) || 0;
+      } else {
+        if (!histCounts.has(group)) histCounts.set(group, { mql: 0, sql: 0, opp: 0, won: 0 });
+        const c = histCounts.get(group)!;
+        c.mql += Number(row.mql) || 0;
+        c.sql += Number(row.sql) || 0;
+        c.opp += Number(row.opp) || 0;
+        c.won += Number(row.won) || 0;
       }
-      histCounts.set(emp, total);
     }
 
     const curAdMax = new Map<string, { empreendimento: string; leads_month: number; spend_month: number }>();
-    for (const row of curMetaRes.data || []) {
+    for (const row of curMetaData) {
       const cur = curAdMax.get(row.ad_id);
       if (!cur || (Number(row.spend_month) || 0) > cur.spend_month) {
         curAdMax.set(row.ad_id, {
@@ -126,14 +124,15 @@ export async function GET(request: Request) {
     }
     const curMeta = new Map<string, { leads: number; spend: number }>();
     for (const ad of curAdMax.values()) {
-      const cur = curMeta.get(ad.empreendimento) || { leads: 0, spend: 0 };
+      const group = getCidadeGroup(ad.empreendimento);
+      const cur = curMeta.get(group) || { leads: 0, spend: 0 };
       cur.leads += ad.leads_month;
       cur.spend += ad.spend_month;
-      curMeta.set(ad.empreendimento, cur);
+      curMeta.set(group, cur);
     }
 
     const histMetaEmpMonth = new Map<string, Map<string, { leads: number; spend: number }>>();
-    for (const row of histMetaRes.data || []) {
+    for (const row of histMetaData) {
       const month = (row.snapshot_date as string).substring(0, 7);
       const emp = row.empreendimento;
       const adMonthKey = `${row.ad_id}|${month}`;
@@ -150,10 +149,11 @@ export async function GET(request: Request) {
     const histMetaByEmp = new Map<string, { leads: number; spend: number }>();
     for (const [, empMap] of histMetaEmpMonth) {
       for (const [emp, vals] of empMap) {
-        if (!histMetaByEmp.has(emp)) {
-          histMetaByEmp.set(emp, { leads: 0, spend: 0 });
+        const group = getCidadeGroup(emp);
+        if (!histMetaByEmp.has(group)) {
+          histMetaByEmp.set(group, { leads: 0, spend: 0 });
         }
-        const agg = histMetaByEmp.get(emp)!;
+        const agg = histMetaByEmp.get(group)!;
         agg.leads += vals.leads;
         agg.spend += vals.spend;
       }
@@ -175,7 +175,7 @@ export async function GET(request: Request) {
 
     const empRows: PlanejamentoEmpRow[] = [];
     for (const emp of allEmps) {
-      const squadId = EMP_TO_SQUAD.get(emp) || (mc.squads[0]?.id ?? 0);
+      const squadId = MARKETING_SQUAD_ID;
       const cc = curCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
       const cm = curMeta.get(emp) || { leads: 0, spend: 0 };
       const hc = histCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };

@@ -32,22 +32,17 @@ const SQUAD_OPTIONS = [
   { id: 0, label: "Global" },
   { id: 1, label: "Squad 1" },
   { id: 2, label: "Squad 2" },
+];
+
+const SZS_SQUAD_OPTIONS = [
+  { id: 0, label: "Global" },
+  { id: 1, label: "Squad 1" },
+  { id: 2, label: "Squad 2" },
   { id: 3, label: "Squad 3" },
 ];
 
-const SZS_CANAL_OPTIONS = [
-  { id: 0, label: "Global" },
-  { id: 1, label: "Marketing" },
-  { id: 2, label: "Parceiros" },
-  { id: 3, label: "Expansão" },
-  { id: 4, label: "Spots" },
-  { id: 5, label: "Mônica" },
-  { id: 6, label: "Outros" },
-];
-
-const SZS_CANAL_COLORS: Record<number, string> = {
+const SZS_SQUAD_COLORS: Record<number, string> = {
   1: T.azul600, 2: T.roxo600, 3: T.teal600,
-  4: T.laranja500, 5: "#E91E63", 6: T.cinza400,
 };
 
 interface Props {
@@ -226,7 +221,7 @@ function RatioChart({ history, selectedRatio, period, squadIds, squadColors: cha
     return points.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(p.date).toFixed(1)},${yScale(ratioToConvPct(getRatio(p, selectedRatio))).toFixed(1)}`).join(" ");
   }
 
-  const SQUAD_LABELS: Record<number, string> = { 0: "Global", 1: "Squad 1", 2: "Squad 2", 3: "Squad 3" };
+  const SQUAD_LABELS: Record<number, string> = { 0: "Global", 1: "Squad 1", 2: "Squad 2" };
 
   return (
     <div style={{ position: "relative" }}>
@@ -738,6 +733,7 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
   const [expanded, setExpanded] = useState(true);
   const [selectedRatio, setSelectedRatio] = useState<RatioKey>("opp_won");
   const isSZS = moduleId === "szs";
+  const isMKTP = moduleId === "mktp";
 
   if (loading && !data) return null;
   if (!data) return null;
@@ -745,14 +741,14 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
   const { current, history } = data;
 
   // Module-specific config
-  const groupOptions = isSZS ? SZS_CANAL_OPTIONS : SQUAD_OPTIONS;
-  const groupColors = isSZS ? SZS_CANAL_COLORS : SQUAD_COLORS;
-  const groupLabel = isSZS ? "Canal" : "Squad";
+  const groupOptions = isSZS ? SZS_SQUAD_OPTIONS : SQUAD_OPTIONS.slice(0, isMKTP ? 1 : undefined);
+  const groupColors = isSZS ? SZS_SQUAD_COLORS : SQUAD_COLORS;
+  const groupLabel = "Squad";
   const empLabel = isSZS ? "Cidade" : "Empreendimento";
 
   // Build squad defs from empDaily keys grouped by canal/squad
   const squadDefs = isSZS
-    ? SZS_CANAL_OPTIONS.filter(o => o.id !== 0).map(o => ({
+    ? SZS_SQUAD_OPTIONS.filter(o => o.id !== 0).map(o => ({
         id: o.id,
         name: o.label,
         empreendimentos: Object.keys(data.empDaily || {}).filter(emp => {
@@ -760,6 +756,8 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
           return emp === o.label;
         }),
       }))
+    : isMKTP
+    ? [{ id: 0, name: "Global", empreendimentos: Object.keys(data.empDaily || {}) }]
     : SQUADS.map(sq => ({ id: sq.id, name: sq.name, empreendimentos: [...sq.empreendimentos] }));
 
   // Get snapshot for each squad/canal
@@ -786,7 +784,7 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
         {expanded ? <ChevronDown size={16} color={T.cinza600} /> : <ChevronRight size={16} color={T.cinza600} />}
         <span style={{ fontSize: "14px", fontWeight: 600, color: T.cardFg }}>Histórico de Conversões</span>
         <span style={{ fontSize: "11px", color: T.cinza400, fontWeight: 400 }}>
-          Evolução das taxas de conversão por squad (janela 90 dias)
+          Evolução das taxas de conversão {isMKTP ? "global" : "por squad"} (janela 90 dias)
         </span>
       </div>
 

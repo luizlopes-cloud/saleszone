@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers, Mic, Calendar } from "lucide-react";
+import { RefreshCw, BarChart3, Users, Clock, Scale, Megaphone, Timer, ShoppingCart, Activity, LogOut, TrendingUp, Target, Wallet, ChevronDown, Settings, ClipboardList, Layers, Mic, Calendar, UserX } from "lucide-react";
 import type { UserRole } from "@/lib/types";
 import { T } from "@/lib/constants";
 import type { ModuleConfig } from "@/lib/modules";
@@ -10,8 +10,8 @@ import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 
 const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento", "explorador", "otimizacao"] as const;
 const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas", "ociosidade", "leadtime", "avaliacoes", "losts-vendas"] as const;
-const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento", "squad-atividades", "losts-prevendas"] as const;
-const RESULTADOS_VIEWS = ["resultados", "acompanhamento", "forecast", "mensal"] as const;
+const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento", "squad-atividades", "losts-prevendas", "noshow"] as const;
+const RESULTADOS_VIEWS = ["geral", "resultados", "acompanhamento", "forecast", "mensal", "resultados-szs", "resultados-mktp", "resultados-decor"] as const;
 
 const SeazoneIcon = () => (
   <svg width="28" height="29" viewBox="0 0 48 49" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -138,11 +138,15 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
               }}
             >
               {([
+                ...(activeModule === "szs" ? [{ key: "resultados-szs", label: "Resultados SZS", icon: <BarChart3 size={13} /> }] : []),
+                ...(activeModule === "szi" ? [{ key: "geral", label: "Resultados SZNI", icon: <Layers size={13} /> }] : []),
+                ...(activeModule === "mktp" ? [{ key: "resultados-mktp", label: "Resultados MKTP", icon: <BarChart3 size={13} /> }] : []),
+                ...(activeModule === "decor" ? [{ key: "resultados-decor", label: "Resultados Decor", icon: <BarChart3 size={13} /> }] : []),
                 { key: "resultados", label: "Funil", icon: <TrendingUp size={13} /> },
                 { key: "acompanhamento", label: "Acompanhamento", icon: <BarChart3 size={13} /> },
                 { key: "forecast", label: "Forecast", icon: <Target size={13} /> },
                 { key: "mensal", label: "Mensal", icon: <Calendar size={13} /> },
-              ] as const).map((item) => (
+              ] as Array<{ key: string; label: string; icon: React.ReactNode }>).map((item) => (
                 <button
                   key={item.key}
                   onClick={() => { setMainView(item.key); setResultadosDropdownOpen(false); }}
@@ -180,7 +184,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
               gap: "4px",
             }}
           >
-            <Megaphone size={12} /> Meta Ads <ChevronDown size={10} style={{ transition: "transform 0.2s", transform: metaDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
+            <Megaphone size={12} /> Growth <ChevronDown size={10} style={{ transition: "transform 0.2s", transform: metaDropdownOpen ? "rotate(180deg)" : "rotate(0deg)" }} />
           </button>
           {metaDropdownOpen && (
             <div
@@ -275,6 +279,7 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
                 { key: "balanceamento", label: "Régua de Qualificação", icon: <Scale size={13} /> },
                 { key: "squad-atividades", label: "Atividades", icon: <Activity size={13} /> },
                 { key: "losts-prevendas", label: "Monitor Losts", icon: <Layers size={13} /> },
+                { key: "noshow", label: "Monitor No-Show", icon: <UserX size={13} /> },
               ] as const).map((item) => (
                 <button
                   key={item.key}

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
+import { getSquadIdFromCanalId, getCanalGroupFromId, getSquadIdFromCanalGroup } from "@/lib/szs-utils";
 import type { PerformanceData, PerformancePersonRow, PerformancePresellerRow, PerformanceSquadSummary, PerformanceEmpBreakdown, PerformanceEmpRow } from "@/lib/types";
 
 const mc = getModuleConfig("szs");
@@ -30,6 +31,7 @@ interface DealRow {
   owner_name: string;
   preseller_name: string | null;
   empreendimento: string | null;
+  canal: string | null;
   status: string;
   max_stage_order: number;
   lost_reason: string | null;
@@ -54,7 +56,7 @@ async function fetchDeals(cutoff: string | null): Promise<DealRow[]> {
   while (true) {
     let query = supabase
       .from("szs_deals")
-      .select("deal_id, owner_name, preseller_name, empreendimento, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time");
+      .select("deal_id, owner_name, preseller_name, empreendimento, canal, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time");
     if (cutoff) {
       query = query.or(`status.eq.open,won_time.gte.${cutoff},lost_time.gte.${cutoff},add_time.gte.${cutoff}`);
     }
@@ -132,17 +134,17 @@ export async function GET(request: Request) {
     }
 
     function buildByEmp(dealList: DealRow[]): PerformanceEmpBreakdown[] {
-      const empMap = new Map<string, DealRow[]>();
+      const canalMap = new Map<string, DealRow[]>();
       for (const d of dealList) {
-        const emp = d.empreendimento || "Sem empreendimento";
-        if (!empMap.has(emp)) empMap.set(emp, []);
-        empMap.get(emp)!.push(d);
+        const canalGroup = getCanalGroupFromId(d.canal || "");
+        if (!canalMap.has(canalGroup)) canalMap.set(canalGroup, []);
+        canalMap.get(canalGroup)!.push(d);
       }
       const result: PerformanceEmpBreakdown[] = [];
-      for (const [emp, empDeals] of empMap) {
-        const f = countFunnel(empDeals);
+      for (const [canalGroup, canalDeals] of canalMap) {
+        const f = countFunnel(canalDeals);
         result.push({
-          emp,
+          emp: canalGroup,
           ...f,
           mqlToSql: rate(f.sql, f.mql),
           sqlToOpp: rate(f.opp, f.sql),
@@ -243,39 +245,32 @@ export async function GET(request: Request) {
       return { month, opp: f.opp, won: f.won, oppToWon: rate(f.won, f.opp) };
     });
 
-    // --- EMPREENDIMENTOS ---
-    const empToSquadId = new Map<string, number>();
-    for (const sq of mc.squads) {
-      for (const emp of sq.empreendimentos) {
-        empToSquadId.set(emp, sq.id);
-      }
-    }
-
-    const closerDealsByEmp = new Map<string, DealRow[]>();
+    // --- CANALS (sub-rows by canal group instead of empreendimento) ---
+    const closerDealsByCanal = new Map<string, DealRow[]>();
     for (const d of deals) {
       if (!V_COLS.includes(d.owner_name)) continue;
-      const emp = d.empreendimento!;
-      if (!closerDealsByEmp.has(emp)) closerDealsByEmp.set(emp, []);
-      closerDealsByEmp.get(emp)!.push(d);
+      const canalGroup = getCanalGroupFromId(d.canal || "");
+      if (!closerDealsByCanal.has(canalGroup)) closerDealsByCanal.set(canalGroup, []);
+      closerDealsByCanal.get(canalGroup)!.push(d);
     }
 
-    const allCloserDealsByEmp = new Map<string, DealRow[]>();
+    const allCloserDealsByCanal = new Map<string, DealRow[]>();
     for (const d of allCloserDeals) {
-      const emp = d.empreendimento!;
-      if (!allCloserDealsByEmp.has(emp)) allCloserDealsByEmp.set(emp, []);
-      allCloserDealsByEmp.get(emp)!.push(d);
+      const canalGroup = getCanalGroupFromId(d.canal || "");
+      if (!allCloserDealsByCanal.has(canalGroup)) allCloserDealsByCanal.set(canalGroup, []);
+      allCloserDealsByCanal.get(canalGroup)!.push(d);
     }
 
     const allEmps: PerformanceEmpRow[] = [];
-    const allEmpNames = new Set([...closerDealsByEmp.keys(), ...allCloserDealsByEmp.keys()]);
-    for (const emp of allEmpNames) {
-      const periodDeals = closerDealsByEmp.get(emp) || [];
+    const allCanalGroups = new Set([...closerDealsByCanal.keys(), ...allCloserDealsByCanal.keys()]);
+    for (const canalGroup of allCanalGroups) {
+      const periodDeals = closerDealsByCanal.get(canalGroup) || [];
       const f = countFunnel(periodDeals);
-      const tsDeals = allCloserDealsByEmp.get(emp) || [];
+      const tsDeals = allCloserDealsByCanal.get(canalGroup) || [];
 
       allEmps.push({
-        emp,
-        squadId: empToSquadId.get(emp) || 0,
+        emp: canalGroup,
+        squadId: getSquadIdFromCanalGroup(canalGroup),
         opp: f.opp,
         won: f.won,
         oppToWon: rate(f.won, f.opp),
@@ -357,10 +352,14 @@ export async function GET(request: Request) {
         .map((d) => d.response_time_minutes)
         .filter((m): m is number => m != null && m >= 0);
 
+      // Map preseller to squad via preVenda match (fallback: squad 1)
+      const pvSquad = mc.squads.find((s) => norm(s.preVenda) === pvNorm);
+      const pvSquadId = pvSquad?.id ?? 1;
+
       allPresellers.push({
         name: pvName,
         role: "preseller",
-        squadId: 1, // SZS has a single squad
+        squadId: pvSquadId,
         ...funnel,
         mqlToSql: rate(funnel.sql, funnel.mql),
         sqlToOpp: rate(funnel.opp, funnel.sql),
@@ -377,17 +376,20 @@ export async function GET(request: Request) {
       });
     }
 
-    // Marketing (MIA) — for SZS, get deals NOT attributed to any preseller
+    // Marketing (MIA) — for SZS, deals owned by MIA/Automacao, grouped by canal → squad
+    const MIA_OWNERS = new Set(["morada - mia", "automacao"]);
     for (const sq of mc.squads) {
-      const allPresellerNorms = new Set(mc.presellers.map(norm));
+      const canalIds = sq.canalIds || [];
+      const allCanalIds = mc.squads.flatMap((s) => s.canalIds || []);
       const miaDeals = deals.filter((d) => {
-        // Deals where preseller is the MIA person, or has no preseller
-        if (!d.preseller_name) return false;
-        return norm(d.preseller_name) === norm(sq.marketing);
+        if (!d.owner_name || !MIA_OWNERS.has(norm(d.owner_name))) return false;
+        const canal = Number(d.canal);
+        if (canalIds.length > 0) return canalIds.includes(canal);
+        return !allCanalIds.includes(canal); // fallback squad
       });
       const funnel = countFunnel(miaDeals);
       allPresellers.push({
-        name: sq.marketing,
+        name: "MIA",
         role: "marketing",
         squadId: sq.id,
         ...funnel,
@@ -414,8 +416,16 @@ export async function GET(request: Request) {
       const sqPreseller = allPresellers.find((p) => p.squadId === sq.id && p.role === "preseller")!;
       const sqMia = allPresellers.find((p) => p.squadId === sq.id && p.role === "marketing")!;
 
-      const sqEmpDeals = deals.filter((d) => (sq.empreendimentos as readonly string[]).includes(d.empreendimento!));
-      const sqFunnel = countFunnel(sqEmpDeals);
+      // SZS: filter deals by canal IDs (squads are canal-based)
+      const canalIds = sq.canalIds || [];
+      const sqDeals = canalIds.length > 0
+        ? deals.filter((d) => canalIds.includes(Number(d.canal)))
+        : deals.filter((d) => {
+            // Fallback squad: deals not in any other squad's canal list
+            const allIds = mc.squads.flatMap((s) => s.canalIds || []);
+            return !allIds.includes(Number(d.canal));
+          });
+      const sqFunnel = countFunnel(sqDeals);
 
       return {
         id: sq.id,

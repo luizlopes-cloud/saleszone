@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
+import { getSquadIdFromCanalId, getCanalGroupFromId } from "@/lib/szs-utils";
 
 const mc = getModuleConfig("szs");
 
@@ -17,18 +18,6 @@ function matchOwner(colName: string, ownerName: string): boolean {
   return normalize(ownerName).includes(normalize(colName));
 }
 
-// Build map: empreendimento → { correctPV, correctVIndices, squadId }
-function buildSquadMap() {
-  const map = new Map<string, { correctPV: string; correctVIndices: number[]; squadId: number }>();
-  for (const sq of mc.squads) {
-    const vIndices = mc.squadCloserMap[sq.id] || [];
-    for (const emp of sq.empreendimentos) {
-      map.set(emp, { correctPV: sq.preVenda, correctVIndices: vIndices, squadId: sq.id });
-    }
-  }
-  return map;
-}
-
 const PV_COLS = mc.presellers;
 const V_COLS = mc.closers;
 
@@ -36,25 +25,53 @@ interface MisalignedDeal {
   deal_id: number;
   title: string;
   empreendimento: string;
+  canal: string;
+  canalGroup: string;
   owner_name: string;
   link: string;
 }
 
 export async function GET() {
   try {
+    // Fetch alignment deals
     const { data: deals, error } = await supabase
       .from("szs_alignment_deals")
       .select("deal_id, title, empreendimento, owner_name");
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    const squadMap = buildSquadMap();
+    // Fetch canal for each deal from szs_deals to determine squad assignment
+    const dealIds = (deals || []).map((d) => d.deal_id);
+    const canalMap = new Map<number, string>();
+    // Paginate szs_deals lookup (may exceed 1000)
+    const PAGE = 1000;
+    for (let i = 0; i < dealIds.length; i += PAGE) {
+      const batch = dealIds.slice(i, i + PAGE);
+      const { data: canalRows } = await supabase
+        .from("szs_deals")
+        .select("deal_id, canal")
+        .in("deal_id", batch);
+      for (const r of canalRows || []) {
+        canalMap.set(r.deal_id, r.canal || "");
+      }
+    }
+
+    // Build squad info per canal: canal → { correctPV, correctVIndices, squadId }
+    // SZS uses canal-based squads, not empreendimento-based
+    function getSquadInfo(canal: string) {
+      const squadId = getSquadIdFromCanalId(canal);
+      const sq = mc.squads.find((s) => s.id === squadId);
+      if (!sq) return null;
+      const vIndices = mc.squadCloserMap[sq.id] || [];
+      return { correctPV: sq.preVenda, correctVIndices: vIndices, squadId: sq.id };
+    }
 
     // Group misaligned deals by person (PV or V column name)
     const byPerson = new Map<string, { role: "pv" | "v"; deals: MisalignedDeal[] }>();
 
     for (const deal of deals || []) {
-      const info = squadMap.get(deal.empreendimento);
+      const canal = canalMap.get(deal.deal_id) || "";
+      const info = getSquadInfo(canal);
       if (!info) continue;
 
       // Check which PV/V column this owner matches
@@ -72,6 +89,8 @@ export async function GET() {
         deal_id: deal.deal_id,
         title: deal.title,
         empreendimento: deal.empreendimento,
+        canal,
+        canalGroup: getCanalGroupFromId(canal),
         owner_name: deal.owner_name,
         link: `https://${PIPEDRIVE_DOMAIN}/deal/${deal.deal_id}`,
       };
@@ -95,7 +114,7 @@ export async function GET() {
     const result = Array.from(byPerson.entries()).map(([person, data]) => ({
       person,
       role: data.role,
-      deals: data.deals.sort((a, b) => a.empreendimento.localeCompare(b.empreendimento)),
+      deals: data.deals.sort((a, b) => a.canalGroup.localeCompare(b.canalGroup)),
     }));
 
     return NextResponse.json({ byPerson: result });

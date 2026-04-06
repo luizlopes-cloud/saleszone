@@ -1,15 +1,24 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 const BASEROW_URL = "https://api-baserow.seazone.com.br";
-const BASEROW_TOKEN = "EGtfoePzqf1TW1xl1tRf0BCdaKjpWKKK";
-async function fetchAllRows(tableId) {
-  const rows = [];
+let _baserowToken: string | null = null;
+
+async function getBaserowToken(sb: any): Promise<string> {
+  if (_baserowToken) return _baserowToken;
+  const { data } = await sb.rpc("vault_read_secret", { secret_name: "BASEROW_TOKEN" });
+  if (!data) throw new Error("BASEROW_TOKEN not found in Vault");
+  _baserowToken = data;
+  return data;
+}
+
+async function fetchAllRows(tableId: number, token: string) {
+  const rows: any[] = [];
   let page = 1;
   let hasMore = true;
   while(hasMore){
     const res = await fetch(`${BASEROW_URL}/api/database/rows/table/${tableId}/?size=200&page=${page}`, {
       headers: {
-        Authorization: `Token ${BASEROW_TOKEN}`
+        Authorization: `Token ${token}`
       }
     });
     if (!res.ok) throw new Error(`Baserow ${tableId} error ${res.status}: ${await res.text()}`);
@@ -28,9 +37,10 @@ Deno.serve(async (_req)=>{
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const sb = createClient(supabaseUrl, supabaseKey);
+    const token = await getBaserowToken(sb);
     const now = new Date().toISOString();
     // --- Table 1209: Formularios ---
-    const formRows = await fetchAllRows(1209);
+    const formRows = await fetchAllRows(1209, token);
     const formRecords = formRows.map((r)=>{
       const emps = r.field_11501 ? [
         ...new Set(r.field_11501.map((e)=>e.value))
@@ -50,7 +60,7 @@ Deno.serve(async (_req)=>{
     });
     if (e1) throw new Error(`forms upsert: ${e1.message}`);
     // --- Table 1207: Empreendimentos ---
-    const empRows = await fetchAllRows(1207);
+    const empRows = await fetchAllRows(1207, token);
     const empRecords = empRows.filter((r)=>(r.field_11493 || "").trim() !== "").map((r)=>({
         id: r.id,
         nome: (r.field_11493 || "").trim(),

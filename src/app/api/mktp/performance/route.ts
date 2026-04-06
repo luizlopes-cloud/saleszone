@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { PerformanceData, PerformancePersonRow, PerformancePresellerRow, PerformanceSquadSummary, PerformanceEmpBreakdown, PerformanceEmpRow } from "@/lib/types";
+import { getMktpCanalName } from "@/lib/mktp-utils";
 
 const mc = getModuleConfig("mktp");
 const V_COLS = mc.closers;
@@ -30,6 +31,7 @@ interface DealRow {
   owner_name: string;
   preseller_name: string | null;
   empreendimento: string | null;
+  canal: string | null;
   status: string;
   max_stage_order: number;
   lost_reason: string | null;
@@ -54,7 +56,7 @@ async function fetchDeals(cutoff: string | null): Promise<DealRow[]> {
   while (true) {
     let query = supabase
       .from("mktp_deals")
-      .select("deal_id, owner_name, preseller_name, empreendimento, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time")
+      .select("deal_id, owner_name, preseller_name, empreendimento, canal, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time")
       .eq("is_marketing", true);
     if (cutoff) {
       query = query.or(`status.eq.open,won_time.gte.${cutoff},lost_time.gte.${cutoff},add_time.gte.${cutoff}`);
@@ -133,14 +135,14 @@ export async function GET(request: Request) {
     }
 
     function buildByEmp(dealList: DealRow[]): PerformanceEmpBreakdown[] {
-      const empMap = new Map<string, DealRow[]>();
+      const canalMap = new Map<string, DealRow[]>();
       for (const d of dealList) {
-        const emp = d.empreendimento || "Sem empreendimento";
-        if (!empMap.has(emp)) empMap.set(emp, []);
-        empMap.get(emp)!.push(d);
+        const canal = getMktpCanalName(d.canal);
+        if (!canalMap.has(canal)) canalMap.set(canal, []);
+        canalMap.get(canal)!.push(d);
       }
       const result: PerformanceEmpBreakdown[] = [];
-      for (const [emp, empDeals] of empMap) {
+      for (const [emp, empDeals] of canalMap) {
         const f = countFunnel(empDeals);
         result.push({
           emp,
@@ -240,39 +242,37 @@ export async function GET(request: Request) {
       return { month, opp: f.opp, won: f.won, oppToWon: rate(f.won, f.opp) };
     });
 
-    // --- EMPREENDIMENTOS ---
-    const empToSquadId = new Map<string, number>();
-    for (const sq of mc.squads) {
-      for (const emp of sq.empreendimentos) {
-        empToSquadId.set(emp, sq.id);
-      }
+    // --- CANAIS (grouped by canal instead of empreendimento) ---
+    const allDealCanals = new Set<string>();
+    for (const d of deals) {
+      allDealCanals.add(getMktpCanalName(d.canal));
     }
 
-    const closerDealsByEmp = new Map<string, DealRow[]>();
+    const closerDealsByCanal = new Map<string, DealRow[]>();
     for (const d of deals) {
       if (!V_COLS.includes(d.owner_name)) continue;
-      const emp = d.empreendimento!;
-      if (!closerDealsByEmp.has(emp)) closerDealsByEmp.set(emp, []);
-      closerDealsByEmp.get(emp)!.push(d);
+      const canal = getMktpCanalName(d.canal);
+      if (!closerDealsByCanal.has(canal)) closerDealsByCanal.set(canal, []);
+      closerDealsByCanal.get(canal)!.push(d);
     }
 
-    const allCloserDealsByEmp = new Map<string, DealRow[]>();
+    const allCloserDealsByCanal = new Map<string, DealRow[]>();
     for (const d of allCloserDeals) {
-      const emp = d.empreendimento!;
-      if (!allCloserDealsByEmp.has(emp)) allCloserDealsByEmp.set(emp, []);
-      allCloserDealsByEmp.get(emp)!.push(d);
+      const canal = getMktpCanalName(d.canal);
+      if (!allCloserDealsByCanal.has(canal)) allCloserDealsByCanal.set(canal, []);
+      allCloserDealsByCanal.get(canal)!.push(d);
     }
 
     const allEmps: PerformanceEmpRow[] = [];
-    const allEmpNames = new Set([...closerDealsByEmp.keys(), ...allCloserDealsByEmp.keys()]);
-    for (const emp of allEmpNames) {
-      const periodDeals = closerDealsByEmp.get(emp) || [];
+    const allCanalNames = new Set([...closerDealsByCanal.keys(), ...allCloserDealsByCanal.keys()]);
+    for (const canal of allCanalNames) {
+      const periodDeals = closerDealsByCanal.get(canal) || [];
       const f = countFunnel(periodDeals);
-      const tsDeals = allCloserDealsByEmp.get(emp) || [];
+      const tsDeals = allCloserDealsByCanal.get(canal) || [];
 
       allEmps.push({
-        emp,
-        squadId: empToSquadId.get(emp) || 0,
+        emp: canal,
+        squadId: 1,
         opp: f.opp,
         won: f.won,
         oppToWon: rate(f.won, f.opp),
@@ -374,12 +374,13 @@ export async function GET(request: Request) {
       });
     }
 
-    // Marketing (MIA)
+    // Marketing (MIA) — deals owned by MIA/Automacao
+    const MIA_OWNERS = new Set(["morada - mia", "automacao"].map((s) => s.toLowerCase()));
     for (const sq of mc.squads) {
-      const sqEmpDeals = deals.filter((d) => (sq.empreendimentos as readonly string[]).includes(d.empreendimento!));
-      const funnel = countFunnel(sqEmpDeals);
+      const miaDeals = deals.filter((d) => d.owner_name && MIA_OWNERS.has(d.owner_name.toLowerCase()));
+      const funnel = countFunnel(miaDeals);
       allPresellers.push({
-        name: sq.marketing,
+        name: "MIA",
         role: "marketing",
         squadId: sq.id,
         ...funnel,
@@ -394,20 +395,19 @@ export async function GET(request: Request) {
         actReunioes: 0,
         avgResponseMin: 0,
         medianResponseMin: 0,
-        byEmp: buildByEmp(sqEmpDeals),
+        byEmp: buildByEmp(miaDeals),
       });
     }
 
     const allMarketing: PerformancePersonRow[] = [];
 
-    // --- SQUAD SUMMARIES ---
+    // --- SQUAD SUMMARIES --- (MKTP has 1 squad, all deals)
     const squads: PerformanceSquadSummary[] = mc.squads.map((sq) => {
       const sqClosers = allClosers.filter((c) => c.squadId === sq.id);
       const sqPreseller = allPresellers.find((p) => p.squadId === sq.id && p.role === "preseller")!;
       const sqMia = allPresellers.find((p) => p.squadId === sq.id && p.role === "marketing")!;
 
-      const sqEmpDeals = deals.filter((d) => (sq.empreendimentos as readonly string[]).includes(d.empreendimento!));
-      const sqFunnel = countFunnel(sqEmpDeals);
+      const sqFunnel = countFunnel(deals);
 
       return {
         id: sq.id,

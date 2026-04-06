@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { LeadtimeData, LeadtimeStageRow, LeadtimeDealRow } from "@/lib/types";
+import { paginate } from "@/lib/paginate";
 
 const mc = getModuleConfig("szs");
 const V_COLS = mc.closers;
@@ -24,22 +25,6 @@ function getSquadId(closerName: string): number {
     }
   }
   return 0;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
-  const rows: any[] = [];
-  let offset = 0;
-  const PS = 1000;
-  while (true) {
-    const { data, error } = await buildQuery(offset, PS);
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PS) break;
-    offset += PS;
-  }
-  return rows;
 }
 
 function median(arr: number[]): number {
@@ -75,9 +60,8 @@ export async function GET(request: NextRequest) {
       paginate((o, ps) =>
         supabase
           .from("szs_deals")
-          .select("deal_id, title, owner_name, add_time, won_time, stage_order, max_stage_order, empreendimento")
+          .select("deal_id, title, owner_name, add_time, won_time, stage_order, max_stage_order, empreendimento, lost_reason")
           .eq("status", "won")
-          .not("canal", "in", "(582,583,1748,3189)")
           .not("empreendimento", "is", null)
           .gte("won_time", cutoffStr)
           .range(o, o + ps - 1),
@@ -85,9 +69,8 @@ export async function GET(request: NextRequest) {
       paginate((o, ps) =>
         supabase
           .from("szs_deals")
-          .select("deal_id, title, owner_name, add_time, stage_order, empreendimento")
+          .select("deal_id, title, owner_name, add_time, stage_order, empreendimento, lost_reason")
           .eq("status", "open")
-          .not("canal", "in", "(582,583,1748,3189)")
           .not("empreendimento", "is", null)
           .range(o, o + ps - 1),
       ),
@@ -95,6 +78,7 @@ export async function GET(request: NextRequest) {
 
     const cycleDaysArr: number[] = [];
     for (const d of wonDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       if (!d.add_time || !d.won_time) continue;
       const days = (new Date(d.won_time).getTime() - new Date(d.add_time).getTime()) / (1000 * 60 * 60 * 24);
       if (days > 0) cycleDaysArr.push(days);
@@ -104,6 +88,7 @@ export async function GET(request: NextRequest) {
     for (const so of ALL_STAGES) stageSamples[so] = [];
 
     for (const d of wonDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       if (!d.add_time || !d.won_time) continue;
       const cycleDays = (new Date(d.won_time).getTime() - new Date(d.add_time).getTime()) / (1000 * 60 * 60 * 24);
       if (cycleDays <= 0) continue;
@@ -122,6 +107,7 @@ export async function GET(request: NextRequest) {
 
     const openByStage: Record<number, typeof openDeals> = {};
     for (const d of openDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const so = d.stage_order || 1;
       if (!openByStage[so]) openByStage[so] = [];
       openByStage[so].push(d);
@@ -168,6 +154,7 @@ export async function GET(request: NextRequest) {
     const closerDeals: Record<string, LeadtimeDealRow[]> = {};
 
     for (const d of wonDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const owner = d.owner_name || "Sem dono";
       if (!closerWonCycles[owner]) closerWonCycles[owner] = [];
       if (!closerDeals[owner]) closerDeals[owner] = [];
@@ -192,6 +179,7 @@ export async function GET(request: NextRequest) {
     }
 
     for (const d of openDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const owner = d.owner_name || "Sem dono";
       if (!closerDeals[owner]) closerDeals[owner] = [];
       const ageDays = d.add_time
