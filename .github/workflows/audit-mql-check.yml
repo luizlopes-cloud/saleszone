@@ -1,0 +1,23 @@
+name: Audit MQL — Check Leads
+
+on:
+  schedule:
+    # A cada 15 minutos, 24/7 — fallback se o waitUntil da Vercel falhar
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar leads pendentes
+        run: |
+          response=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://saleszone.vercel.app/api/growth/audit-mql/check)
+          echo "Status: $response"
+          if [ "$response" != "200" ]; then
+            echo "Erro ao chamar endpoint: HTTP $response"
+            exit 1
+          fi
