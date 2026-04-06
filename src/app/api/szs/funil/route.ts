@@ -27,9 +27,12 @@ const REGION_ORDER = ["Salvador", "São Paulo", "Florianópolis", "Outros"];
 function getRegiao(cidade: string): string {
   if (!cidade) return "Outros";
   const lower = cidade.toLowerCase();
-  if (lower.includes("salvador") || lower.includes("bahia") || lower.includes("ba")) return "Salvador";
-  if (lower.includes("são paulo") || lower.includes("sp") || lower.includes("rio de janeiro") || lower.includes("rj") || lower.includes("maceió") || lower.includes("al") || lower.includes("recife") || lower.includes("pe") || lower.includes("natal") || lower.includes("rn")) return "São Paulo";
-  if (lower.includes("florianópolis") || lower.includes("florianopolis") || lower.includes("sc") || lower.includes("santa Catarina") || lower.includes("ita") || lower.includes("blumenau") || lower.includes("garopaba") || lower.includes("tubarão") || lower.includes("laguna") || lower.includes("penha") || lower.includes("balneário") || lower.includes("Bombinhas") || lower.includes("piçarras") || lower.includes("barra") || lower.includes("lagos") || lower.includes("rio")) return "Florianópolis";
+  // Salvador: Salvador, BA, Bahia (evitar "ba" solo que pega outras cidades)
+  if (lower.includes("salvador") || lower.includes(", ba") || lower.includes(",ba") || lower.includes("bahia")) return "Salvador";
+  // São Paulo: SP, RJ, Maceió, AL, Recife, PE, Natal, RN
+  if (lower.includes("são paulo") || lower.includes(" sp") || lower.includes(",sp") || lower.includes("rio de janeiro") || lower.includes(", rj") || lower.includes("maceió") || lower.includes(", al") || lower.includes("recife") || lower.includes(", pe") || lower.includes("natal") || lower.includes(", rn")) return "São Paulo";
+  // Florianópolis: SC, cidades de Santa Catarina
+  if (lower.includes("florianópolis") || lower.includes("florianopolis") || lower.includes(", sc") || lower.includes(",sc") || lower.includes("santa catarina") || lower.includes("ita") || lower.includes("blumenau") || lower.includes("garopaba") || lower.includes("tubarão") || lower.includes("tubarao") || lower.includes("laguna") || lower.includes("penha") || lower.includes("balneário") || lower.includes("balneario") || lower.includes("bombinhas") || lower.includes("piçarras") || lower.includes("picarras") || lower.includes("barra") || lower.includes("lagos") || lower.includes(", rs")) return "Florianópolis";
   return "Outros";
 }
 
@@ -296,8 +299,11 @@ export async function GET(req: NextRequest) {
       metasObj[canalGroup][tabKey] = m.meta;
     }
 
-    // Also include the hardcoded SZS_METAS_WON as fallback
-    const allMetas = { ...SZS_METAS_WON[month], ...metasObj };
+    // Merge metas: prefer DB metas (szs_metas), fallback to hardcoded SZS_METAS_WON
+    const allMetas: Record<string, Record<string, number>> = { ...SZS_METAS_WON[month] };
+    for (const [canal, metaObj] of Object.entries(metasObj)) {
+      allMetas[canal] = { ...allMetas[canal], ...metaObj };
+    }
 
     // Build region-level data for filtering
     const regiaoCounts: Record<string, Record<string, number>> = {
