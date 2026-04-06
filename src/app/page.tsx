@@ -102,12 +102,7 @@ export default function Dashboard() {
   const [planejData, setPlanejData] = useState<PlanejamentoData | null>(null);
   const [orcData, setOrcData] = useState<OrcamentoData | null>(null);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("paid");
-<<<<<<< HEAD
-  const [regiaoFilter, setRegiaoFilter] = useState<string | null>(null); // SZS region filter: "Salvador", "São Paulo", "Florianópolis", "Outros", or null for all
-  const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid">("all");
-=======
   const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao" | "sao-paulo" | "salvador" | "florianopolis" | "outros">("all");
->>>>>>> upstream/main
   const [perfData, setPerfData] = useState<PerformanceData | null>(null);
   const [perfDays, setPerfDays] = useState(90);
   const [baselineData, setBaselineData] = useState<BaselineData | null>(null);
@@ -522,9 +517,9 @@ export default function Dashboard() {
       fetchCamp(mediaFilter);
     } else if (mainView === "resultados") {
       setFunilData(null);
-      fetchFunil(mediaFilter, regiaoFilter);
+      fetchFunil(mediaFilter);
     }
-  }, [mediaFilter, regiaoFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mediaFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fetch when acompFilter changes
   useEffect(() => {
@@ -631,7 +626,7 @@ export default function Dashboard() {
     else if (mainView === "campanhas") await fetchCamp(mediaFilter);
     else if (mainView === "diagnostico-mkt") await fetchCamp(mediaFilter);
     else if (mainView === "presales") await fetchPresales();
-    else if (mainView === "resultados") await fetchFunil(mediaFilter, regiaoFilter);
+    else if (mainView === "resultados") await fetchFunil(mediaFilter);
     else if (mainView === "planejamento") await fetchPlanej(planejDays);
     else if (mainView === "orcamento") await fetchOrc();
     else if (mainView === "perf-prevendas" || mainView === "perf-vendas") await fetchPerformance(perfDays);
@@ -756,7 +751,7 @@ export default function Dashboard() {
         {mainView === "balanceamento" && <BalanceamentoView data={balancData} ocioData={ocioData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "campanhas" && <CampanhasView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} lastUpdated={lastUpdated} moduleId={activeModule} />}
         {mainView === "presales" && <PresalesView data={presalesData} loading={loading} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
-        {mainView === "resultados" && <ResultadosView data={funilData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} regiaoFilter={regiaoFilter} setRegiaoFilter={setRegiaoFilter} lastUpdated={lastUpdated} moduleId={activeModule} />}
+        {mainView === "resultados" && <ResultadosView data={funilData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} lastUpdated={lastUpdated} moduleId={activeModule} />}
         {mainView === "diagnostico-mkt" && <DiagnosticoMktView data={campData} loading={loading} mediaFilter={mediaFilter} setMediaFilter={setMediaFilter} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "planejamento" && <PlanejamentoView data={planejData} loading={loading} daysBack={planejDays} onDaysChange={(d) => { setPlanejDays(d); setPlanejData(null); fetchPlanej(d); }} moduleConfig={moduleConfig} lastUpdated={lastUpdated} />}
         {mainView === "orcamento" && <OrcamentoView data={orcData} loading={loading} onBudgetSave={handleBudgetSave} lastUpdated={lastUpdated} moduleId={activeModule} />}

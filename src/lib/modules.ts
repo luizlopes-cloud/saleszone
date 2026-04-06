@@ -7,6 +7,7 @@ export interface SquadDef {
   preVenda: string;
   venda: string;
   empreendimentos: readonly string[];
+  canalIds?: readonly number[];
 }
 
 export interface ModuleConfig {
