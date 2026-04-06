@@ -51,7 +51,7 @@ export async function GET() {
     while (true) {
       const { data, error } = await supabase
         .from("szs_deals")
-        .select("deal_id, title, owner_name, empreendimento, stage_order, last_activity_date, next_activity_date, add_time")
+        .select("deal_id, title, owner_name, empreendimento, stage_order, last_activity_date, next_activity_date, add_time, lost_reason")
         .eq("status", "open")
         .range(offset, offset + PAGE_SIZE - 1);
 
@@ -64,7 +64,7 @@ export async function GET() {
 
     // Filter to closers only, exclude Agendado (7) and No Show/Reagendamento (8)
     const closerSet = new Set(V_COLS);
-    const closerDeals = allRows.filter((d) => closerSet.has(d.owner_name) && d.stage_order !== 7 && d.stage_order !== 8);
+    const closerDeals = allRows.filter((d) => closerSet.has(d.owner_name) && d.stage_order !== 7 && d.stage_order !== 8 && d.lost_reason !== "Duplicado/Erro");
 
     // Calculate leadtime and activity status for each deal
     const todayStr = now.toISOString().substring(0, 10);

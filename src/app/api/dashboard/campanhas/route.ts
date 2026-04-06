@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS } from "@/lib/constants";
+import { paginate } from "@/lib/paginate";
 import type { CampanhasData, CampanhasSquadSummary, CampanhasEmpSummary, MetaAdRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -34,23 +35,6 @@ export async function GET(req: NextRequest) {
     const monthPrefix = snapshotDate!.substring(0, 7);
     const startDate = `${monthPrefix}-01`;
 
-    // Paginate helper (Supabase 1000-row limit)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    async function paginate(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
-      const rows: any[] = [];
-      let offset = 0;
-      const PS = 1000;
-      while (true) {
-        const { data, error } = await buildQuery(offset, PS);
-        if (error) throw new Error(`Supabase: ${error.message}`);
-        if (!data || data.length === 0) break;
-        rows.push(...data);
-        if (data.length < PS) break;
-        offset += PS;
-      }
-      return rows;
-    }
-
     // Queries paralelas: Meta Ads (último snapshot + todos do mês para max spend) + Contagens + WON + Baserow leads
     const [metaRes, metaAllRes, countsRes, crossWonRes, baserowLeadsRes, paidDealsRes] = await Promise.all([
       supabase
@@ -70,7 +54,11 @@ export async function GET(req: NextRequest) {
       // Baserow leads — formulários preenchidos no mês (fonte real de Leads)
       (() => {
         const admin = createSquadSupabaseAdmin();
-        const mesFim = `${String(Number(monthPrefix.split("-")[0])).padStart(4, "0")}-${String(Number(monthPrefix.split("-")[1]) + 1).padStart(2, "0")}-01`;
+        const [anoStr, mesStr] = monthPrefix.split("-");
+        const mesNum = Number(mesStr);
+        const mesFim = mesNum === 12
+          ? `${Number(anoStr) + 1}-01-01`
+          : `${anoStr}-${String(mesNum + 1).padStart(2, "0")}-01`;
         return paginate((o, ps) =>
           admin
             .from("baserow_leads")
@@ -228,9 +216,9 @@ export async function GET(req: NextRequest) {
         const baserowLeads = baserowLeadsMap.get(emp) || 0;
         let leads: number;
         if (paidOnly) {
-          leads = baserowLeads > 0 ? baserowLeads : metaLeads;
+          leads = Math.max(baserowLeads > 0 ? baserowLeads : metaLeads, empMql);
         } else {
-          leads = baserowLeads > 0 ? baserowLeads : counts.mql;
+          leads = Math.max(baserowLeads > 0 ? baserowLeads : metaLeads, counts.mql);
         }
 
         // Funil por ad: distribuição proporcional por spend share dentro do empreendimento
@@ -415,8 +403,8 @@ export async function GET(req: NextRequest) {
     const totalSpendMonth = totalSpend;
     const totalLeadsMonth = totalLeads;
 
-    // Alerta de gasto por squad: se gasto >5% ou <5% do target (total/3)
-    const targetPerSquad = totalSpendMonth / 3;
+    // Alerta de gasto por squad: se gasto >5% ou <5% do target (total/squads)
+    const targetPerSquad = totalSpendMonth / SQUADS.length;
     if (targetPerSquad > 0) {
       for (const sq of squads) {
         const deviation = Math.abs(sq.totalSpendMonth - targetPerSquad) / targetPerSquad;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { T, SQUAD_COLORS } from "@/lib/constants";
 import type { OrcamentoData } from "@/lib/types";
 import { TH, cellStyle, cellRightStyle, DataSourceFooter } from "./ui";
@@ -307,9 +307,9 @@ export function OrcamentoView({ data, loading, onBudgetSave, lastUpdated, module
           </thead>
           <tbody>
             {data.squads.map((sq) => (
-              <>
+              <React.Fragment key={`sq-${sq.id}`}>
                 {/* Squad header row */}
-                <tr key={`sq-${sq.id}`} style={{ backgroundColor: T.cinza50 }}>
+                <tr style={{ backgroundColor: T.cinza50 }}>
                   <td style={{ ...cellStyle, fontWeight: 700 }}>
                     <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: SQUAD_COLORS[sq.id] || T.azul600, marginRight: "8px" }} />
                     {sq.name}
@@ -358,7 +358,7 @@ export function OrcamentoView({ data, loading, onBudgetSave, lastUpdated, module
                     </tr>
                   );
                 })}
-              </>
+              </React.Fragment>
             ))}
             {/* Total row */}
             <tr style={{ backgroundColor: T.fg }}>

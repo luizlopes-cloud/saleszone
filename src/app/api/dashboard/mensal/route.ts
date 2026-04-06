@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { paginate } from "@/lib/paginate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest) {
     // Fetch all daily counts in the full range (all tabs at once)
     // Must paginate — 6 months × ~30 days × ~11 empreendimentos = ~2000+ rows per tab
     const countsPromises = TABS.map((tab) =>
-      paginateQuery((offset, ps) =>
+      paginate((offset, ps) =>
         supabase
           .from("squad_daily_counts")
           .select("date, count")
@@ -149,20 +150,4 @@ export async function GET(req: NextRequest) {
       { status: 500 },
     );
   }
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function paginateQuery(buildQuery: (offset: number, ps: number) => any): Promise<any[]> {
-  const rows: unknown[] = [];
-  let offset = 0;
-  const PS = 1000;
-  while (true) {
-    const { data, error } = await buildQuery(offset, PS);
-    if (error) throw new Error(`Supabase: ${error.message}`);
-    if (!data || data.length === 0) break;
-    rows.push(...data);
-    if (data.length < PS) break;
-    offset += PS;
-  }
-  return rows;
 }

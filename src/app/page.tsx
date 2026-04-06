@@ -33,7 +33,7 @@ class ViewErrorBoundary extends React.Component<
   }
 }
 import { getModuleConfig, DEFAULT_MODULE } from "@/lib/modules";
-import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, LostsData, RatioHistoryData, UserRole } from "@/lib/types";
+import type { TabKey, MediaFilter, AcompanhamentoData, AlinhamentoData, CampanhasData, RegrasMqlData, OciosidadeData, PresalesData, FunilData, MisalignedDealsData, PlanejamentoData, OrcamentoData, PerformanceData, BaselineData, DiagVendasData, ForecastData, LeadtimeData, AvaliacoesData, LostsData, RatioHistoryData, UserRole, NoShowData, GeralData } from "@/lib/types";
 import { createClient } from "@/lib/supabase/client";
 import { Header } from "@/components/dashboard/header";
 import { AcompanhamentoView } from "@/components/dashboard/acompanhamento-view";
@@ -60,6 +60,10 @@ import { ExploradorView } from "@/components/dashboard/explorador-view";
 import { OtimizacaoView } from "@/components/dashboard/otimizacao-view";
 import SquadAtividadesView from "@/components/dashboard/squad-atividades-view";
 import { MensalView } from "@/components/dashboard/mensal-view";
+import { NoShowView } from "@/components/dashboard/noshow-view";
+import { ResultadosSZSView } from "@/components/dashboard/resultados-szs-view";
+import { ResultadosMKTPView } from "@/components/dashboard/resultados-mktp-view";
+import { GeralView } from "@/components/dashboard/geral-view";
 
 export default function Dashboard() {
   const router = useRouter();
@@ -98,8 +102,12 @@ export default function Dashboard() {
   const [planejData, setPlanejData] = useState<PlanejamentoData | null>(null);
   const [orcData, setOrcData] = useState<OrcamentoData | null>(null);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("paid");
+<<<<<<< HEAD
   const [regiaoFilter, setRegiaoFilter] = useState<string | null>(null); // SZS region filter: "Salvador", "São Paulo", "Florianópolis", "Outros", or null for all
   const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid">("all");
+=======
+  const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao" | "sao-paulo" | "salvador" | "florianopolis" | "outros">("all");
+>>>>>>> upstream/main
   const [perfData, setPerfData] = useState<PerformanceData | null>(null);
   const [perfDays, setPerfDays] = useState(90);
   const [baselineData, setBaselineData] = useState<BaselineData | null>(null);
@@ -116,8 +124,17 @@ export default function Dashboard() {
     d.setDate(d.getDate() - 1);
     return d.toISOString().split("T")[0];
   });
+  const [noShowData, setNoShowData] = useState<NoShowData | null>(null);
+  const [noShowDays, setNoShowDays] = useState(30);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [mensalData, setMensalData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [resultadosSZSData, setResultadosSZSData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [resultadosMKTPData, setResultadosMKTPData] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [resultadosDecorData, setResultadosDecorData] = useState<any>(null);
+  const [geralData, setGeralData] = useState<GeralData | null>(null);
   const [ratioData, setRatioData] = useState<RatioHistoryData | null>(null);
   const [ratioDays, setRatioDays] = useState(90);
   const [syncWarning, setSyncWarning] = useState<string | null>(null);
@@ -166,7 +183,10 @@ export default function Dashboard() {
   const fetchAcomp = useCallback(async (tab: TabKey, filter: string = "all") => {
     setLoading(true);
     try {
-      const params = filter !== "all" ? `?tab=${tab}&filter=${filter}` : `?tab=${tab}`;
+      const isSZS = moduleConfig.id === "szs";
+      const cityFilters = ["sao-paulo", "salvador", "florianopolis", "outros"];
+      const paramKey = isSZS && cityFilters.includes(filter) ? "city" : "filter";
+      const params = filter !== "all" ? `?tab=${tab}&${paramKey}=${filter}` : `?tab=${tab}`;
       const res = await fetch(`${moduleConfig.apiBase}${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -384,6 +404,19 @@ export default function Dashboard() {
     }
   }, []);
 
+  const fetchNoShow = useCallback(async (days: number = 30) => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/dashboard/noshow?days=${days}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setNoShowData(await res.json());
+    } catch (err) {
+      console.error("Fetch noshow error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const fetchMensal = useCallback(async () => {
     setLoading(true);
     try {
@@ -396,6 +429,62 @@ export default function Dashboard() {
       setLoading(false);
     }
   }, [moduleConfig.apiBase]);
+
+  const fetchResultadosSZS = useCallback(async (cityFilter?: string) => {
+    setLoading(true);
+    try {
+      const params = cityFilter && cityFilter !== "all" ? `?city=${cityFilter}` : "";
+      const res = await fetch(`/api/szs/resultados${params}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setResultadosSZSData(await res.json());
+    } catch (err) {
+      console.error("Fetch resultados SZS error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchResultadosMKTP = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/mktp/resultados`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setResultadosMKTPData(data);
+    } catch (err) {
+      console.error("Fetch resultados MKTP error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchResultadosDecor = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/decor/resultados`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setResultadosDecorData(data);
+    } catch (err) {
+      console.error("Fetch resultados Decor error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const fetchGeral = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/dashboard/geral");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setGeralData(data);
+    } catch (err) {
+      console.error("Fetch geral error:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   const fetchRatios = useCallback(async (days: number = 90) => {
     try {
@@ -484,8 +573,18 @@ export default function Dashboard() {
       fetchAvaliacoes(avaliacoesDays);
     } else if ((mainView === "losts-prevendas" || mainView === "losts-vendas") && !lostsData) {
       fetchLosts(lostsPeriod, lostsCustomDate);
+    } else if (mainView === "noshow" && !noShowData) {
+      fetchNoShow(noShowDays);
     } else if (mainView === "mensal" && !mensalData) {
       fetchMensal();
+    } else if (mainView === "resultados-szs" && !resultadosSZSData) {
+      fetchResultadosSZS();
+    } else if (mainView === "resultados-mktp" && !resultadosMKTPData) {
+      fetchResultadosMKTP();
+    } else if (mainView === "resultados-decor" && !resultadosDecorData) {
+      fetchResultadosDecor();
+    } else if (mainView === "geral" && !geralData) {
+      fetchGeral();
     }
   }, [activeTab, mainView, hydrated]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -494,6 +593,7 @@ export default function Dashboard() {
     setActiveModule(modId);
     localStorage.setItem("activeModule", modId);
     clearAllCaches();
+    setMainView("acompanhamento");
   };
 
   const clearAllCaches = () => {
@@ -514,8 +614,13 @@ export default function Dashboard() {
     setLeadtimeData(null);
     setAvaliacoesData(null);
     setLostsData(null);
+    setNoShowData(null);
     setMensalData(null);
     setRatioData(null);
+    setResultadosSZSData(null);
+    setResultadosMKTPData(null);
+    setResultadosDecorData(null);
+    setGeralData(null);
   };
 
   const fetchCurrentView = async () => {
@@ -536,7 +641,9 @@ export default function Dashboard() {
     else if (mainView === "leadtime") await fetchLeadtime(leadtimeDays);
     else if (mainView === "avaliacoes") await fetchAvaliacoes(avaliacoesDays);
     else if (mainView === "losts-prevendas" || mainView === "losts-vendas") await fetchLosts(lostsPeriod, lostsCustomDate);
+    else if (mainView === "noshow") await fetchNoShow(noShowDays);
     else if (mainView === "mensal") await fetchMensal();
+    else if (mainView === "geral") await fetchGeral();
   };
 
   const handleRefresh = async () => {
@@ -660,8 +767,8 @@ export default function Dashboard() {
         {mainView === "forecast" && <ForecastView data={forecastData} loading={loading} lastUpdated={lastUpdated} />}
         {mainView === "leadtime" && <LeadtimeView data={leadtimeData} loading={loading} daysBack={leadtimeDays} onDaysChange={(d) => { setLeadtimeDays(d); setLeadtimeData(null); fetchLeadtime(d); }} lastUpdated={lastUpdated} />}
         {mainView === "avaliacoes" && <AvaliacoesView data={avaliacoesData} loading={loading} daysBack={avaliacoesDays} onDaysChange={(d) => { setAvaliacoesDays(d); setAvaliacoesData(null); fetchAvaliacoes(d); }} lastUpdated={lastUpdated} />}
-        {mainView === "otimizacao" && <OtimizacaoView />}
-        {mainView === "explorador" && <ExploradorView />}
+        {mainView === "otimizacao" && <OtimizacaoView moduleId={activeModule} />}
+        {mainView === "explorador" && <ExploradorView moduleId={activeModule} />}
         {(mainView === "losts-prevendas" || mainView === "losts-vendas") && (
           <LostsView
             data={lostsData}
@@ -674,9 +781,42 @@ export default function Dashboard() {
             moduleConfig={moduleConfig}
           />
         )}
+        {mainView === "noshow" && (
+          <NoShowView
+            data={noShowData}
+            loading={loading}
+            lastUpdated={lastUpdated}
+            days={noShowDays}
+            onDaysChange={(d) => { setNoShowDays(d); setNoShowData(null); fetchNoShow(d); }}
+          />
+        )}
         {mainView === "backlog" && <BacklogView />}
         {mainView === "admin" && <AdminView userRole={userRole} />}
         {mainView === "mensal" && <MensalView data={mensalData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "geral" && <GeralView data={geralData} loading={loading} lastUpdated={lastUpdated} />}
+        {mainView === "resultados-szs" && (
+          <ResultadosSZSView
+            data={resultadosSZSData}
+            loading={loading}
+            lastUpdated={lastUpdated}
+            cityFilter={acompFilter}
+            onCityChange={(city: string) => { setAcompFilter(city as any); setResultadosSZSData(null); fetchResultadosSZS(city); }}
+          />
+        )}
+        {mainView === "resultados-mktp" && (
+          <ResultadosMKTPView
+            data={resultadosMKTPData}
+            loading={loading}
+            lastUpdated={lastUpdated}
+          />
+        )}
+        {mainView === "resultados-decor" && (
+          <ResultadosMKTPView
+            data={resultadosDecorData}
+            loading={loading}
+            lastUpdated={lastUpdated}
+          />
+        )}
         {mainView === "squad-atividades" && <SquadAtividadesView pipelineSlug={moduleConfig.id} dateFrom="" dateTo="" />}
         {mainView === "venda" && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>

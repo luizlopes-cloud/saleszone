@@ -38,6 +38,9 @@ scripts/**/logs/*.log
 scripts/**/snapshots/*.json
 scripts/**/outputs/
 
+# supabase CLI state
+supabase/.temp/
+
 # vercel
 .vercel
 

@@ -225,9 +225,9 @@ export async function queryActivityCounts(
         AND ${typeFilter}
       GROUP BY user_id, date_format(due_date, '%Y-%m-%d')
     `),
-    // Contagem por user + hora (da marked_as_done_time)
+    // Contagem por user + hora (da marked_as_done_time, convertida para São Paulo UTC-3)
     nektQuery(`
-      SELECT user_id, hour(marked_as_done_time) as hora, COUNT(*) as cnt
+      SELECT user_id, hour(marked_as_done_time - interval '3' hour) as hora, COUNT(*) as cnt
       FROM "nekt_trusted"."pipedrive_szs_activities"
       WHERE done = true
         AND due_date >= TIMESTAMP '${startDate}'
@@ -235,7 +235,7 @@ export async function queryActivityCounts(
         AND ${userFilter}
         AND ${typeFilter}
         AND marked_as_done_time IS NOT NULL
-      GROUP BY user_id, hour(marked_as_done_time)
+      GROUP BY user_id, hour(marked_as_done_time - interval '3' hour)
     `),
   ])
 

@@ -30,7 +30,7 @@ function rowMinMax(daily: number[]): { min: number; max: number } {
   return { min: Math.min(...nonZero), max: Math.max(...nonZero) };
 }
 
-type AcompFilter = "all" | "marketing" | "paid";
+export type AcompFilter = "all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao" | "sao-paulo" | "salvador" | "florianopolis" | "outros";
 
 interface Props {
   data: AcompanhamentoData | null;
@@ -288,10 +288,17 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
               border: `1px solid ${T.border}`,
             }}
           >
-            {([
+            {(isSZS ? [
+              { key: "all" as AcompFilter, label: "Geral" },
+              { key: "sao-paulo" as AcompFilter, label: "São Paulo" },
+              { key: "salvador" as AcompFilter, label: "Salvador" },
+              { key: "florianopolis" as AcompFilter, label: "Florianópolis" },
+              { key: "outros" as AcompFilter, label: "Outros" },
+            ] : [
               { key: "all" as AcompFilter, label: "Geral" },
               { key: "marketing" as AcompFilter, label: "Marketing" },
               { key: "paid" as AcompFilter, label: "Mídia Paga" },
+              { key: "ctwa" as AcompFilter, label: "CTWA" },
             ]).map((opt) => (
               <button
                 key={opt.key}
@@ -535,7 +542,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
                 })()}
               </tr>
               <tr style={{ backgroundColor: T.cinza50 }}>
-                <TH w={120}>{isSZS ? "Canal" : "Squad"}</TH>
+                <TH w={120}>Squad</TH>
                 {showTeamCols ? (
                   <>
                     <TH w={90}>
@@ -643,8 +650,8 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
                       <td style={{ ...cellStyle, color: T.cinza700 }}>
                         <div style={{ display: "flex", gap: "3px", alignItems: "center" }}>
                           <Tag color={clr}>{sq.marketing}</Tag>
-                          <Tag color={T.cinza600}>{sq.preVenda.split(" ")[0]}</Tag>
-                          <Tag color={T.cinza600}>{sq.venda.split(" ")[0]}</Tag>
+                          <Tag color={T.cinza600}>{(() => { const p = sq.preVenda.split(" "); return p.length > 1 ? p[0] + " " + p[p.length - 1][0] + "." : p[0]; })()}</Tag>
+                          <Tag color={T.cinza600}>{(() => { const p = sq.venda.split(" "); return p.length > 1 ? p[0] + " " + p[p.length - 1][0] + "." : p[0]; })()}</Tag>
                         </div>
                       </td>
                     )}
@@ -753,7 +760,7 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
           {Object.entries(SQUAD_COLORS).map(([n, cc]) => (
             <div key={n} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
               <span style={{ width: "7px", height: "7px", borderRadius: "9999px", backgroundColor: cc }} />
-              <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>{isSZS ? "Canal" : "Squad"} {n}</span>
+              <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>Squad {n}</span>
             </div>
           ))}
         </div>

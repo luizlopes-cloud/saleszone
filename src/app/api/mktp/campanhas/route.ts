@@ -132,7 +132,8 @@ export async function GET(req: NextRequest) {
         empMap.get(key)!.push(ad);
       }
 
-      const empreendimentos: CampanhasEmpSummary[] = sq.empreendimentos.map((emp) => {
+      const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...empMap.keys()].sort();
+      const empreendimentos: CampanhasEmpSummary[] = emps.map((emp) => {
         const empAds = empMap.get(emp) || [];
         const spend = empAds.reduce((s, r) => s + Number(r.spend_month || 0), 0);
         const impressions = empAds.reduce((s, r) => s + (r.impressions || 0), 0);

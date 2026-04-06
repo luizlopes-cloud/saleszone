@@ -9,11 +9,9 @@ const JORNADA_MIN = 480; // 8h úteis
 
 // Squad mapping by closer name
 const CLOSER_SQUADS: Record<string, number> = {
-  laura: 1,
-  camila: 2,
+  priscila: 1,
   filipe: 2,
   luana: 3,
-  priscila: 3,
 };
 
 function getSquadId(name: string): number {

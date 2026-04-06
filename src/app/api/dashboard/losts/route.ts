@@ -4,8 +4,9 @@ import type { LostsData, LostDealRow, LostAlert, LostsSummary, LostsPeriod } fro
 export const dynamic = "force-dynamic";
 
 /** Direct REST API for monitor tables (jp-rambo project) */
-const MONITOR_REST = "https://iobxudcyihqfdwiggohz.supabase.co/rest/v1";
-const MONITOR_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvYnh1ZGN5aWhxZmR3aWdnb2h6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMzNTE4NDMsImV4cCI6MjA4ODkyNzg0M30.BelWphFGytC583TK2Iunmf_Ah__yR-d7N_823OGd9j8";
+const MONITOR_REST = process.env.MONITOR_SUPABASE_URL || "https://iobxudcyihqfdwiggohz.supabase.co/rest/v1";
+const MONITOR_KEY = process.env.MONITOR_SUPABASE_KEY || "";
+if (!MONITOR_KEY) console.error("[losts] MONITOR_SUPABASE_KEY not set — requests will fail with 401");
 
 const HEADERS = {
   apikey: MONITOR_KEY,

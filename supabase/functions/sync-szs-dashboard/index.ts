@@ -18,8 +18,9 @@ const FIELD_REUNIAO = "bfafc352c5c6f2edbaa41bf6d1c6daa825fc9c16";
 // Canal group mapping: groups deals by channel for SZS module
 const CANAL_GROUPS: Record<string, string> = {
   "12": "Marketing",
-  "582": "Parceiros",   // Indicação de Corretor
-  "583": "Parceiros",   // Indicação de Franquia
+  "582": "Ind. Corretor",
+  "583": "Ind. Franquia",
+  "2876": "Ind. Outros Parceiros",
   "1748": "Expansão",
   "3189": "Spots",       // Spot Seazone
   "4551": "Mônica",
@@ -487,6 +488,7 @@ function countDeals(
   for (const deal of deals) {
     // Filter to SZS pipeline only (/deals endpoint returns ALL pipelines)
     if (deal.pipeline_id !== PIPELINE_ID) continue;
+    if (String(deal.lost_reason || "").toLowerCase() === "duplicado/erro") continue;
     mkt++;
     const canalGroup = getCanalGroup(deal);
     const emp = getCidade(deal);
@@ -795,7 +797,9 @@ async function syncMetas(supabase: any) {
 
   // Save daily snapshot to szs_ratios_daily (global + per-canal_group)
   const CANAL_ID_MAP: Record<string, number> = {
-    "Marketing": 1, "Parceiros": 2, "Expansão": 3, "Spots": 4, "Mônica": 5, "Outros": 6,
+    "Marketing": 1,
+    "Ind. Corretor": 2, "Ind. Franquia": 2, "Ind. Outros Parceiros": 2, "Parceiros": 2,
+    "Expansão": 3, "Spots": 4, "Mônica": 5, "Outros": 6,
   };
   const canalCounts90d: Record<number, Record<Tab, number>> = {};
   for (const cId of Object.values(CANAL_ID_MAP)) {
@@ -889,6 +893,7 @@ async function getMaxStageReached(apiToken: string, dealId: number, currentOrder
 
 // Count deal into monthly map based on max stage reached
 function countDealByStage(deal: any, maxOrder: number, monthly: Map<string, number>, startDate: string, endDate: string) {
+  if (String(deal.lost_reason || "").toLowerCase() === "duplicado/erro") return;
   const addTime = deal.add_time;
   if (!addTime) return;
   const day = addTime.substring(0, 10);
@@ -1074,6 +1079,7 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
 
   function countDeal(deal: any) {
     if (deal.pipeline_id !== PIPELINE_ID) return;
+    if (String(deal.lost_reason || "").toLowerCase() === "duplicado/erro") return;
     const canalGroup = getCanalGroup(deal);
     const emp = getCidade(deal);
     const bairro = getBairro(deal);
@@ -1306,6 +1312,46 @@ Deno.serve(async (req) => {
         const alignment = await syncAlignment(apiToken, supabase);
         const metas = await syncMetas(supabase);
         result = { daily, won, alignment, metas };
+        break;
+      }
+      case "snapshot": {
+        // Daily snapshot of open deals by canal_group and stage
+        const today = new Date().toISOString().substring(0, 10);
+        const snapCounts: Record<string, { total: number; mql: number; sql: number; opp: number; won: number; ag_dados: number; contrato: number }> = {};
+        let snapStart = 0;
+        let snapTotal = 0;
+        while (true) {
+          const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, { limit: "500", start: String(snapStart) });
+          if (!res.data || res.data.length === 0) break;
+          for (const deal of res.data) {
+            if (deal.pipeline_id !== PIPELINE_ID) continue;
+            if (String(deal.lost_reason || "").toLowerCase() === "duplicado/erro") continue;
+            const cg = getCanalGroup(deal);
+            if (!snapCounts[cg]) snapCounts[cg] = { total: 0, mql: 0, sql: 0, opp: 0, won: 0, ag_dados: 0, contrato: 0 };
+            const c = snapCounts[cg];
+            const so = STAGE_ORDER[deal.stage_id] || 0;
+            c.total++;
+            c.mql++;
+            if (so >= SQL_MIN_ORDER) c.sql++;
+            if (so >= OPP_MIN_ORDER) c.opp++;
+            if (so === 11) c.ag_dados++;
+            if (so === 12) c.contrato++;
+            snapTotal++;
+          }
+          if (!res.additional_data?.pagination?.more_items_in_collection) break;
+          snapStart += 500;
+        }
+        // Upsert rows
+        const snapRows = Object.entries(snapCounts).map(([canal_group, c]) => ({
+          date: today, canal_group, total_open: c.total, mql: c.mql, sql_count: c.sql,
+          opp: c.opp, won: c.won, ag_dados: c.ag_dados, contrato: c.contrato,
+          synced_at: new Date().toISOString(),
+        }));
+        if (snapRows.length > 0) {
+          const { error: snapErr } = await supabase.from("szs_open_snapshots").upsert(snapRows, { onConflict: "date,canal_group" });
+          if (snapErr) console.error("Snapshot upsert error:", snapErr.message);
+        }
+        result = { date: today, groups: snapRows.length, total: snapTotal };
         break;
       }
       default:

@@ -125,7 +125,6 @@ async function fetchActivitiesForUser(userId: number, token: string, sinceDate: 
     user_id: String(userId),
     done: "1",
     start_date: sinceDate.slice(0, 10),
-    type: "call",
   });
 }
 

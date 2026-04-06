@@ -18,11 +18,13 @@ function matchOwner(colName: string, ownerName: string): boolean {
 }
 
 // Build map: empreendimento → { correctPV, correctVIndices, squadId }
-function buildSquadMap() {
+// When sq.empreendimentos is empty, map is populated lazily from DB data
+function buildSquadMap(dbEmpreendimentos?: Set<string>) {
   const map = new Map<string, { correctPV: string; correctVIndices: number[]; squadId: number }>();
   for (const sq of mc.squads) {
     const vIndices = mc.squadCloserMap[sq.id] || [];
-    for (const emp of sq.empreendimentos) {
+    const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...(dbEmpreendimentos || [])];
+    for (const emp of emps) {
       map.set(emp, { correctPV: sq.preVenda, correctVIndices: vIndices, squadId: sq.id });
     }
   }
@@ -48,7 +50,13 @@ export async function GET() {
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    const squadMap = buildSquadMap();
+    // Collect unique empreendimentos from DB data for dynamic discovery
+    const dbEmps = new Set<string>();
+    for (const deal of deals || []) {
+      if (deal.empreendimento) dbEmps.add(deal.empreendimento);
+    }
+
+    const squadMap = buildSquadMap(dbEmps);
 
     // Group misaligned deals by person (PV or V column name)
     const byPerson = new Map<string, { role: "pv" | "v"; deals: MisalignedDeal[] }>();
@@ -76,18 +84,22 @@ export async function GET() {
         link: `https://${PIPEDRIVE_DOMAIN}/deal/${deal.deal_id}`,
       };
 
-      // Check PV misalignment
-      if (matchedPV && !matchOwner(info.correctPV, deal.owner_name)) {
-        if (!byPerson.has(matchedPV)) byPerson.set(matchedPV, { role: "pv", deals: [] });
-        byPerson.get(matchedPV)!.deals.push(dealInfo);
+      // Check PV misalignment (only when multiple squads — single squad has no cross-assignment)
+      if (mc.squads.length > 1) {
+        if (matchedPV && !matchOwner(info.correctPV, deal.owner_name)) {
+          if (!byPerson.has(matchedPV)) byPerson.set(matchedPV, { role: "pv", deals: [] });
+          byPerson.get(matchedPV)!.deals.push(dealInfo);
+        }
       }
 
-      // Check V misalignment
-      if (matchedV) {
-        const vIdx = V_COLS.indexOf(matchedV);
-        if (!info.correctVIndices.includes(vIdx)) {
-          if (!byPerson.has(matchedV)) byPerson.set(matchedV, { role: "v", deals: [] });
-          byPerson.get(matchedV)!.deals.push(dealInfo);
+      // Check V misalignment (only when multiple squads)
+      if (mc.squads.length > 1) {
+        if (matchedV) {
+          const vIdx = V_COLS.indexOf(matchedV);
+          if (!info.correctVIndices.includes(vIdx)) {
+            if (!byPerson.has(matchedV)) byPerson.set(matchedV, { role: "v", deals: [] });
+            byPerson.get(matchedV)!.deals.push(dealInfo);
+          }
         }
       }
     }

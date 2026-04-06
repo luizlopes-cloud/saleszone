@@ -46,9 +46,6 @@ export const PRESELLER_RAMAIS: Record<string, string> = {
 }
 
 export const CLOSER_RAMAIS: Record<string, string> = {
-  'Laura Danieli': '1166',
-  'Camila Santos': '1147',
-  'Camila Silva Santos': '1147',
   'Filipe Padoveze': '1137',
   'Luana Schaikoski': '1080',
   'Priscila Perrone': '1119',
