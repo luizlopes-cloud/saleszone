@@ -54,7 +54,7 @@ function statusLabel(minutes: number | null): string {
   return "Lento";
 }
 
-const MAIN_PVS = ["Hellen Dias", "Jeniffer"];
+const MAIN_PVS = ["Hellen Dias", "Jeniffer Correa"];
 
 export function PresalesView({ data, loading, moduleConfig, lastUpdated }: Props) {
   if (loading && !data) {
@@ -121,7 +121,7 @@ export function PresalesView({ data, loading, moduleConfig, lastUpdated }: Props
       return 0;
     });
   }, [recentDeals, filtroPV, filtroDe, filtroAte, sortKey, sortDir]);
-  const pvOrder = ["Hellen Dias", "Jeniffer"];
+  const pvOrder = ["Hellen Dias", "Jeniffer Correa"];
   const mainPVs = pvOrder
     .map((n) => presellers.find((p) => p.name === n))
     .filter((p): p is PresellerSummary => p != null);
