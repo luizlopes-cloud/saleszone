@@ -39,7 +39,7 @@ const SZI_SQUADS: readonly SquadDef[] = [
     id: 2,
     name: "Squad 2",
     marketing: "Jean",
-    preVenda: "Jeniffer",
+    preVenda: "Jeniffer Correa",
     venda: "Filipe Padoveze",
     empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
   },
@@ -53,7 +53,7 @@ const SZI_CONFIG: ModuleConfig = {
   metaAdsAccountId: "act_205286032338340",
   squads: SZI_SQUADS,
   closers: ["Luana Schaikoski", "Filipe Padoveze"],
-  presellers: ["Hellen Dias", "Jeniffer"],
+  presellers: ["Hellen Dias", "Jeniffer Correa"],
   squadCloserMap: {
     1: [0],    // Luana Schaikoski
     2: [1],    // Filipe Padoveze

@@ -12,14 +12,14 @@ export const SQUADS = [
     id: 2,
     name: "Squad 2",
     marketing: "Jean",
-    preVenda: "Jeniffer",
+    preVenda: "Jeniffer Correa",
     venda: "Filipe Padoveze",
     empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
   },
 ] as const;
 
 // Pre-venda and Venda people for alignment view
-export const PV_COLS = ["Hellen Dias", "Jeniffer"];
+export const PV_COLS = ["Hellen Dias", "Jeniffer Correa"];
 export const V_COLS = ["Luana Schaikoski", "Filipe Padoveze"];
 
 // Squad → índices em V_COLS (quais closers pertencem a cada squad)

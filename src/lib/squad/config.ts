@@ -40,7 +40,7 @@ const SZI_SQUADS: Squad[] = [
   },
   {
     id: 2, name: 'Squad 2', color: '#F97316',
-    marketing: 'Jean', preVenda: ['Jeniffer'], venda: ['Filipe Padoveze'],
+    marketing: 'Jean', preVenda: ['Jeniffer Correa'], venda: ['Filipe Padoveze'],
     empreendimentos: ['Natal Spot', 'Novo Campeche Spot II', 'Caraguá Spot', 'Bonito Spot II'],
   },
 ]
