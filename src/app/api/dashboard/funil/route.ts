@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
       : `${yearStr}-${String(mesNum + 1).padStart(2, "0")}-01`;
 
     // Queries paralelas
-    const [metaRes, countsRes, stageSnapshotRes, dealsRes, baserowLeadsRes, paidDealsRes] = await Promise.all([
+    const [metaRes, countsRes, stageSnapshotRes, dealsRes, baserowLeadsRes, paidDealsRes, metasRes] = await Promise.all([
       // Meta Ads — spend_month/leads_month
       supabase
         .from("squad_meta_ads")
@@ -161,11 +161,17 @@ export async function GET(req: NextRequest) {
             .range(o, o + ps - 1),
         );
       })(),
+      // Metas do mês (squad_metas table)
+      supabase
+        .from("squad_metas")
+        .select("squad_id, tab, meta")
+        .eq("month", `${month}-01`),
     ]);
 
     if (metaRes.error) throw new Error(`Meta Ads query error: ${metaRes.error.message}`);
     if (countsRes.error) throw new Error(`Daily counts query error: ${countsRes.error.message}`);
     if (stageSnapshotRes.error) throw new Error(`Stage snapshot query error: ${stageSnapshotRes.error.message}`);
+    if (metasRes.error) console.warn(`Metas query warning: ${metasRes.error.message}`);
 
     // Agregar Meta Ads: max spend_month/leads_month por ad
     const adMax = new Map<string, { empreendimento: string; impressions: number; clicks: number; leads_month: number; spend_month: number }>();
@@ -306,7 +312,17 @@ export async function GET(req: NextRequest) {
     const allEmps = squads.flatMap((sq) => sq.empreendimentos);
     const grand = sumFunil(allEmps, "Total");
 
-    const result: FunilData = { month, squads, grand };
+    // Build metas object from squad_metas table
+    const metasObj: Record<string, Record<string, number>> = {};
+    if (metasRes.data) {
+      for (const m of metasRes.data) {
+        const squadName = SQUADS.find((s) => s.id === m.squad_id)?.name || `Squad ${m.squad_id}`;
+        if (!metasObj[squadName]) metasObj[squadName] = {};
+        metasObj[squadName][m.tab] = m.meta;
+      }
+    }
+
+    const result: FunilData = { month, squads, grand, metas: metasObj };
     return NextResponse.json(result);
   } catch (error) {
     console.error("Funil error:", error);

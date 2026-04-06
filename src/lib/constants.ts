@@ -3,23 +3,23 @@ export const SQUADS = [
   {
     id: 1,
     name: "Squad 1",
-    marketing: "Mari",
-    preVenda: "Luciana Patricio",
+    marketing: "Jean",
+    preVenda: "Hellen Dias",
     venda: "Luana Schaikoski",
-    empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot", "Jurerê Spot II", "Jurerê Spot III", "Vistas de Anitá II"],
+    empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II", "Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
   },
   {
     id: 2,
     name: "Squad 2",
     marketing: "Jean",
-    preVenda: "Natália Saramago",
+    preVenda: "Jeniffer Correa",
     venda: "Filipe Padoveze",
-    empreendimentos: ["Barra Grande Spot", "Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
+    empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
   },
 ] as const;
 
 // Pre-venda and Venda people for alignment view
-export const PV_COLS = ["Luciana Patricio", "Hellen Dias", "Natália Saramago"];
+export const PV_COLS = ["Hellen Dias", "Jeniffer Correa"];
 export const V_COLS = ["Luana Schaikoski", "Filipe Padoveze"];
 
 // Squad → índices em V_COLS (quais closers pertencem a cada squad)
@@ -87,6 +87,7 @@ export const MQL_PAGAMENTOS = [
 export const SQUAD_FROM_COMMERCIAL: Record<string, number> = {
   szi_01: 1,
   szi_02: 2,
+  szi_03: 3,
 };
 export const TAB_COLORS: Record<string, string> = {
   mql: T.azul600,

@@ -7,7 +7,6 @@ export interface SquadDef {
   preVenda: string;
   venda: string;
   empreendimentos: readonly string[];
-  canalIds?: readonly number[]; // SZS: canal IDs for squad grouping (Pipedrive canal field)
 }
 
 export interface ModuleConfig {
@@ -31,18 +30,18 @@ const SZI_SQUADS: readonly SquadDef[] = [
   {
     id: 1,
     name: "Squad 1",
-    marketing: "Mari",
-    preVenda: "Luciana Patricio",
+    marketing: "Jean",
+    preVenda: "Hellen Dias",
     venda: "Luana Schaikoski",
-    empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot", "Jurerê Spot II", "Jurerê Spot III", "Vistas de Anitá II"],
+    empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II", "Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
   },
   {
     id: 2,
     name: "Squad 2",
     marketing: "Jean",
-    preVenda: "Natália Saramago",
+    preVenda: "Jeniffer Correa",
     venda: "Filipe Padoveze",
-    empreendimentos: ["Barra Grande Spot", "Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
+    empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
   },
 ] as const;
 
@@ -54,7 +53,7 @@ const SZI_CONFIG: ModuleConfig = {
   metaAdsAccountId: "act_205286032338340",
   squads: SZI_SQUADS,
   closers: ["Luana Schaikoski", "Filipe Padoveze"],
-  presellers: ["Luciana Patricio", "Hellen Dias", "Natália Saramago"],
+  presellers: ["Hellen Dias", "Jeniffer Correa"],
   squadCloserMap: {
     1: [0],    // Luana Schaikoski
     2: [1],    // Filipe Padoveze
@@ -71,8 +70,8 @@ const MKTP_SQUADS: readonly SquadDef[] = [
     id: 1,
     name: "Marketplace",
     marketing: "Rodrigo Guirado",
-    preVenda: "Karoane Izabela Soares",  // multiple presellers, using first as squad representative
-    venda: "Nevine",
+    preVenda: "Karoane",  // multiple presellers, using first as squad representative
+    venda: "Nevine Saratt",
     empreendimentos: [], // TODO: populate with MKTP empreendimentos (all non-active/closed groups)
   },
 ] as const;
@@ -84,45 +83,26 @@ const MKTP_CONFIG: ModuleConfig = {
   pipelineId: 37,
   metaAdsAccountId: "act_799783985155825",
   squads: MKTP_SQUADS,
-  closers: ["Nevine", "Willian Miranda"],
-  presellers: ["Karoane Izabela Soares", "Karoline Borges"],
+  closers: ["Nevine Saratt", "Willian Miranda"],
+  presellers: ["Karoane", "Izabela Soares", "Karoline Borges"],
   squadCloserMap: {
-    1: [0, 1], // Nevine, Willian Miranda
+    1: [0, 1], // Nevine Saratt, Willian Miranda
   },
   tablePrefix: "mktp",
   apiBase: "/api/mktp",
   syncFunctions: ["mktp-dashboard-light", "mktp-meta-ads", "mktp-deals-light", "mktp-calendar", "mktp-presales"],
 };
 
-// --- SZS (Serviços) — 3 squads ---
+// --- SZS (Serviços) — single squad, no squad grouping ---
 
 const SZS_SQUADS: readonly SquadDef[] = [
   {
     id: 1,
-    name: "Squad 1",
-    marketing: "",
-    preVenda: "Joyce", // + Larissa Marques
-    venda: "Gabriela Lemos",
-    canalIds: [12], // Marketing
-    empreendimentos: [],
-  },
-  {
-    id: 2,
-    name: "Squad 2",
-    marketing: "",
-    preVenda: "Raynara Lopes",
-    venda: "Gabriela Branco",
-    canalIds: [582, 583], // Parceiros
-    empreendimentos: [],
-  },
-  {
-    id: 3,
-    name: "Squad 3",
-    marketing: "",
-    preVenda: "Raquel",
-    venda: "Giovanna de Araujo Zanchetta",
-    canalIds: [1748, 3189], // Expansão, Spots — Outros = fallback
-    empreendimentos: [],
+    name: "Serviços",
+    marketing: "Priscila",
+    preVenda: "Larissa Marques",
+    venda: "Maria Vitória",
+    empreendimentos: [], // SZS groups by cidade — discovered dynamically from DB data
   },
 ] as const;
 
@@ -133,40 +113,12 @@ const SZS_CONFIG: ModuleConfig = {
   pipelineId: 14,
   metaAdsAccountId: "act_721191188358261",
   squads: SZS_SQUADS,
-  closers: ["Gabriela Lemos", "Gabriela Branco", "Giovanna de Araujo Zanchetta"],
-  presellers: ["Joyce", "Larissa Marques", "Raynara Lopes", "Raquel"],
-  squadCloserMap: { 1: [0], 2: [1], 3: [2] },
+  closers: ["Maria Vitória", "Gabriela Branco", "Gabriela Lemos", "Samuel Barreto", "Giovanna Araujo"],
+  presellers: ["Larissa Marques", "Joyce Batista", "Adriano Raquel", "Raynara Lopes"],
+  squadCloserMap: { 1: [0, 1, 2, 3, 4] },
   tablePrefix: "szs",
   apiBase: "/api/szs",
   syncFunctions: ["szs-dashboard-light", "szs-meta-ads", "szs-deals-light", "szs-calendar", "szs-presales"],
-};
-
-// --- Decor — single squad, empreendimento grouping ---
-
-const DECOR_SQUADS: readonly SquadDef[] = [
-  {
-    id: 1,
-    name: "Decor",
-    marketing: "",
-    preVenda: "Rubia Lorena Santos",
-    venda: "Eduardo Albani",
-    empreendimentos: [],
-  },
-] as const;
-
-const DECOR_CONFIG: ModuleConfig = {
-  id: "decor",
-  label: "Decor",
-  shortLabel: "Decor",
-  pipelineId: 44,
-  metaAdsAccountId: "",
-  squads: DECOR_SQUADS,
-  closers: ["Eduardo Albani", "Carol Rosário"],
-  presellers: ["Rubia Lorena Santos"],
-  squadCloserMap: { 1: [0, 1] },
-  tablePrefix: "decor",
-  apiBase: "/api/decor",
-  syncFunctions: ["decor-presales"],
 };
 
 // --- Registry ---
@@ -175,7 +127,6 @@ export const MODULES: Record<string, ModuleConfig> = {
   szi: SZI_CONFIG,
   mktp: MKTP_CONFIG,
   szs: SZS_CONFIG,
-  decor: DECOR_CONFIG,
 };
 
 export const MODULE_IDS = Object.keys(MODULES);
