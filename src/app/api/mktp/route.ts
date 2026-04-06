@@ -8,6 +8,7 @@ import { generateDates } from "@/lib/dates";
 import type { TabKey, AcompanhamentoData, SquadData, MetaInfo } from "@/lib/types";
 import { paginate } from "@/lib/paginate";
 import { getMktpCanalName } from "@/lib/mktp-utils";
+import { getMetaMensal } from "@/lib/squad/metas-2026";
 
 const mc = getModuleConfig("mktp");
 
@@ -104,8 +105,6 @@ export async function GET(req: NextRequest) {
     const month = now.getMonth() + 1;
     const day = now.getDate();
     const totalDaysInMonth = new Date(year, month, 0).getDate();
-    // TODO: MKTP may have a different metas source than nekt_meta26_metas
-    const metaDateStr = `01/${String(month).padStart(2, "0")}/${year}`;
 
     const start90 = new Date(now);
     start90.setDate(start90.getDate() - 90);
@@ -133,22 +132,19 @@ export async function GET(req: NextRequest) {
         })()
       : null;
 
-    const [nektRes, counts90Res, filteredDeals90] = await Promise.all([
-      createSquadSupabaseAdmin()
-        .from("nekt_meta26_metas")
-        .select("won_mktp_meta_pago, won_mktp_meta_direto")
-        .eq("data", metaDateStr)
-        .single(),
+    const [counts90Res, filteredDeals90] = await Promise.all([
       supabase.from("mktp_daily_counts").select("tab, empreendimento, count").gte("date", startDate90).lte("date", endDate),
       filteredRatioPromise,
     ]);
 
+    // Metas hardcoded de metas-2026.ts (chave "marketplace"), índice 0-based
+    const month0 = month - 1;
+    const metaPago = getMetaMensal("marketplace", "Parceiros", month0);
+    const metaDireto = getMetaMensal("marketplace", "Diretas", month0);
+    const wonMetaTotal = hasFilter ? metaPago : metaPago + metaDireto;
+
     let metaInfo: MetaInfo | undefined;
-    const nektData = nektRes.data as { won_mktp_meta_pago: number; won_mktp_meta_direto: number } | null;
-    if (nektData) {
-      const metaPago = Number(nektData.won_mktp_meta_pago) || 0;
-      const metaDireto = Number(nektData.won_mktp_meta_direto) || 0;
-      const wonMetaTotal = hasFilter ? metaPago : metaPago + metaDireto;
+    if (wonMetaTotal > 0) {
       const wonPerCloser = wonMetaTotal / TOTAL_CLOSERS;
 
       // MKTP has 1 squad — all deals go to squad 1
