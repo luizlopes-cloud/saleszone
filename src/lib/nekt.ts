@@ -7,9 +7,21 @@ export interface NektQueryResult {
  * Executa uma query SQL na Nekt Data API e retorna os dados parseados.
  * Tabela: nekt_silver.ads_unificado
  */
+async function getNektApiKey(): Promise<string> {
+  if (process.env.NEKT_API_KEY) return process.env.NEKT_API_KEY
+  // Fallback: ler do Vault via service role (Vercel não tem env var)
+  const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (srvKey) {
+    const { createClient } = await import("@supabase/supabase-js")
+    const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, srvKey)
+    const { data } = await client.rpc("vault_read_secret", { secret_name: "NEKT_API_KEY" })
+    if (data) return data as string
+  }
+  throw new Error("NEKT_API_KEY não configurada (env nem vault)")
+}
+
 export async function queryNekt(sql: string): Promise<NektQueryResult> {
-  const apiKey = process.env.NEKT_API_KEY
-  if (!apiKey) throw new Error("NEKT_API_KEY não configurada")
+  const apiKey = await getNektApiKey()
 
   const queryRes = await fetch("https://api.nekt.ai/api/v1/sql-query/", {
     method: "POST",
@@ -111,6 +123,8 @@ function parseCSV(csv: string): NektQueryResult {
   return { columns, rows }
 }
 
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 export function buildFilteredSQL(filters: {
   campaign_name?: string
   vertical?: string
@@ -126,19 +140,25 @@ export function buildFilteredSQL(filters: {
   if (!filters.date_from) {
     conditions.push(`date >= CURRENT_DATE - INTERVAL '${windowDays}' DAY`)
   } else {
+    if (!DATE_RE.test(filters.date_from)) throw new Error(`Invalid date_from: ${filters.date_from}`)
     conditions.push(`date >= DATE '${filters.date_from}'`)
   }
 
   if (filters.date_to) {
+    if (!DATE_RE.test(filters.date_to)) throw new Error(`Invalid date_to: ${filters.date_to}`)
     conditions.push(`date <= DATE '${filters.date_to}'`)
   }
 
+  const SAFE_TEXT = /^[\w\s\-.:,/()&@#àáâãéêíóôõúçÀÁÂÃÉÊÍÓÔÕÚÇ]+$/;
+
   if (filters.campaign_name) {
+    if (!SAFE_TEXT.test(filters.campaign_name)) throw new Error(`Invalid campaign_name: ${filters.campaign_name}`)
     const escaped = filters.campaign_name.replace(/'/g, "''")
     conditions.push(`campaign_name LIKE '%${escaped}%'`)
   }
 
   if (filters.vertical) {
+    if (!SAFE_TEXT.test(filters.vertical)) throw new Error(`Invalid vertical: ${filters.vertical}`)
     const escaped = filters.vertical.replace(/'/g, "''")
     conditions.push(`vertical = '${escaped}'`)
   }
@@ -147,8 +167,8 @@ export function buildFilteredSQL(filters: {
   // Não filtramos por status no SQL
 
   if (filters.ad_id) {
-    const escaped = filters.ad_id.replace(/'/g, "''")
-    conditions.push(`ad_id = '${escaped}'`)
+    if (!/^\d+$/.test(filters.ad_id)) throw new Error(`Invalid ad_id: ${filters.ad_id}`)
+    conditions.push(`ad_id = '${filters.ad_id}'`)
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : ""

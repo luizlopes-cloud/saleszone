@@ -6,7 +6,7 @@ import type { OrcamentoData, OrcamentoSquadBreakdown, OrcamentoEmpBreakdown, Orc
 
 const mc = getModuleConfig("szs");
 
-const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Expansão", "Spots", "Outros"];
+const CANAL_GROUP_ORDER = ["Marketing", "Ind. Corretor", "Ind. Franquia", "Expansão", "Spots", "Mônica", "Outros"];
 
 export const dynamic = "force-dynamic";
 

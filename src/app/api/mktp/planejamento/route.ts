@@ -1,8 +1,11 @@
 // MKTP (Marketplace) module
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
+import { paginate } from "@/lib/paginate";
 import type { PlanejamentoData, PlanejamentoEmpRow, PlanejamentoMetrics } from "@/lib/types";
+import { getMktpCanalName } from "@/lib/mktp-utils";
 
 const mc = getModuleConfig("mktp");
 
@@ -39,14 +42,6 @@ function sumMetrics(rows: PlanejamentoMetrics[]): PlanejamentoMetrics {
   return buildMetrics(leads, mql, sql, opp, won, spend);
 }
 
-// Map empreendimento → squad id
-const EMP_TO_SQUAD = new Map<string, number>();
-for (const sq of mc.squads) {
-  for (const emp of sq.empreendimentos) {
-    EMP_TO_SQUAD.set(emp, sq.id);
-  }
-}
-
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -60,33 +55,66 @@ export async function GET(request: Request) {
       ? new Date(now.getTime() - daysBack * 86400000).toISOString().substring(0, 10)
       : null;
 
-    const rpcParams = daysBack !== 0
-      ? { months_back: 12, days_back: daysBack }
-      : { months_back: 12 };
-
     const histMetaQuery = supabase
       .from("mktp_meta_ads")
       .select("ad_id, empreendimento, leads_month, spend_month, snapshot_date")
       .lt("snapshot_date", startDate);
     if (metaCutoffDate) histMetaQuery.gte("snapshot_date", metaCutoffDate);
 
-    const [countsRes, curMetaRes, histMetaRes] = await Promise.all([
-      supabase.rpc("get_mktp_planejamento_counts", rpcParams),
-      supabase
-        .from("mktp_meta_ads")
-        .select("ad_id, empreendimento, leads_month, spend_month")
-        .gte("snapshot_date", startDate)
-        .range(0, 49999),
-      histMetaQuery.range(0, 49999),
+    // Query mktp_deals directly instead of RPC (get_mktp_planejamento_counts doesn't exist)
+    const admin = createSquadSupabaseAdmin();
+
+    const dealsCutoff = daysBack > 0
+      ? new Date(now.getTime() - daysBack * 86400000).toISOString().substring(0, 10)
+      : daysBack === 0
+        ? new Date(now.getFullYear(), now.getMonth() - 12, 1).toISOString().substring(0, 10)
+        : null; // daysBack === -1: no date filter
+
+    const [dealsData, curMetaData, histMetaData] = await Promise.all([
+      paginate((o, ps) => {
+        let q = admin.from("mktp_deals")
+          .select("empreendimento, canal, add_time, max_stage_order, status, lost_reason, won_time")
+          .not("empreendimento", "is", null);
+        if (dealsCutoff) q = q.gte("add_time", dealsCutoff);
+        return q.range(o, o + ps - 1);
+      }),
+      paginate((o, ps) =>
+        supabase
+          .from("mktp_meta_ads")
+          .select("ad_id, empreendimento, leads_month, spend_month")
+          .gte("snapshot_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      paginate((o, ps) => histMetaQuery.range(o, o + ps - 1)),
     ]);
 
-    if (countsRes.error) throw new Error(`RPC get_mktp_planejamento_counts: ${countsRes.error.message}`);
-    if (curMetaRes.error) throw new Error(`Current Meta Ads: ${curMetaRes.error.message}`);
-    if (histMetaRes.error) throw new Error(`Historical Meta Ads: ${histMetaRes.error.message}`);
+    // Compute counts by month/canal from deals (grouped by canal instead of empreendimento)
+    // Stage thresholds: MQL>=2, SQL>=5, OPP>=9
+    const rpcLikeData: Array<{ month: string; empreendimento: string; mql: number; sql: number; opp: number; won: number }> = [];
+    const canalMonthCounts = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
+    for (const d of dealsData) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const canal = getMktpCanalName(d.canal);
+      const month = (d.add_time || "").substring(0, 7);
+      if (!month) continue;
+      const key = `${canal}|${month}`;
+      if (!canalMonthCounts.has(key)) canalMonthCounts.set(key, { mql: 0, sql: 0, opp: 0, won: 0 });
+      const c = canalMonthCounts.get(key)!;
+      const mso = d.max_stage_order || 0;
+      if (mso >= 2) c.mql++;
+      if (mso >= 5) c.sql++;
+      if (mso >= 9) c.opp++;
+      if (d.status === "won") c.won++;
+    }
+    for (const [key, c] of canalMonthCounts) {
+      const [canal, month] = key.split("|");
+      rpcLikeData.push({ month, empreendimento: canal, ...c });
+    }
+    // paginate() already throws on error
 
     const curCounts = new Map<string, Record<string, number>>();
     const histByEmpMonth = new Map<string, Map<string, Record<string, number>>>();
-    for (const row of countsRes.data || []) {
+    for (const row of rpcLikeData) {
       if (row.month === curMonth) {
         curCounts.set(row.empreendimento, {
           mql: Number(row.mql) || 0,
@@ -113,69 +141,63 @@ export async function GET(request: Request) {
       histCounts.set(emp, total);
     }
 
-    const curAdMax = new Map<string, { empreendimento: string; leads_month: number; spend_month: number }>();
-    for (const row of curMetaRes.data || []) {
+    // Meta Ads data is keyed by empreendimento (spot) — aggregate into total
+    // since canal mapping is not available in mktp_meta_ads
+    const curAdMax = new Map<string, { leads_month: number; spend_month: number }>();
+    for (const row of curMetaData) {
       const cur = curAdMax.get(row.ad_id);
       if (!cur || (Number(row.spend_month) || 0) > cur.spend_month) {
         curAdMax.set(row.ad_id, {
-          empreendimento: row.empreendimento,
           leads_month: row.leads_month || 0,
           spend_month: Number(row.spend_month) || 0,
         });
       }
     }
+    // Aggregate all Meta Ads spend into "Marketing" canal (ads = paid media)
     const curMeta = new Map<string, { leads: number; spend: number }>();
+    let curMetaTotalLeads = 0, curMetaTotalSpend = 0;
     for (const ad of curAdMax.values()) {
-      const cur = curMeta.get(ad.empreendimento) || { leads: 0, spend: 0 };
-      cur.leads += ad.leads_month;
-      cur.spend += ad.spend_month;
-      curMeta.set(ad.empreendimento, cur);
+      curMetaTotalLeads += ad.leads_month;
+      curMetaTotalSpend += ad.spend_month;
+    }
+    if (curMetaTotalLeads > 0 || curMetaTotalSpend > 0) {
+      curMeta.set("Marketing", { leads: curMetaTotalLeads, spend: curMetaTotalSpend });
     }
 
-    const histMetaEmpMonth = new Map<string, Map<string, { leads: number; spend: number }>>();
-    for (const row of histMetaRes.data || []) {
+    // Historical Meta Ads: aggregate all spots into "Marketing" canal
+    const histAdMonthMax = new Map<string, { leads: number; spend: number }>();
+    for (const row of histMetaData) {
       const month = (row.snapshot_date as string).substring(0, 7);
-      const emp = row.empreendimento;
       const adMonthKey = `${row.ad_id}|${month}`;
-
-      if (!histMetaEmpMonth.has(adMonthKey)) {
-        histMetaEmpMonth.set(adMonthKey, new Map([[emp, { leads: row.leads_month || 0, spend: Number(row.spend_month) || 0 }]]));
-      } else {
-        const existing = histMetaEmpMonth.get(adMonthKey)!.get(emp);
-        if (!existing || (Number(row.spend_month) || 0) > existing.spend) {
-          histMetaEmpMonth.get(adMonthKey)!.set(emp, { leads: row.leads_month || 0, spend: Number(row.spend_month) || 0 });
-        }
+      const existing = histAdMonthMax.get(adMonthKey);
+      const spend = Number(row.spend_month) || 0;
+      const leads = row.leads_month || 0;
+      if (!existing || spend > existing.spend) {
+        histAdMonthMax.set(adMonthKey, { leads: Math.max(leads, existing?.leads || 0), spend });
+      } else if (existing) {
+        existing.leads = Math.max(existing.leads, leads);
       }
     }
-    const histMetaByEmp = new Map<string, { leads: number; spend: number }>();
-    for (const [, empMap] of histMetaEmpMonth) {
-      for (const [emp, vals] of empMap) {
-        if (!histMetaByEmp.has(emp)) {
-          histMetaByEmp.set(emp, { leads: 0, spend: 0 });
-        }
-        const agg = histMetaByEmp.get(emp)!;
-        agg.leads += vals.leads;
-        agg.spend += vals.spend;
-      }
+    let histMetaTotalLeads = 0, histMetaTotalSpend = 0;
+    for (const vals of histAdMonthMax.values()) {
+      histMetaTotalLeads += vals.leads;
+      histMetaTotalSpend += vals.spend;
     }
     const histMeta = new Map<string, { leads: number; spend: number }>();
-    for (const [emp, agg] of histMetaByEmp) {
-      histMeta.set(emp, {
-        leads: agg.leads,
-        spend: Math.round(agg.spend * 100) / 100,
-      });
+    if (histMetaTotalLeads > 0 || histMetaTotalSpend > 0) {
+      histMeta.set("Marketing", { leads: histMetaTotalLeads, spend: Math.round(histMetaTotalSpend * 100) / 100 });
     }
 
-    const allEmps = new Set<string>();
-    for (const sq of mc.squads) for (const emp of sq.empreendimentos) allEmps.add(emp);
-    for (const emp of curCounts.keys()) allEmps.add(emp);
-    for (const emp of histCounts.keys()) allEmps.add(emp);
-    for (const emp of curMeta.keys()) allEmps.add(emp);
-    for (const emp of histMeta.keys()) allEmps.add(emp);
+    // Collect all canal names from deals and meta data
+    const allCanals = new Set<string>();
+    for (const canal of curCounts.keys()) allCanals.add(canal);
+    for (const canal of histCounts.keys()) allCanals.add(canal);
+    for (const canal of curMeta.keys()) allCanals.add(canal);
+    for (const canal of histMeta.keys()) allCanals.add(canal);
 
     const empRows: PlanejamentoEmpRow[] = [];
-    for (const emp of allEmps) {
-      const squadId = EMP_TO_SQUAD.get(emp) || 0;
+    for (const emp of allCanals) {
+      const squadId = 0;
       const cc = curCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
       const cm = curMeta.get(emp) || { leads: 0, spend: 0 };
       const hc = histCounts.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
@@ -199,7 +221,7 @@ export async function GET(request: Request) {
       empRows.push({ emp, squadId, current, historical, efficiency });
     }
 
-    empRows.sort((a, b) => a.squadId - b.squadId || a.emp.localeCompare(b.emp));
+    empRows.sort((a, b) => a.emp.localeCompare(b.emp));
 
     const result: PlanejamentoData = {
       month: curMonth,

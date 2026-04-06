@@ -95,6 +95,10 @@ function evaluateStatus(
   const cp = cfg.checkpoints
   const s = cfg.scoring
 
+  // Regra 0 — Spend Cap (prioridade máxima)
+  const spendCap = cfg.spendCap ?? Infinity
+  if (r.spend >= spendCap && r.won === 0) return "PAUSAR"
+
   if (r.won > 0 && isFinite(cost_per_won)) {
     if (cost_per_won <= s.won_meta) return "MANTER"
     if (cost_per_won <= s.won_teto) return "MONITORAR"
@@ -138,12 +142,7 @@ function evaluateStatus(
     return "MONITORAR"
   }
 
-  if (r.mql > 0) {
-    const costOk = cost_per_mql <= s.mql_meta
-    if (costOk) return "MONITORAR"
-    return "PAUSAR"
-  }
-
+  // Day OPP+ sem OPP → PAUSAR (checkpoint expirou)
   return "PAUSAR"
 }
 
@@ -245,10 +244,24 @@ export function computePerformanceRolling(rows: NektRow[]): AdPerformance[] {
       cfg
     )
 
-    let ad_status: AdStatus = original_status
-    if (tendencia !== "SEM_DADOS" && original_status !== "AGUARDAR") {
+    // Spend cap absoluto
+    const spendCap = cfg.spendCap ?? Infinity
+    const pausedBySpendCap = spend_total >= spendCap && won_total === 0
+
+    let ad_status: AdStatus = pausedBySpendCap ? "PAUSAR" : original_status
+    if (!pausedBySpendCap && tendencia !== "SEM_DADOS" && original_status !== "AGUARDAR") {
       if (original_status === "MANTER" && tendencia === "DEGRADANDO") ad_status = "MONITORAR"
       else if (original_status === "PAUSAR" && tendencia === "MELHORANDO") ad_status = "MONITORAR"
+    }
+
+    // Fase pós-OPP: se rolling MQL/SQL continua caro, PAUSAR
+    if (!pausedBySpendCap && ad_status !== "PAUSAR" && base.dias_ativos >= cfg.checkpoints.opp) {
+      const sql_7d = sumKey(rows7d, "sql")
+      const costMql7d = mql_7d > 0 ? spend_7d / mql_7d : Infinity
+      const costSql7d = sql_7d > 0 ? spend_7d / sql_7d : Infinity
+      const mqlRollingBad = isFinite(costMql7d) && costMql7d > cfg.scoring.mql_meta
+      const sqlRollingBad = isFinite(costSql7d) && costSql7d > cfg.scoring.sql_meta
+      if (mqlRollingBad || sqlRollingBad) ad_status = "PAUSAR"
     }
 
     return {

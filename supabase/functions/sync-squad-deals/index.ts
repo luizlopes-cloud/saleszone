@@ -172,6 +172,7 @@ function buildDealsSQL(status: string, cutoffDate?: string): string {
   if (cutoffDate) {
     where += ` AND d.negocio_criado_em >= TIMESTAMP '${cutoffDate}'`;
   }
+  // Use ROW_NUMBER to pick latest SCD2 record per user (avoids row multiplication)
   return `
 SELECT d.id, d.titulo, d.etapa, d.status, d.owner_id, u.name as owner_name,
        d.negocio_criado_em, d.ganho_em, d.data_de_perda, d.atualizado_em,
@@ -179,8 +180,8 @@ SELECT d.id, d.titulo, d.etapa, d.status, d.owner_id, u.name as owner_name,
        d.motivo_da_perda, d.rd_source, d.data_da_ultima_atividade, d.proxima_atividade_em,
        d.pre_vendedor_a, pu.name as preseller_name
 FROM nekt_silver.pipedrive_deals_readable d
-LEFT JOIN nekt_silver.pipedrive_v2_users_scd2 u ON d.owner_id = u.id
-LEFT JOIN nekt_silver.pipedrive_v2_users_scd2 pu ON d.pre_vendedor_a = pu.id
+LEFT JOIN (SELECT id, name, ROW_NUMBER() OVER (PARTITION BY id ORDER BY _nekt_sync_at DESC) as rn FROM nekt_silver.pipedrive_v2_users_scd2) u ON d.owner_id = u.id AND u.rn = 1
+LEFT JOIN (SELECT id, name, ROW_NUMBER() OVER (PARTITION BY id ORDER BY _nekt_sync_at DESC) as rn FROM nekt_silver.pipedrive_v2_users_scd2) pu ON d.pre_vendedor_a = pu.id AND pu.rn = 1
 ${where}
   `.trim();
 }
@@ -233,6 +234,12 @@ async function getMaxStageReached(apiToken: string, dealId: number, currentOrder
   return max;
 }
 
+async function getVaultSecret(supabase: any, name: string): Promise<string | null> {
+  const { data, error } = await supabase.rpc("vault_read_secret", { secret_name: name });
+  if (error) { console.error(`Vault read ${name}:`, error.message); return null; }
+  return data || null;
+}
+
 // ---- Mode: deals-open (Nekt API) ----
 async function syncDealsOpen(nektApiKey: string, supabase: any) {
   console.log(`syncDealsOpen: fetching pipeline 28 open deals from Nekt...`);
@@ -241,13 +248,17 @@ async function syncDealsOpen(nektApiKey: string, supabase: any) {
   const nektRows = await queryNekt(nektApiKey, sql);
   console.log(`  Nekt returned ${nektRows.length} open deals`);
 
-  const rows: any[] = [];
+  // Deduplicate by deal id (SCD2 joins can produce duplicates)
+  const dedupMap = new Map<number, any>();
   for (const deal of nektRows) {
+    const dealId = parseInt(deal.id || "0");
+    if (dealId === 0) continue;
     const stageOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
-    rows.push(nektDealToRow(deal, stageOrder, true));
+    dedupMap.set(dealId, nektDealToRow(deal, stageOrder, true));
   }
+  const rows = [...dedupMap.values()];
 
-  console.log(`  Open deals rows to upsert: ${rows.length}`);
+  console.log(`  Open deals rows to upsert: ${rows.length} (deduped from ${nektRows.length})`);
   await upsertBatch(supabase, rows);
 
   // Mark stale deals: deals with status='open' in DB that are no longer open in Nekt
@@ -287,6 +298,42 @@ async function syncDealsOpen(nektApiKey: string, supabase: any) {
   }
 
   if (staleCount > 0) console.log(`  Marked ${staleCount} stale deals as lost`);
+
+  // Enrich with activity dates from Pipedrive (Nekt doesn't populate these)
+  const apiToken = await getVaultSecret(supabase, "PIPEDRIVE_API_TOKEN");
+  if (apiToken) {
+    console.log("  Enriching activity dates from Pipedrive...");
+    const activityMap = new Map<number, { last: string | null; next: string | null }>();
+    let start = 0;
+    while (true) {
+      const url = `${BASE}/pipelines/${PIPELINE_ID}/deals?limit=500&start=${start}&api_token=${apiToken}`;
+      const res = await fetch(url);
+      if (!res.ok) { console.error(`  Pipedrive ${res.status}`); break; }
+      const json = await res.json();
+      const deals = json.data || [];
+      if (deals.length === 0) break;
+      for (const d of deals) {
+        activityMap.set(d.id, { last: d.last_activity_date || null, next: d.next_activity_date || null });
+      }
+      if (!json.additional_data?.pagination?.more_items_in_collection) break;
+      start += 500;
+    }
+    // Batch update: 20 concurrent updates at a time
+    const entries = [...activityMap.entries()];
+    let enriched = 0;
+    for (let i = 0; i < entries.length; i += 20) {
+      const batch = entries.slice(i, i + 20);
+      const results = await Promise.all(batch.map(([dealId, dates]) =>
+        supabase.from("squad_deals").update({
+          last_activity_date: dates.last,
+          next_activity_date: dates.next,
+        }).eq("deal_id", dealId)
+      ));
+      enriched += results.filter(r => !r.error).length;
+    }
+    console.log(`  Enriched ${enriched}/${activityMap.size} deals with activity dates`);
+  }
+
   return { totalFetched: nektRows.length, upserted: rows.length, staleCleaned: staleCount };
 }
 
@@ -298,13 +345,16 @@ async function syncDealsWon(nektApiKey: string, supabase: any) {
   const nektRows = await queryNekt(nektApiKey, sql);
   console.log(`  Nekt returned ${nektRows.length} won deals`);
 
-  const rows: any[] = [];
+  // Deduplicate by deal id (SCD2 joins can produce duplicates)
+  const dedupMap = new Map<number, any>();
   for (const deal of nektRows) {
-    // Won deals passed all stages: max_stage_order = 14
-    rows.push(nektDealToRow(deal, 14, true));
+    const dealId = parseInt(deal.id || "0");
+    if (dealId === 0) continue;
+    dedupMap.set(dealId, nektDealToRow(deal, 14, true));
   }
+  const rows = [...dedupMap.values()];
 
-  console.log(`  Won deals rows to upsert: ${rows.length}`);
+  console.log(`  Won deals rows to upsert: ${rows.length} (deduped from ${nektRows.length})`);
   await upsertBatch(supabase, rows);
   return { totalFetched: nektRows.length, upserted: rows.length };
 }
@@ -323,13 +373,17 @@ async function syncDealsLost(nektApiKey: string, supabase: any, cutoffDays: numb
   const nektRows = await queryNekt(nektApiKey, sql);
   console.log(`  Nekt returned ${nektRows.length} lost deals`);
 
-  const rows: any[] = [];
+  // Deduplicate by deal id (SCD2 joins can produce duplicates)
+  const dedupMap = new Map<number, any>();
   for (const deal of nektRows) {
+    const dealId = parseInt(deal.id || "0");
+    if (dealId === 0) continue;
     const stageOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
-    rows.push(nektDealToRow(deal, stageOrder, false));
+    dedupMap.set(dealId, nektDealToRow(deal, stageOrder, false));
   }
+  const rows = [...dedupMap.values()];
 
-  console.log(`  Lost deals rows to upsert: ${rows.length}`);
+  console.log(`  Lost deals rows to upsert: ${rows.length} (deduped from ${nektRows.length})`);
   await upsertBatch(supabase, rows);
 
   return {

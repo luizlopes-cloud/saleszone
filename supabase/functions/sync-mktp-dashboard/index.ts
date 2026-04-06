@@ -14,6 +14,18 @@ const FIELD_EMPREENDIMENTO = "6d565fd4fce66c16da078f520a685fa2fa038272";
 const FIELD_QUALIFICACAO = "bc74bcc4326527cbeb331d1697d4c8812d68506e";
 const FIELD_REUNIAO = "bfafc352c5c6f2edbaa41bf6d1c6daa825fc9c16";
 const CANAL_MARKETING_ID = "12";
+
+/* ── Canal-group mapping for Resultados MKTP ── */
+const MKTP_CANAL_GROUPS: Record<string, string> = {
+  "582": "Parcerias",    // Indicação de Corretor
+  "583": "Parcerias",    // Indicação de Franquia
+  "2876": "Parcerias",   // Indicação de Outros Parceiros
+};
+
+function getCanalGroup(deal: any): string {
+  const canal = String(deal[FIELD_CANAL] || "");
+  return MKTP_CANAL_GROUPS[canal] || "Vendas Diretas";
+}
 const EMPREENDIMENTO_MAP: Record<string, string> = {
   "3313": "Altavista",
   "1132": "Barra de São Miguel Spot",

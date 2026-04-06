@@ -1,123 +1,117 @@
-// SZS (Serviços) module — alinhamento with canal_group as squad
+// SZS (Serviços) module — alinhamento por canal e analista
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { AlinhamentoData } from "@/lib/types";
+import { paginate } from "@/lib/paginate";
+import {
+  getSquadIdFromCanalGroup,
+  getCanalGroupFromId,
+} from "@/lib/szs-utils";
 
 const mc = getModuleConfig("szs");
 
-const CANAL_GROUP_ORDER = ["Marketing", "Parceiros", "Expansão", "Spots", "Outros"];
-
 export const dynamic = "force-dynamic";
 
-// Paginated fetch helper (Supabase 1000-row limit)
-async function fetchAllPaginated(query: any): Promise<any[]> {
-  const all: any[] = [];
-  let offset = 0;
-  const PAGE = 1000;
-  while (true) {
-    const { data, error } = await query.range(offset, offset + PAGE - 1);
-    if (error) throw new Error(error.message);
-    if (!data || data.length === 0) break;
-    all.push(...data);
-    if (data.length < PAGE) break;
-    offset += PAGE;
-  }
-  return all;
+function normalize(s: string): string {
+  return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+function matchOwner(colName: string, ownerName: string): boolean {
+  if (!colName || !ownerName) return false;
+  return normalize(ownerName).includes(normalize(colName));
 }
 
 export async function GET() {
   try {
-    // Fetch alignment data from Supabase
-    const alignRows = await fetchAllPaginated(
-      supabase
-        .from("szs_alignment")
-        .select("empreendimento, canal_group, owner_name, count")
+    const admin = createSquadSupabaseAdmin();
+
+    const deals = await paginate((o, ps) =>
+      admin
+        .from("szs_deals")
+        .select("empreendimento, canal, owner_name, preseller_name, lost_reason")
+        .eq("status", "open")
+        .not("empreendimento", "is", null)
+        .range(o, o + ps - 1)
     );
 
-    // Build owner counts map: canal_group|cidade → { owner → count }
-    const ownerCounts = new Map<string, Map<string, number>>();
-    for (const row of alignRows) {
-      const canalGroup = row.canal_group || "Outros";
-      const cidade = row.empreendimento;
-      const gKey = `${canalGroup}|${cidade}`;
-      if (!ownerCounts.has(gKey)) {
-        ownerCounts.set(gKey, new Map());
-      }
-      const ownerMap = ownerCounts.get(gKey)!;
-      ownerMap.set(row.owner_name, (ownerMap.get(row.owner_name) || 0) + row.count);
-    }
-
-    // Match owner names (case-insensitive, accent-insensitive partial match)
-    function normalize(s: string): string {
-      return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-    }
-    function matchOwner(colName: string, ownerName: string): boolean {
-      return normalize(ownerName).includes(normalize(colName));
+    // Group deals by canal_group × owner
+    const groupOwner = new Map<string, Map<string, number>>();
+    for (const d of deals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const canalGroup = getCanalGroupFromId(String(d.canal || ""));
+      if (!groupOwner.has(canalGroup)) groupOwner.set(canalGroup, new Map());
+      const ownerMap = groupOwner.get(canalGroup)!;
+      const owner = d.owner_name || "Sem owner";
+      ownerMap.set(owner, (ownerMap.get(owner) || 0) + 1);
     }
 
     const PV_COLS = mc.presellers;
     const V_COLS = mc.closers;
 
-    // Build rows: each canal_group = squad, cidades within each group = empreendimentos
-    const rows = CANAL_GROUP_ORDER.flatMap((canalGroup, idx) => {
-      const sqId = idx + 1;
-      const sqName = canalGroup;
+    // Build rows: canals as sub-rows, grouped by squad
+    const rows: AlinhamentoData["rows"] = [];
+    const allCanalGroups = Array.from(groupOwner.keys()).sort();
 
-      // Find all cidades for this canal group
-      const cidadeSet = new Set<string>();
-      for (const gKey of ownerCounts.keys()) {
-        if (gKey.startsWith(canalGroup + "|")) {
-          cidadeSet.add(gKey.split("|")[1]);
+    for (const canalGroup of allCanalGroups) {
+      const owners = groupOwner.get(canalGroup) || new Map<string, number>();
+      const sqId = getSquadIdFromCanalGroup(canalGroup);
+      const sqName = mc.squads.find((s) => s.id === sqId)?.name || `Squad ${sqId}`;
+
+      const pv: Record<string, number> = {};
+      const v: Record<string, number> = {};
+
+      PV_COLS.forEach((col) => {
+        let total = 0;
+        for (const [owner, count] of owners) {
+          if (matchOwner(col, owner)) total += count;
         }
-      }
-      const sortedCidades = Array.from(cidadeSet).sort();
-
-      return sortedCidades.map((cidade) => {
-        const gKey = `${canalGroup}|${cidade}`;
-        const counts = ownerCounts.get(gKey) || new Map<string, number>();
-        const pv: Record<string, number> = {};
-        const v: Record<string, number> = {};
-
-        PV_COLS.forEach((col) => {
-          let total = 0;
-          for (const [owner, count] of counts) {
-            if (matchOwner(col, owner)) total += count;
-          }
-          pv[col] = total;
-        });
-
-        V_COLS.forEach((col) => {
-          let total = 0;
-          for (const [owner, count] of counts) {
-            if (matchOwner(col, owner)) total += count;
-          }
-          v[col] = total;
-        });
-
-        return {
-          sqId,
-          sqName,
-          emp: cidade,
-          correctPV: mc.squads[0]?.preVenda || "",
-          correctV: mc.squads[0]?.venda || "",
-          cells: { pv, v },
-        };
+        pv[col] = total;
       });
-    });
 
-    // Stats
+      V_COLS.forEach((col) => {
+        let total = 0;
+        for (const [owner, count] of owners) {
+          if (matchOwner(col, owner)) total += count;
+        }
+        v[col] = total;
+      });
+
+      const sq = mc.squads.find((s) => s.id === sqId);
+      rows.push({
+        sqId,
+        sqName,
+        emp: canalGroup,
+        correctPV: sq?.preVenda || "",
+        correctV: sq?.venda || "",
+        cells: { pv, v },
+      });
+    }
+
+    // Sort by squad then canal name
+    rows.sort((a, b) => a.sqId - b.sqId || a.emp.localeCompare(b.emp));
+
+    // Build PV → squad mapping (PVs not matching any squad.preVenda fall to squad 1)
+    const pvToSquad = new Map<string, number>();
+    for (const p of PV_COLS) {
+      const pvSq = mc.squads.find((s) => normalize(s.preVenda) === normalize(p));
+      pvToSquad.set(p, pvSq?.id ?? mc.squads[0]?.id ?? 1);
+    }
+
+    // Stats: calculate misaligned deals
     let total = 0;
     let mis = 0;
     rows.forEach((row) => {
       PV_COLS.forEach((p) => {
         const val = row.cells.pv[p] || 0;
         total += val;
-        if (val > 0 && p !== row.correctPV) mis += val;
+        if (val > 0 && pvToSquad.get(p) !== row.sqId) mis += val;
       });
-      V_COLS.forEach((p) => {
+      const sqVIndices = mc.squadCloserMap[row.sqId] || [];
+      V_COLS.forEach((p, idx) => {
         const val = row.cells.v[p] || 0;
         total += val;
+        if (val > 0 && !sqVIndices.includes(idx)) mis += val;
       });
     });
 

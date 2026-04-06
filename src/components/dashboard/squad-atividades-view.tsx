@@ -119,8 +119,8 @@ function metaRowBgColor(pct: number): string {
 
 function progressBarColor(pct: number): string {
   if (pct >= 100) return '#22c55e'
-  if (pct >= 70) return '#facc15'
-  return '#f87171'
+  if (pct >= 70) return '#f59e0b'
+  return '#ef4444'
 }
 
 function formatDateBR(dateStr: string): string {
@@ -684,7 +684,7 @@ function AtividadesContent({
                     <span style={{ fontSize: 11, color: T.cinza400, marginLeft: 6 }}>{pv.squadName}</span>
                   </div>
                 </td>
-                <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 600 }}>{pv.realizado}</td>
+                <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#1d4ed8', fontSize: 14 }}>{pv.realizado}</td>
                 <td style={{ ...tdStyle, textAlign: 'right', fontFamily: 'monospace', color: T.cinza600 }}>{pv.metaEsperada}</td>
                 <td style={{ ...tdStyle, textAlign: 'center' }}>
                   <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600, ...metaColorStyle(pv.pctMeta) }}>

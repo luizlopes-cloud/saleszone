@@ -886,6 +886,52 @@ export interface LostsData {
   };
 }
 
+// Monitor de No-Show — Eventos cancelados no Google Calendar (Pipeline SZI)
+export interface NoShowEventRow {
+  closer_email: string;
+  closer_name: string;
+  dia: string;
+  hora: string | null;
+  titulo: string;
+  empreendimento: string | null;
+}
+
+export interface NoShowCloserRow {
+  closer_name: string;
+  closer_email: string;
+  scheduled: number;
+  cancelled: number;
+  rate: number;
+  avg7d: number;
+}
+
+export interface NoShowSummary {
+  total_scheduled: number;
+  total_cancelled: number;
+  noshow_rate: number;
+  by_closer: Record<string, number>;
+  by_empreendimento: Record<string, number>;
+}
+
+export interface NoShowAlert {
+  id: string;
+  severity: "critical" | "warning" | "info";
+  alert_type: string;
+  message: string;
+  seller_name: string;
+  metric_value: number | null;
+  threshold_value: number | null;
+}
+
+export interface NoShowData {
+  days: number;
+  summary: NoShowSummary;
+  closers: NoShowCloserRow[];
+  events: NoShowEventRow[];
+  alerts: NoShowAlert[];
+  trend: { dates: string[]; totals: number[] };
+}
+
 // Pré-Venda — Tempo de resposta dos pré-vendedores
 export interface PresalesDealRow {
   deal_id: number;
@@ -940,4 +986,33 @@ export interface RatioHistoryData {
   history: RatioSnapshot[];
   empDaily?: Record<string, Record<string, Record<string, number>>>; // emp → date → { mql, sql, opp, won }
   dates?: string[]; // 28 dates (most recent first)
+}
+
+// --- Geral (Resultados SZNI) ---
+export interface GeralMetricPair { real: number; meta: number }
+
+export interface GeralChannelResult {
+  name: string;
+  filterDescription: string;
+  metrics: {
+    orcamento?: GeralMetricPair;
+    leads?: GeralMetricPair;
+    mql: GeralMetricPair;
+    sql: GeralMetricPair;
+    opp: GeralMetricPair;
+    reserva?: GeralMetricPair;
+    contrato?: GeralMetricPair;
+    won: GeralMetricPair;
+  };
+  lastMonthWon: number;
+  snapshots?: { reserva: number; contrato: number };
+  ocupacaoAgenda?: { agendadas: number; capacidade: number; percent: number };
+  noShow?: { canceladas: number; total: number; percent: number };
+  reservaHistory?: { date: string; reserva: number; contrato: number }[];
+  dealsHistory: { date: string; total: number; byStage: Record<string, number> }[];
+}
+
+export interface GeralData {
+  month: string;
+  channels: GeralChannelResult[];
 }
