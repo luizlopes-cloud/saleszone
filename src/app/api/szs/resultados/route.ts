@@ -59,10 +59,10 @@ const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
 };
 
 const CHANNEL_CLOSERS: Record<string, string[]> = {
-  Geral: ["Gabriela Lemos", "Gabriela Branco", "Giovanna de Araujo Zanchetta"],
+  Geral: ["Gabriela Lemos", "Gabriela Branco", "Giovanna Araujo Zanchetta"],
   "Vendas Diretas": ["Gabriela Lemos"],
   Parceiros: ["Gabriela Branco"],
-  "Expansão": ["Giovanna de Araujo Zanchetta"],
+  "Expansão": ["Giovanna Araujo Zanchetta"],
 };
 
 /* ── Closer email → macro channel (for calendar events) ──── */

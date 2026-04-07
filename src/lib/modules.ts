@@ -8,6 +8,7 @@ export interface SquadDef {
   venda: string;
   empreendimentos: readonly string[];
   canalIds?: readonly number[];
+  canal_group?: string; // SZS only: maps to szs_daily_counts.canal_group
 }
 
 export interface ModuleConfig {
@@ -94,16 +95,35 @@ const MKTP_CONFIG: ModuleConfig = {
   syncFunctions: ["mktp-dashboard-light", "mktp-meta-ads", "mktp-deals-light", "mktp-calendar", "mktp-presales"],
 };
 
-// --- SZS (Serviços) — single squad, no squad grouping ---
+// --- SZS (Serviços) — 3 squads by canal ---
 
 const SZS_SQUADS: readonly SquadDef[] = [
   {
     id: 1,
-    name: "Serviços",
-    marketing: "Priscila",
-    preVenda: "Larissa Marques",
-    venda: "Maria Vitória",
-    empreendimentos: [], // SZS groups by cidade — discovered dynamically from DB data
+    name: "Marketing",
+    marketing: "Raquel",
+    preVenda: "Joyce",
+    venda: "Gabi Lemos",
+    canal_group: "Marketing",
+    empreendimentos: [],
+  },
+  {
+    id: 2,
+    name: "Parceiros",
+    marketing: "Raynara",
+    preVenda: "Raynara",
+    venda: "Gabriela Branco",
+    canal_group: "Parceiros",
+    empreendimentos: [],
+  },
+  {
+    id: 3,
+    name: "Expansão",
+    marketing: "Larissa",
+    preVenda: "Larissa",
+    venda: "Giovanna Zanchetta",
+    canal_group: "Expansão",
+    empreendimentos: [],
   },
 ] as const;
 
@@ -114,9 +134,9 @@ const SZS_CONFIG: ModuleConfig = {
   pipelineId: 14,
   metaAdsAccountId: "act_721191188358261",
   squads: SZS_SQUADS,
-  closers: ["Maria Vitória", "Gabriela Branco", "Gabriela Lemos", "Samuel Barreto", "Giovanna Araujo"],
-  presellers: ["Larissa Marques", "Joyce Batista", "Adriano Raquel", "Raynara Lopes"],
-  squadCloserMap: { 1: [0, 1, 2, 3, 4] },
+  closers: ["Gabi Lemos", "Gabriela Branco", "Giovanna Zanchetta"],
+  presellers: ["Raquel", "Joyce", "Raynara", "Larissa"],
+  squadCloserMap: { 1: [0], 2: [1], 3: [2] },
   tablePrefix: "szs",
   apiBase: "/api/szs",
   syncFunctions: ["szs-dashboard-light", "szs-meta-ads", "szs-deals-light", "szs-calendar", "szs-presales"],
