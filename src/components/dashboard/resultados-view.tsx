@@ -385,7 +385,7 @@ export function ResultadosView({ data, loading, mediaFilter, setMediaFilter, reg
   const [expandedSquads, setExpandedSquads] = useState<Set<number>>(new Set([1, 2, 3]));
 
   const isSZS = moduleId === "szs";
-  const sectionTitle = "Detalhamento por Squad";
+  const sectionTitle = isSZS ? "Detalhamento por Canal" : "Detalhamento por Squad";
   const groupLabel = isSZS ? "Cidade" : "Empreendimento";
 
   if (loading && !data) {
