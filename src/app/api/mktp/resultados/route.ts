@@ -40,6 +40,11 @@ const MKTP_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
     Parcerias: { mql: 31, sql: 23, opp: 17, won: 6 },
     "Funil Completo": { leads: 3354, mql: 1677, sql: 530, opp: 126, won: 15, reserva: 25, contrato: 18 },
   },
+  "2026-04": {
+    "Vendas Diretas": { mql: 0, sql: 0, opp: 0, won: 20 },
+    Parcerias: { mql: 0, sql: 0, opp: 0, won: 10 },
+    "Funil Completo": { mql: 0, sql: 0, opp: 0, won: 30 },
+  },
 };
 
 /* ── Types ────────────────────────────────────────────────── */
