@@ -40,6 +40,11 @@ const MKTP_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
     Parcerias: { mql: 31, sql: 23, opp: 17, won: 6 },
     "Funil Completo": { leads: 3354, mql: 1677, sql: 530, opp: 126, won: 15, reserva: 25, contrato: 18 },
   },
+  "2026-04": {
+    "Vendas Diretas": { mql: 0, sql: 0, opp: 0, won: 20 },
+    Parcerias: { mql: 0, sql: 0, opp: 0, won: 10 },
+    "Funil Completo": { mql: 0, sql: 0, opp: 0, won: 30 },
+  },
 };
 
 /* ── Types ────────────────────────────────────────────────── */
@@ -139,6 +144,7 @@ export async function GET() {
     for (const ch of CHANNEL_ORDER) channelCounts[ch] = {};
 
     for (const deal of deals) {
+      if (deal.lost_reason === "Duplicado/Erro") continue;
       const group = getCanalGroup(String(deal.canal || ""));
       for (const tab of TABS) {
         const dateCol = TAB_DATE_COL[tab];
@@ -147,7 +153,10 @@ export async function GET() {
         const day = dateVal.substring(0, 10);
         if (day < startDate) continue; // only current month
         channelCounts[group][tab] = (channelCounts[group][tab] || 0) + 1;
-        channelCounts["Funil Completo"][tab] = (channelCounts["Funil Completo"][tab] || 0) + 1;
+        // MQL "sem indicação": Funil Completo excludes Parcerias (canais 582/583/2876)
+        if (tab !== "mql" || group !== "Parcerias") {
+          channelCounts["Funil Completo"][tab] = (channelCounts["Funil Completo"][tab] || 0) + 1;
+        }
       }
     }
 
