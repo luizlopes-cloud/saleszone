@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "nekt": {
+      "type": "url",
+      "url": "https://nekt-mcp.seazone.com.br/mcp"
+    }
+  }
+}

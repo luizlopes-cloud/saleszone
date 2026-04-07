@@ -1,0 +1,138 @@
+{
+  "automations": [
+    {
+      "id": "heartbeat-comercial",
+      "name": "Heartbeat Comercial",
+      "description": "Consolida heartbeats semanais do comercial para gestão estratégica",
+      "type": "slash-command",
+      "command": "/heartbeat-comercial",
+      "file": "~/.claude/commands/heartbeat-comercial.md",
+      "schedule": "Manual (sextas-feiras)",
+      "enabled": true,
+      "category": "automacao",
+      "icon": "📊",
+      "details": {
+        "canal_fonte": "#heartbeats-comercial (C08AE1Y6BGR)",
+        "canal_destino": "#heartbeats-gestao-estrategica (C04QH67Q9S5)",
+        "formato": "Mensagem principal + reply na thread"
+      }
+    },
+    {
+      "id": "claudio-bot",
+      "name": "Claudio — Dedo-Duro de Deals sem Atenção",
+      "description": "Alerta diário de deals abertos sem próxima atividade agendada nos 4 pipelines comerciais",
+      "type": "launchd",
+      "plist": "~/Library/LaunchAgents/com.seazone.claudio-bot.plist",
+      "script": "~/Claude-Code/saleszone/scripts/claudio-bot/claudio.py",
+      "config_file": "~/Claude-Code/saleszone/scripts/claudio-bot/config.py",
+      "logs_dir": "~/Claude-Code/saleszone/scripts/claudio-bot/logs",
+      "schedule": "Seg-Sex 08:25",
+      "launchd_label": "com.seazone.claudio-bot",
+      "enabled": true,
+      "category": "automacao",
+      "icon": "🕵️",
+      "details": {
+        "bot": "Claudio (U0AKJE4DGQ2)",
+        "canal": "#supervisor-claudio (C0AJXPJKJ4E)",
+        "pipelines": "SZS (14), Decor (44), SZI (28), MKT (37)",
+        "criterio": "Deals abertos sem next_activity_date"
+      }
+    },
+    {
+      "id": "warning-deals-leadin",
+      "name": "Warning Deals Lead-in",
+      "description": "Alerta de deals parados >60h no estágio Lead-in do Pipedrive via bot analista pré-vendas",
+      "type": "launchd",
+      "plist": "~/Library/LaunchAgents/com.seazone.warning-deals-leadin.plist",
+      "script": "~/Claude-Code/saleszone/scripts/warning-deals-leadin/warning_deals_leadin.py",
+      "config_file": "~/Claude-Code/saleszone/scripts/warning-deals-leadin/config.py",
+      "logs_dir": "~/Claude-Code/saleszone/scripts/warning-deals-leadin/logs",
+      "schedule": "Seg-Sex 09:00",
+      "launchd_label": "com.seazone.warning-deals-leadin",
+      "enabled": true,
+      "category": "automacao",
+      "icon": "⚠️",
+      "details": {
+        "bot": "Analista Pré-vendas (U097HEUU0VB)",
+        "canal": "#szs-parcerias-comercial (C09AK6B3SSY)",
+        "pipeline": "Comercial SZS (ID 14)",
+        "threshold": "60 horas"
+      }
+    },
+    {
+      "id": "monitor-atendimento",
+      "name": "Monitor Atendimento",
+      "description": "Coleta e consolida métricas de atendimento de WhatsApp, ligações e transcrições em tempo real",
+      "type": "launchd",
+      "plist": "~/Library/LaunchAgents/com.seazone.monitor-atendimento.plist",
+      "script": "~/Claude-Code/saleszone/scripts/monitor-atendimento/collector.py",
+      "logs_dir": "~/Claude-Code/saleszone/scripts/monitor-atendimento/logs",
+      "schedule": "Seg-Sex 07:00",
+      "launchd_label": "com.seazone.monitor-atendimento",
+      "enabled": true,
+      "category": "automacao",
+      "icon": "📱",
+      "details": {
+        "fontes": "Timelines.ai (WhatsApp), Api4Com (Ligações), Fireflies.ai (Transcrições)",
+        "metricas": "Chats, Mensagens, Chamadas, Duração",
+        "integracao": "Supabase (banco de dados centralizado)"
+      }
+    }
+  ],
+  "lovable_projects": [
+    {
+      "id": "43b9fa10-de52-4648-9aaa-36db89fcd807",
+      "name": "Preparação da reunião - Comercial",
+      "url": "https://lovable.dev/projects/43b9fa10-de52-4648-9aaa-36db89fcd807",
+      "preview_url": "https://preview--preparacaodareuniao.lovable.app/",
+      "external": false,
+      "enabled": true,
+      "category": "lovable"
+    },
+    {
+      "id": "6cc9ead7-3ff1-4194-a9b3-c0c531616648",
+      "name": "Spotometro",
+      "url": "https://lovable.dev/projects/6cc9ead7-3ff1-4194-a9b3-c0c531616648",
+      "preview_url": "https://preview--spotometro.lovable.app/",
+      "external": false,
+      "enabled": true,
+      "category": "lovable"
+    },
+    {
+      "id": "963ba4fe-7cf9-446a-a2e2-58cf14974f84",
+      "name": "HUB Auditorias Comercial",
+      "url": "https://lovable.dev/projects/963ba4fe-7cf9-446a-a2e2-58cf14974f84",
+      "preview_url": "https://preview--hubauditoriascomercial.lovable.app/",
+      "external": false,
+      "enabled": true,
+      "category": "lovable"
+    },
+    {
+      "id": "d3d344ad-c905-437a-80c8-cf82cb5291a4",
+      "name": "Metas MTD - Comercial",
+      "url": "https://lovable.dev/projects/d3d344ad-c905-437a-80c8-cf82cb5291a4",
+      "preview_url": "https://preview--mtdcomercial.lovable.app/",
+      "external": false,
+      "enabled": true,
+      "category": "lovable"
+    },
+    {
+      "id": "69a4657e-f994-4578-8464-9d23cb1320f5",
+      "name": "Pipeline Guardian",
+      "url": "https://lovable.dev/projects/69a4657e-f994-4578-8464-9d23cb1320f5",
+      "preview_url": "https://preview--pipelineguardian.lovable.app/",
+      "external": true,
+      "enabled": true,
+      "category": "lovable"
+    },
+    {
+      "id": "4ed6384f-facc-4221-84bc-da1d566d1f47",
+      "name": "FunilSZS Dashboard",
+      "url": "https://lovable.dev/projects/4ed6384f-facc-4221-84bc-da1d566d1f47",
+      "preview_url": "https://preview--funilszsdashboard.lovable.app/",
+      "external": true,
+      "enabled": true,
+      "category": "lovable"
+    }
+  ]
+}

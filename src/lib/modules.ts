@@ -1,0 +1,138 @@
+// Module configuration for multi-product dashboard (SZI, MKTP, SZS)
+
+export interface SquadDef {
+  id: number;
+  name: string;
+  marketing: string;
+  preVenda: string;
+  venda: string;
+  empreendimentos: readonly string[];
+  canalIds?: readonly number[];
+}
+
+export interface ModuleConfig {
+  id: string;                    // "szi" | "mktp" | "szs"
+  label: string;                 // "Investimentos" | "Marketplace" | "Serviços"
+  shortLabel: string;            // "SZI" | "MKTP" | "SZS"
+  pipelineId: number;            // Pipedrive pipeline ID
+  metaAdsAccountId: string;      // Meta Ads account ID
+  squads: readonly SquadDef[];
+  closers: readonly string[];    // V_COLS equivalent
+  presellers: readonly string[]; // PV_COLS equivalent
+  squadCloserMap: Record<number, number[]>; // SQUAD_V_MAP equivalent
+  tablePrefix: string;           // "squad" | "mktp" | "szs"
+  apiBase: string;               // "/api/dashboard" | "/api/mktp"
+  syncFunctions: string[];       // sync function keys for handleRefresh
+}
+
+// --- SZI (Investimentos) — current/default module ---
+
+const SZI_SQUADS: readonly SquadDef[] = [
+  {
+    id: 1,
+    name: "Squad 1",
+    marketing: "Jean",
+    preVenda: "Hellen Dias",
+    venda: "Luana Schaikoski",
+    empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot", "Jurerê Spot II", "Jurerê Spot III", "Vistas de Anitá II"],
+  },
+  {
+    id: 2,
+    name: "Squad 2",
+    marketing: "Jean",
+    preVenda: "Jeniffer Correa",
+    venda: "Filipe Padoveze",
+    empreendimentos: ["Barra Grande Spot", "Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
+  },
+] as const;
+
+const SZI_CONFIG: ModuleConfig = {
+  id: "szi",
+  label: "Investimentos",
+  shortLabel: "SZI",
+  pipelineId: 28,
+  metaAdsAccountId: "act_205286032338340",
+  squads: SZI_SQUADS,
+  closers: ["Luana Schaikoski", "Filipe Padoveze"],
+  presellers: ["Hellen Dias", "Jeniffer Correa"],
+  squadCloserMap: {
+    1: [0],    // Luana Schaikoski
+    2: [1],    // Filipe Padoveze
+  },
+  tablePrefix: "squad",
+  apiBase: "/api/dashboard",
+  syncFunctions: ["dashboard-light", "meta-ads", "deals-light", "calendar", "presales", "baserow"],
+};
+
+// --- MKTP (Marketplace) — single squad, no squad grouping ---
+
+const MKTP_SQUADS: readonly SquadDef[] = [
+  {
+    id: 1,
+    name: "Marketplace",
+    marketing: "Rodrigo Guirado",
+    preVenda: "Karoane",  // multiple presellers, using first as squad representative
+    venda: "Nevine Saratt",
+    empreendimentos: [], // TODO: populate with MKTP empreendimentos (all non-active/closed groups)
+  },
+] as const;
+
+const MKTP_CONFIG: ModuleConfig = {
+  id: "mktp",
+  label: "Marketplace",
+  shortLabel: "MKTP",
+  pipelineId: 37,
+  metaAdsAccountId: "act_799783985155825",
+  squads: MKTP_SQUADS,
+  closers: ["Nevine Saratt", "Willian Miranda"],
+  presellers: ["Karoane", "Izabela Soares", "Karoline Borges"],
+  squadCloserMap: {
+    1: [0, 1], // Nevine Saratt, Willian Miranda
+  },
+  tablePrefix: "mktp",
+  apiBase: "/api/mktp",
+  syncFunctions: ["mktp-dashboard-light", "mktp-meta-ads", "mktp-deals-light", "mktp-calendar", "mktp-presales"],
+};
+
+// --- SZS (Serviços) — single squad, no squad grouping ---
+
+const SZS_SQUADS: readonly SquadDef[] = [
+  {
+    id: 1,
+    name: "Serviços",
+    marketing: "Priscila",
+    preVenda: "Larissa Marques",
+    venda: "Maria Vitória",
+    empreendimentos: [], // SZS groups by cidade — discovered dynamically from DB data
+  },
+] as const;
+
+const SZS_CONFIG: ModuleConfig = {
+  id: "szs",
+  label: "Serviços",
+  shortLabel: "SZS",
+  pipelineId: 14,
+  metaAdsAccountId: "act_721191188358261",
+  squads: SZS_SQUADS,
+  closers: ["Maria Vitória", "Gabriela Branco", "Gabriela Lemos", "Samuel Barreto", "Giovanna Araujo"],
+  presellers: ["Larissa Marques", "Joyce Batista", "Adriano Raquel", "Raynara Lopes"],
+  squadCloserMap: { 1: [0, 1, 2, 3, 4] },
+  tablePrefix: "szs",
+  apiBase: "/api/szs",
+  syncFunctions: ["szs-dashboard-light", "szs-meta-ads", "szs-deals-light", "szs-calendar", "szs-presales"],
+};
+
+// --- Registry ---
+
+export const MODULES: Record<string, ModuleConfig> = {
+  szi: SZI_CONFIG,
+  mktp: MKTP_CONFIG,
+  szs: SZS_CONFIG,
+};
+
+export const MODULE_IDS = Object.keys(MODULES);
+export const DEFAULT_MODULE = "szi";
+
+export function getModuleConfig(id: string): ModuleConfig {
+  return MODULES[id] ?? MODULES[DEFAULT_MODULE];
+}
