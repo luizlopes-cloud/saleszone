@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
+import { createClient } from "@supabase/supabase-js";
 import { SQUADS } from "@/lib/constants";
 import { paginate } from "@/lib/paginate";
 import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
@@ -312,14 +313,31 @@ export async function GET(req: NextRequest) {
     const allEmps = squads.flatMap((sq) => sq.empreendimentos);
     const grand = sumFunil(allEmps, "Total");
 
-    // Build metas object from squad_metas table
-    const metasObj: Record<string, Record<string, number>> = {};
-    if (metasRes.data) {
-      for (const m of metasRes.data) {
-        const squadName = SQUADS.find((s) => s.id === m.squad_id)?.name || `Squad ${m.squad_id}`;
-        if (!metasObj[squadName]) metasObj[squadName] = {};
-        metasObj[squadName][m.tab] = m.meta;
-      }
+    // Build metas object from nekt_meta26_metas (service role - RLS blocks anon)
+    const metasObj: Record<string, Record<string, number>> = { "Squad 1": {}, "Squad 2": {} };
+    const ratios = { mql_sql: 4.12, sql_opp: 3.47, opp_won: 6.01 };
+
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    const monthStr = `${month}-01`;
+    const { data: nektRow } = await supabaseAdmin
+      .from("nekt_meta26_metas")
+      .select("data, won_szi_meta_pago, won_szi_meta_direto, mql_meta_szi, sql_meta_szi, opp_meta_szi")
+      .like("data", `%/${String(month.split("-")[1]).padStart(2, "0")}/%`)
+      .limit(1)
+      .single();
+
+    if (nektRow) {
+      const wonTotal = (Number(nektRow.won_szi_meta_pago) || 0) + (Number(nektRow.won_szi_meta_direto) || 0);
+      // Se tem metas por tab direto, usa elas; senao calcula via ratios
+      const mql = Number(nektRow.mql_meta_szi) || Math.round(wonTotal * ratios.mql_sql * ratios.sql_opp);
+      const sql = Number(nektRow.sql_meta_szi) || Math.round(wonTotal * ratios.opp_won);
+      const opp = Number(nektRow.opp_meta_szi) || Math.round(wonTotal);
+      // Divide por 2 squads
+      metasObj["Squad 1"] = { mql: Math.round(mql / 2), sql: Math.round(sql / 2), opp: Math.round(opp / 2), won: Math.round(wonTotal / 2) };
+      metasObj["Squad 2"] = { mql: Math.round(mql / 2), sql: Math.round(sql / 2), opp: Math.round(opp / 2), won: Math.round(wonTotal / 2) };
     }
 
     const result: FunilData = { month, squads, grand, metas: metasObj };
