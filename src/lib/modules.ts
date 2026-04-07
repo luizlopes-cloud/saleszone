@@ -34,7 +34,7 @@ const SZI_SQUADS: readonly SquadDef[] = [
     marketing: "Jean",
     preVenda: "Hellen Dias",
     venda: "Luana Schaikoski",
-    empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II", "Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot"],
+    empreendimentos: ["Ponta das Canas Spot II", "Itacaré Spot", "Marista 144 Spot", "Jurerê Spot II", "Jurerê Spot III", "Vistas de Anitá II"],
   },
   {
     id: 2,
@@ -42,7 +42,7 @@ const SZI_SQUADS: readonly SquadDef[] = [
     marketing: "Jean",
     preVenda: "Jeniffer Correa",
     venda: "Filipe Padoveze",
-    empreendimentos: ["Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
+    empreendimentos: ["Barra Grande Spot", "Natal Spot", "Novo Campeche Spot II", "Caraguá Spot", "Bonito Spot II"],
   },
 ] as const;
 
