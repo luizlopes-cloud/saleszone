@@ -85,7 +85,7 @@ const MKTP_CONFIG: ModuleConfig = {
   metaAdsAccountId: "act_799783985155825",
   squads: MKTP_SQUADS,
   closers: ["Nevine Saratt", "Willian Miranda"],
-  presellers: ["Karoane", "Izabela Soares", "Karoline Borges"],
+  presellers: ["Karoane Izabela Soares", "Karoline Borges"],
   squadCloserMap: {
     1: [0, 1], // Nevine Saratt, Willian Miranda
   },
