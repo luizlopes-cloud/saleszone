@@ -1,4 +1,4 @@
-// SZS (Serviços) module — acompanhamento heatmap with city filter
+// SZS (Serviços) module — acompanhamento heatmap with 3 squads (Marketing, Parceiros, Expansão)
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { getModuleConfig } from "@/lib/modules";
@@ -54,8 +54,8 @@ export async function GET(req: NextRequest) {
       offset += PAGE;
     }
 
-    // Build counts per squadId|cidade
-    const squadCidadeCounts = new Map<string, number[]>();
+    // Build counts per squadId|canalGroup (sub-rows are canais)
+    const squadCanalCounts = new Map<string, number[]>();
     for (const row of allRows) {
       const idx = dateIndex.get(row.date);
       if (idx === undefined) continue;
@@ -63,11 +63,11 @@ export async function GET(req: NextRequest) {
       const canalGroup = row.canal_group || "Outros";
       const squadId = getSquadIdFromCanalGroup(canalGroup);
       const gKey = `${squadId}|${canalGroup}`;
-      if (!squadCidadeCounts.has(gKey)) squadCidadeCounts.set(gKey, new Array(NUM_DAYS).fill(0));
-      squadCidadeCounts.get(gKey)![idx] += row.count;
+      if (!squadCanalCounts.has(gKey)) squadCanalCounts.set(gKey, new Array(NUM_DAYS).fill(0));
+      squadCanalCounts.get(gKey)![idx] += row.count;
     }
 
-    // Build squads
+    // Build squads from mc.squads (3 squads: Marketing, Parceiros, Expansão)
     const year = now.getFullYear();
     const month = now.getMonth() + 1;
     const day = now.getDate();
@@ -75,35 +75,32 @@ export async function GET(req: NextRequest) {
     const curMonthKey = `${year}-${String(month).padStart(2, "0")}`;
     const monthMetas = SZS_METAS_WON_BY_SQUAD[curMonthKey] || {};
 
-    // Build squads for all 3 SZS canal groups with proper names
-    const SZS_SQUAD_NAMES: Record<number, string> = { 1: "Marketing", 2: "Parceiros", 3: "Expansão" };
-    const squads: SquadData[] = Object.entries(SZS_SQUAD_NAMES).map(([idStr, squadName]) => {
-      const sqId = Number(idStr);
-      const cidadeKeys: string[] = [];
-      for (const gKey of squadCidadeCounts.keys()) {
-        if (gKey.startsWith(`${sqId}|`)) cidadeKeys.push(gKey);
+    const squads: SquadData[] = mc.squads.map((sq) => {
+      const canalKeys: string[] = [];
+      for (const gKey of squadCanalCounts.keys()) {
+        if (gKey.startsWith(`${sq.id}|`)) canalKeys.push(gKey);
       }
 
-      const sqRows = cidadeKeys.map((gKey) => {
-        const cidade = gKey.split("|")[1];
-        const daily = squadCidadeCounts.get(gKey) || new Array(NUM_DAYS).fill(0);
+      const sqRows = canalKeys.map((gKey) => {
+        const canal = gKey.split("|")[1];
+        const daily = squadCanalCounts.get(gKey) || new Array(NUM_DAYS).fill(0);
         let totalMes = 0;
         daily.forEach((v, i) => {
           if (dates[i] && dates[i].date >= monthStart) totalMes += v;
         });
-        return { emp: cidade, daily, totalMes };
+        return { emp: canal, daily, totalMes };
       });
       sqRows.sort((a, b) => b.totalMes - a.totalMes);
 
-      const metaWon = monthMetas[sqId] || 0;
+      const metaWon = monthMetas[sq.id] || 0;
       const metaToDate = tab === "won" ? (day / totalDaysInMonth) * metaWon : 0;
 
       return {
-        id: sqId,
-        name: squadName,
-        marketing: mc.squads[0]?.marketing || "",
-        preVenda: mc.squads[0]?.preVenda || "",
-        venda: mc.squads[0]?.venda || "",
+        id: sq.id,
+        name: sq.name,
+        marketing: sq.marketing,
+        preVenda: sq.preVenda,
+        venda: sq.venda,
         rows: sqRows,
         metaToDate,
       };
