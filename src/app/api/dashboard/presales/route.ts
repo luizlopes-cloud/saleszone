@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { SQUADS } from "@/lib/constants";
 import { getModuleConfig } from "@/lib/modules";
@@ -141,13 +142,56 @@ export async function GET() {
     const deals = (rows || []).filter((d) => MAIN_PVS.includes(d.preseller_name));
     const now = new Date();
 
-    // Buscar add_time dos deals
+    // Buscar add_time dos deals (de squad_deals, que tem dados atualizados)
     const dealIds = deals.map((d) => Number(d.deal_id));
-    const { data: dealsExtra } = await supabase
-      .from("nekt_pipedrive_deals_v2")
-      .select("id, add_time")
-      .in("id", dealIds);
-    const addTimeMap = new Map((dealsExtra || []).map((d) => [Number(d.id), d.add_time]));
+    const addTimeMap = new Map<number, string>();
+    // Paginar em batches de 500 (limite do .in())
+    for (let i = 0; i < dealIds.length; i += 500) {
+      const batch = dealIds.slice(i, i + 500);
+      const { data: dealsExtra } = await supabase
+        .from("squad_deals")
+        .select("deal_id, add_time")
+        .in("deal_id", batch);
+      for (const d of dealsExtra || []) {
+        if (d.add_time) addTimeMap.set(d.deal_id, d.add_time);
+      }
+    }
+
+    // Buscar notas do Pipedrive para deals sem last_mia_at (detectar "Relato enviado pela Mia")
+    const dealsWithoutMia = deals.filter((d) => !d.last_mia_at);
+    if (dealsWithoutMia.length > 0) {
+      try {
+        const srvClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+        const { data: tokenData } = await srvClient.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" });
+        const pipToken = tokenData;
+        if (pipToken) {
+          // Process in batches of 10 to avoid rate limits
+          for (let i = 0; i < dealsWithoutMia.length; i += 10) {
+            const batch = dealsWithoutMia.slice(i, i + 10);
+            await Promise.all(
+              batch.map(async (deal) => {
+                try {
+                  const url = `https://seazone-fd92b9.pipedrive.com/api/v1/deals/${deal.deal_id}/notes?api_token=${pipToken}&limit=50`;
+                  const res = await fetch(url);
+                  if (!res.ok) return;
+                  const json = await res.json();
+                  const notes = json.data || [];
+                  for (const note of notes) {
+                    const content = note.content || "";
+                    if (/relato enviado pela (mia|mariana)|morada\.ai|assistente virtual/i.test(content)) {
+                      deal.last_mia_at = note.add_time;
+                      break;
+                    }
+                  }
+                } catch { /* skip on error */ }
+              })
+            );
+          }
+        }
+      } catch (err) {
+        console.warn("[presales] Could not fetch Pipedrive notes:", err);
+      }
+    }
 
     // Calcular tempo em horário útil para cada deal
     const dealsWithBizTime = deals.map((d) => {
