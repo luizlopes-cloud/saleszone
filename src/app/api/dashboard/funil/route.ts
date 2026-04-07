@@ -321,7 +321,6 @@ export async function GET(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
-    const monthStr = `${month}-01`;
     const { data: nektRow } = await supabaseAdmin
       .from("nekt_meta26_metas")
       .select("data, won_szi_meta_pago, won_szi_meta_direto, mql_meta_szi, sql_meta_szi, opp_meta_szi")
