@@ -434,7 +434,7 @@ export async function GET(req: NextRequest) {
       for (const key of ["leads", "mql", "sql", "opp", "won", "reserva", "contrato"] as const) {
         let total = 0;
         for (const [, v] of maps[key]) total += v;
-        (grand as Record<string, number>)[key] = total;
+        (grand as unknown as Record<string, number>)[key] = total;
       }
     }
 
