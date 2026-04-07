@@ -119,6 +119,7 @@ export async function GET() {
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
+    // TODO: MKTP presellers — fill in when team structure is discovered
     const MAIN_PVS = mc.presellers.length > 0 ? [...mc.presellers] : [];
     const deals = (rows || []).filter((d) => MAIN_PVS.length === 0 || MAIN_PVS.includes(d.preseller_name));
     const now = new Date();

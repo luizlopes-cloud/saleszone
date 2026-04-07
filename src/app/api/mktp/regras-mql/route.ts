@@ -68,9 +68,10 @@ export async function GET() {
       const cn = (row.campaign_name || "") as string;
 
       let tipo: "lp" | "campanha";
+      // TODO: MKTP campaign prefix may differ from [SI]
       if (cn.startsWith("LP ")) {
         tipo = "lp";
-      } else if (cn.startsWith("[MKTPLACE]") || cn.startsWith("[MK]") || cn.startsWith("[SI]")) {
+      } else if (cn.startsWith("[MK]") || cn.startsWith("[SI]")) {
         tipo = "campanha";
         if (!activeCampaigns.has(cn)) continue;
       } else {
