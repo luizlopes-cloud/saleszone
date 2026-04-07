@@ -162,6 +162,7 @@ function nektDealToRow(deal: Record<string, string | null>, maxStageOrder: numbe
     last_activity_date: deal.data_da_ultima_atividade || null,
     next_activity_date: deal.proxima_atividade_em || null,
     stage_change_date: deal.ultima_alteracao_de_etapa || null,
+    tipo_de_venda: deal.tipo_de_venda || null,
     flow_fetched: flowFetched,
     synced_at: new Date().toISOString(),
   };
@@ -179,7 +180,7 @@ SELECT d.id, d.titulo, d.etapa, d.status, d.owner_id, u.name as owner_name,
        d.negocio_criado_em, d.ganho_em, d.data_de_perda, d.atualizado_em,
        d.canal, d.empreendimento, d.data_de_qualificacao, d.data_da_reuniao,
        d.motivo_da_perda, d.rd_source, d.data_da_ultima_atividade, d.proxima_atividade_em,
-       d.ultima_alteracao_de_etapa, d.pre_vendedor_a, pu.name as preseller_name
+       d.ultima_alteracao_de_etapa, d.tipo_de_venda, d.pre_vendedor_a, pu.name as preseller_name
 FROM nekt_silver.pipedrive_deals_readable d
 LEFT JOIN (SELECT id, name, ROW_NUMBER() OVER (PARTITION BY id ORDER BY _nekt_sync_at DESC) as rn FROM nekt_silver.pipedrive_v2_users_scd2) u ON d.owner_id = u.id AND u.rn = 1
 LEFT JOIN (SELECT id, name, ROW_NUMBER() OVER (PARTITION BY id ORDER BY _nekt_sync_at DESC) as rn FROM nekt_silver.pipedrive_v2_users_scd2) pu ON d.pre_vendedor_a = pu.id AND pu.rn = 1
