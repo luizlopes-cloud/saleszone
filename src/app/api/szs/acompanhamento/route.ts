@@ -75,10 +75,13 @@ export async function GET(req: NextRequest) {
     const curMonthKey = `${year}-${String(month).padStart(2, "0")}`;
     const monthMetas = SZS_METAS_WON_BY_SQUAD[curMonthKey] || {};
 
-    const squads: SquadData[] = mc.squads.map((sq) => {
+    // Build squads for all 3 SZS canal groups with proper names
+    const SZS_SQUAD_NAMES: Record<number, string> = { 1: "Marketing", 2: "Parceiros", 3: "Expansão" };
+    const squads: SquadData[] = Object.entries(SZS_SQUAD_NAMES).map(([idStr, squadName]) => {
+      const sqId = Number(idStr);
       const cidadeKeys: string[] = [];
       for (const gKey of squadCidadeCounts.keys()) {
-        if (gKey.startsWith(`${sq.id}|`)) cidadeKeys.push(gKey);
+        if (gKey.startsWith(`${sqId}|`)) cidadeKeys.push(gKey);
       }
 
       const sqRows = cidadeKeys.map((gKey) => {
@@ -92,15 +95,15 @@ export async function GET(req: NextRequest) {
       });
       sqRows.sort((a, b) => b.totalMes - a.totalMes);
 
-      const metaWon = monthMetas[sq.id] || 0;
+      const metaWon = monthMetas[sqId] || 0;
       const metaToDate = tab === "won" ? (day / totalDaysInMonth) * metaWon : 0;
 
       return {
-        id: sq.id,
-        name: sq.name,
-        marketing: sq.marketing,
-        preVenda: sq.preVenda,
-        venda: sq.venda,
+        id: sqId,
+        name: squadName,
+        marketing: mc.squads[0]?.marketing || "",
+        preVenda: mc.squads[0]?.preVenda || "",
+        venda: mc.squads[0]?.venda || "",
         rows: sqRows,
         metaToDate,
       };
