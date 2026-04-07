@@ -71,7 +71,7 @@ const MKTP_SQUADS: readonly SquadDef[] = [
     id: 1,
     name: "Marketplace",
     marketing: "Rodrigo Guirado",
-    preVenda: "Karoane",  // multiple presellers, using first as squad representative
+    preVenda: "Karoane Izabela Soares",
     venda: "Nevine Saratt",
     empreendimentos: [], // TODO: populate with MKTP empreendimentos (all non-active/closed groups)
   },
