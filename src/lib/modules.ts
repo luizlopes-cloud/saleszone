@@ -72,7 +72,7 @@ const MKTP_SQUADS: readonly SquadDef[] = [
     id: 1,
     name: "Marketplace",
     marketing: "Rodrigo Guirado",
-    preVenda: "Karoane",  // multiple presellers, using first as squad representative
+    preVenda: "Karoane Izabela Soares",
     venda: "Nevine Saratt",
     empreendimentos: [], // TODO: populate with MKTP empreendimentos (all non-active/closed groups)
   },
@@ -86,7 +86,7 @@ const MKTP_CONFIG: ModuleConfig = {
   metaAdsAccountId: "act_799783985155825",
   squads: MKTP_SQUADS,
   closers: ["Nevine Saratt", "Willian Miranda"],
-  presellers: ["Karoane", "Izabela Soares", "Karoline Borges"],
+  presellers: ["Karoane Izabela Soares", "Karoline Borges"],
   squadCloserMap: {
     1: [0, 1], // Nevine Saratt, Willian Miranda
   },
