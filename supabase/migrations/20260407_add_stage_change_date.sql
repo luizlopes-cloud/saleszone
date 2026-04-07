@@ -1,0 +1,1 @@
+ALTER TABLE squad_deals ADD COLUMN IF NOT EXISTS stage_change_date TIMESTAMPTZ;
