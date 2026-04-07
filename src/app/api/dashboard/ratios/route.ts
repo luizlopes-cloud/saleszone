@@ -9,7 +9,7 @@ import type { RatioHistoryData, RatioSnapshot } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 // stage thresholds for squad_deals.max_stage_order
-const STAGE_THRESHOLDS = { mql: 2, sql: 5, opp: 9, won: 14 };
+const STAGE_THRESHOLDS = { mql: 2, sql: 5, opp: 9 };
 
 export async function GET(req: NextRequest) {
   const days = parseInt(req.nextUrl.searchParams.get("days") || "90");
@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
     ]);
 
     if (ratiosRes.error) throw new Error(`Supabase error: ${ratiosRes.error.message}`);
+    if (countsRes.error) console.warn(`[ratios] squad_daily_counts error: ${countsRes.error.message}`);
     const allRows = (ratiosRes.data || []) as RatioSnapshot[];
 
     // dates for heatmap
