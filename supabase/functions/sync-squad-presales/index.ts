@@ -137,11 +137,17 @@ async function fetchDealActivities(dealId: number, token: string): Promise<Piped
   return pipedriveGet<PipedriveActivity>(`/deals/${dealId}/activities`, token, {});
 }
 
-// Find transbordo + last MIA from deal flow + activities
+// Fetch notes for a deal to find MIA notes ("Relato enviado pela Mia")
+async function fetchDealNotes(dealId: number, token: string): Promise<{ id: number; content: string; add_time: string }[]> {
+  return pipedriveGet<{ id: number; content: string; add_time: string }>(`/deals/${dealId}/notes`, token, {});
+}
+
+// Find transbordo + last MIA from deal flow + activities + notes
 // Returns { transbordo, lastMia }
 function analyzeTransbordo(
   flow: FlowItem[],
   activities: PipedriveActivity[],
+  notes: { id: number; content: string; add_time: string }[],
   preSellerIds: Set<number>,
 ): { ownerChange: string | null; lastMia: string | null } {
   // 1. Find LAST ownership change to any preseller
@@ -165,6 +171,15 @@ function analyzeTransbordo(
     if (/mia/i.test(act.subject || "")) {
       if (!lastMiaTime || act.add_time > lastMiaTime) {
         lastMiaTime = act.add_time;
+      }
+    }
+  }
+
+  // 3. Find last MIA note ("Relato enviado pela Mia" or "Morada.ai")
+  for (const note of notes) {
+    if (/relato enviado pela (mia|mariana)|morada\.ai|assistente virtual/i.test(note.content || "")) {
+      if (!lastMiaTime || note.add_time > lastMiaTime) {
+        lastMiaTime = note.add_time;
       }
     }
   }
@@ -240,19 +255,20 @@ Deno.serve(async (req) => {
         const results = await Promise.all(
           batch.map(async (dealId) => {
             try {
-              const [flow, acts] = await Promise.all([
+              const [flow, acts, notes] = await Promise.all([
                 fetchDealFlow(dealId, pipedriveToken),
                 fetchDealActivities(dealId, pipedriveToken),
+                fetchDealNotes(dealId, pipedriveToken),
               ]);
-              return { dealId, flow, acts };
+              return { dealId, flow, acts, notes };
             } catch {
-              return { dealId, flow: [] as FlowItem[], acts: [] as PipedriveActivity[] };
+              return { dealId, flow: [] as FlowItem[], acts: [] as PipedriveActivity[], notes: [] as { id: number; content: string; add_time: string }[] };
             }
           })
         );
 
-        for (const { dealId, flow, acts } of results) {
-          const { ownerChange, lastMia } = analyzeTransbordo(flow, acts, preSellerIds);
+        for (const { dealId, flow, acts, notes } of results) {
+          const { ownerChange, lastMia } = analyzeTransbordo(flow, acts, notes, preSellerIds);
 
           // Save last MIA activity date
           if (lastMia) {
