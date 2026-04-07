@@ -278,6 +278,19 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
             ))}
           </div>
           {/* Filtro Geral / Marketing / Mídia Paga */}
+          {acompFilter !== "all" && (
+            <span style={{
+              fontSize: "11px",
+              fontWeight: 600,
+              color: T.primary,
+              backgroundColor: T.azul50,
+              padding: "3px 10px",
+              borderRadius: "6px",
+              border: `1px solid ${T.primary}33`,
+            }}>
+              {acompFilter === "marketing" ? "Marketing" : acompFilter === "paid" ? "Mídia Paga" : "CTWA"}
+            </span>
+          )}
           <div
             style={{
               display: "flex",
