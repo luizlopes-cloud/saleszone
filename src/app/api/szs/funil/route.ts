@@ -1,11 +1,14 @@
-// SZS (Serviços) module — funil by individual canal (no squad grouping)
+// SZS (Serviços) module — funil by 3 squads: Marketing, Parceiros, Expansão
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
-import type { FunilData, FunilSquad, FunilEmpreendimento, FunilCidade } from "@/lib/types";
+import { getModuleConfig } from "@/lib/modules";
+import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
 import { SZS_METAS_WON_BY_SQUAD } from "@/lib/szs-utils";
 
 export const dynamic = "force-dynamic";
+
+const mc = getModuleConfig("szs");
 
 function rate(num: number, den: number): number {
   return den > 0 ? Math.round((num / den) * 10000) / 10000 : 0;
@@ -64,8 +67,17 @@ async function fetchAll(query: any): Promise<any[]> {
   return all;
 }
 
-// The 6 canais to show in SZS funnel
-const SZS_CANAIS = ["Marketing", "Ind. Franquia", "Ind. Corretor", "Expansão", "Spots", "Outros"] as const;
+// canal → squad mapping (matches szs_daily_counts.canal_group values)
+const CANAL_TO_SQUAD: Record<string, number> = {
+  Marketing: 1,
+  "Ind. Franquia": 2,
+  "Ind. Corretor": 2,
+  "Ind. Outros Parceiros": 2,
+  Expansão: 3,
+  Spots: 3,
+  Outros: 3,
+  Mônica: 3,
+};
 
 export async function GET(req: NextRequest) {
   try {
@@ -87,21 +99,14 @@ export async function GET(req: NextRequest) {
       fetchAll(admin.from("szs_deals").select("canal_group, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").not("canal_group", "is", null).gte("add_time", startDate)),
     ]);
 
-    // Build funnel counts by canal (direct key, no squad grouping)
-    const canalCounts = new Map<string, Record<string, number>>();
+    // Build counts by squadId|canalGroup
+    const squadCanalCounts = new Map<string, Record<string, number>>();
     for (const row of [...countsData, ...stageData]) {
-      const canal = row.canal_group || "Outros";
-      if (!canalCounts.has(canal)) canalCounts.set(canal, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      canalCounts.get(canal)![row.tab] = (canalCounts.get(canal)![row.tab] || 0) + (row.count || 0);
-    }
-
-    // Baserow leads by canal
-    const baserowLeadsMap = new Map<string, number>();
-    for (const row of baserowLeadsRes) {
-      if (!row.cidade) continue;
-      // baserow_szs_leads uses cidade field - try to match by known cidade names
-      // For now, distribute evenly among all canais that have leads
-      // Actually, baserow_szs_leads.cidade is the cidade, not canal - skip for now
+      const canalGroup = row.canal_group || "Outros";
+      const squadId = CANAL_TO_SQUAD[canalGroup] ?? 3;
+      const gKey = `${squadId}|${canalGroup}`;
+      if (!squadCanalCounts.has(gKey)) squadCanalCounts.set(gKey, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
+      squadCanalCounts.get(gKey)![row.tab] = (squadCanalCounts.get(gKey)![row.tab] || 0) + (row.count || 0);
     }
 
     // Paid deals by canal
@@ -117,71 +122,62 @@ export async function GET(req: NextRequest) {
       if (d.status === "won") cur.won++;
     }
 
-    // Build funnel for each canal (shown as cidade rows)
-    const cidades: FunilCidade[] = SZS_CANAIS.map((canal) => {
-      const counts = canalCounts.get(canal) || { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 };
-      const paid = paidCountsMap.get(canal) || { mql: 0, sql: 0, opp: 0, won: 0 };
-
-      let mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
-
-      if (paidOnly) {
-        mql = paid.mql; sql = paid.sql; opp = paid.opp; won = paid.won;
-        reserva = 0; contrato = 0;
-      } else {
-        mql = counts.mql || 0; sql = counts.sql || 0; opp = counts.opp || 0; won = counts.won || 0;
-        reserva = counts.reserva || 0; contrato = counts.contrato || 0;
+    // Build squads from mc.squads (3 squads: Marketing, Parceiros, Expansão)
+    const squads: FunilSquad[] = mc.squads.map((sq) => {
+      const canalEntries: Array<{ canal: string; counts: Record<string, number> }> = [];
+      for (const [gKey, counts] of squadCanalCounts.entries()) {
+        if (!gKey.startsWith(`${sq.id}|`)) continue;
+        canalEntries.push({ canal: gKey.split("|")[1], counts });
       }
 
-      // leads = mql (simplified for SZS - no Meta Ads data by canal)
-      const funil = buildFunil(canal, 0, 0, mql, mql, sql, opp, won, reserva, contrato, 0);
+      const totalGroupMql = canalEntries.reduce((s, c) => s + (c.counts.mql || 0), 0);
+
+      const empRows: FunilEmpreendimento[] = canalEntries.map(({ canal, counts }) => {
+        const mqlShare = totalGroupMql > 0 ? (counts.mql || 0) / totalGroupMql : (canalEntries.length > 0 ? 1 / canalEntries.length : 0);
+        const paid = paidCountsMap.get(canal) || { mql: 0, sql: 0, opp: 0, won: 0 };
+
+        let mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
+
+        if (paidOnly) {
+          mql = Math.round(paid.mql * mqlShare); sql = Math.round(paid.sql * mqlShare);
+          opp = Math.round(paid.opp * mqlShare); won = Math.round(paid.won * mqlShare);
+          reserva = 0; contrato = 0;
+        } else {
+          mql = counts.mql || 0; sql = counts.sql || 0; opp = counts.opp || 0; won = counts.won || 0;
+          reserva = counts.reserva || 0; contrato = counts.contrato || 0;
+        }
+
+        return buildFunil(canal, 0, 0, mql, mql, sql, opp, won, reserva, contrato, 0);
+      });
+
+      empRows.sort((a, b) => (b.mql + b.sql + b.opp + b.won) - (a.mql + a.sql + a.opp + a.won));
 
       return {
-        cidade: canal,
-        bairros: [],
-        totals: funil,
+        id: sq.id,
+        name: sq.name,
+        marketing: sq.marketing,
+        preVenda: sq.preVenda,
+        venda: sq.venda,
+        empreendimentos: empRows,
+        totals: sumFunil(empRows, sq.name),
       };
     });
 
-    // Remove empty canais (no data, no meta)
     const monthMetas = SZS_METAS_WON_BY_SQUAD[month] || {};
-    // Map metas: Marketing=squad1, Ind.Franquia/Ind.Corretor=squad2, Expansão/Spots/Outros=squad3
-    const canalMetaMap: Record<string, number> = {
-      Marketing: monthMetas[1] || 0,
-      "Ind. Franquia": Math.round((monthMetas[2] || 0) / 3),
-      "Ind. Corretor": Math.round((monthMetas[2] || 0) / 3),
-      "Ind. Outros Parceiros": Math.round((monthMetas[2] || 0) / 3),
-      Expansão: Math.round((monthMetas[3] || 0) / 3),
-      Spots: Math.round((monthMetas[3] || 0) / 3),
-      Outros: Math.round((monthMetas[3] || 0) / 3),
-      Monica: Math.round((monthMetas[3] || 0) / 3),
-    };
+    const nonEmptySquads = squads.filter((sq) => sq.empreendimentos.length > 0 || (monthMetas[sq.id] || 0) > 0);
 
-    const nonEmptyCidades = cidades.filter((c) => {
-      const totals = c.totals;
-      return totals.mql + totals.sql + totals.opp + totals.won > 0 || (canalMetaMap[c.cidade] || 0) > 0;
-    });
+    const allEmps = nonEmptySquads.flatMap((sq) => sq.empreendimentos);
+    const grand = sumFunil(allEmps, "Total");
 
-    // Grand total
-    const allFunil = nonEmptyCidades.map((c) => c.totals);
-    const grand = sumFunil(allFunil, "Total");
-
-    // Build metas object keyed by canal name
+    // Metas by squad name (matches squad.name: Marketing/Parceiros/Expansão)
     const metasObj: Record<string, Record<string, number>> = {};
-    metasObj["Total"] = {};
-    for (const c of nonEmptyCidades) {
-      metasObj[c.cidade] = { won: canalMetaMap[c.cidade] || 0 };
-      metasObj["Total"].won = (metasObj["Total"].won || 0) + (canalMetaMap[c.cidade] || 0);
+    metasObj["Total"] = { won: 0 };
+    for (const sq of nonEmptySquads) {
+      metasObj[sq.name] = { won: monthMetas[sq.id] || 0 };
+      metasObj["Total"].won += monthMetas[sq.id] || 0;
     }
 
-    const squads: FunilSquad[] = [{
-      id: 1,
-      name: "Serviços",
-      empreendimentos: [],
-      cidades: nonEmptyCidades,
-      totals: grand,
-    }];
-
-    const result: FunilData = { month, squads, grand, metas: metasObj };
+    const result: FunilData = { month, squads: nonEmptySquads, grand, metas: metasObj };
     return NextResponse.json(result);
   } catch (error) {
     console.error("SZS Funil error:", error);
