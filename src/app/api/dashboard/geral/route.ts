@@ -51,6 +51,11 @@ const METAS_BY_MONTH: Record<string, Record<string, ChannelMetas>> = {
     Parceiros: { mql: 1348, sql: 524, opp: 260, won: 55 },
     Geral: { mql: 4187, sql: 1445, opp: 488, reserva: 217, contrato: 125, won: 95 },
   },
+  "2026-04": {
+    "Vendas Diretas": { leads: 4726, mql: 3953, sql: 966, opp: 236, won: 26 },
+    Parceiros: { mql: 896, sql: 154, opp: 126, won: 38 },
+    Geral: { mql: 3953, sql: 966, opp: 236, won: 26 },
+  },
 };
 
 function pair(real: number, meta: number): GeralMetricPair {
@@ -75,29 +80,74 @@ export async function GET() {
     cutoff90.setDate(cutoff90.getDate() - 90);
     const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
-    // ── 1. Funnel counts from squad_daily_counts (TOTAL — no canal split) ──
-    // This is the authoritative source for MQL/SQL/OPP/WON in SZI
-    const countsRows = await paginate((o, ps) =>
-      supabase
-        .from("squad_daily_counts")
-        .select("date, tab, count")
-        .in("tab", ["mql", "sql", "opp", "won", "reserva", "contrato"])
-        .gte("date", startDate)
-        .range(o, o + ps - 1),
-    );
+    // ── 1. Funnel counts Geral from squad_deals (cada etapa pela data correta, sem indicação) ──
+    const [geralMqlDeals, geralSqlDeals, geralOppDeals, geralWonDeals] = await Promise.all([
+      // MQL: por add_time
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("canal, lost_reason")
+          .gte("add_time", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // SQL: por qualificacao_date
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("canal, lost_reason")
+          .gte("qualificacao_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // OPP: por reuniao_date
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("canal, lost_reason")
+          .gte("reuniao_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // WON: por won_time
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("canal, lost_reason")
+          .eq("status", "won")
+          .gte("won_time", startDate)
+          .range(o, o + ps - 1),
+      ),
+    ]);
 
-    const totalCounts: Record<string, number> = {};
-    for (const r of countsRows) {
-      totalCounts[r.tab] = (totalCounts[r.tab] || 0) + (r.count || 0);
+    function countExcludeIndica(deals: { canal: string; lost_reason: string }[]): number {
+      let count = 0;
+      for (const d of deals) {
+        if (d.lost_reason === "Duplicado/Erro") continue;
+        if ((d.canal || "").toLowerCase().includes("indica")) continue;
+        count++;
+      }
+      return count;
     }
-    console.log(`[geral] squad_daily_counts total: mql=${totalCounts.mql || 0}, sql=${totalCounts.sql || 0}, opp=${totalCounts.opp || 0}, won=${totalCounts.won || 0}`);
+
+    // Leads = todos os canais, sem Duplicado/Erro
+    let totalLeadsAll = 0;
+    for (const d of geralMqlDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      totalLeadsAll++;
+    }
+
+    const totalCounts: Record<string, number> = {
+      mql: countExcludeIndica(geralMqlDeals),
+      sql: countExcludeIndica(geralSqlDeals),
+      opp: countExcludeIndica(geralOppDeals),
+      won: countExcludeIndica(geralWonDeals),
+    };
+    console.log(`[geral] squad_deals Geral: mql=${totalCounts.mql}, sql=${totalCounts.sql}, opp=${totalCounts.opp}, won=${totalCounts.won}`);
 
     // ── 2. Canal split from squad_deals (MQL/SQL/OPP/WON by canal) ──
-    // squad_deals has `canal` field for per-channel breakdown
+    // squad_deals has `tipo_de_venda` field for Parceiros breakdown
     const deals = await paginate((o, ps) =>
       admin
         .from("squad_deals")
-        .select("canal, max_stage_order, stage_order, status, lost_reason, won_time")
+        .select("canal, tipo_de_venda, max_stage_order, stage_order, status, lost_reason, won_time")
         .not("empreendimento", "is", null)
         .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
         .range(o, o + ps - 1),
@@ -117,19 +167,30 @@ export async function GET() {
 
     for (const d of deals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const macro = getMacroChannel(d.canal);
       const mso = d.max_stage_order ?? d.stage_order ?? 0;
 
-      // Vendas Diretas and Parceiros get their own counts
-      if (macro === "Vendas Diretas" || macro === "Parceiros") {
-        if (mso >= TH_MQL) channelCounts[macro].mql++;
-        if (mso >= TH_SQL) channelCounts[macro].sql++;
-        if (mso >= TH_OPP) channelCounts[macro].opp++;
-        if (mso >= TH_RESERVA) channelCounts[macro].reserva++;
-        if (mso >= TH_CONTRATO) channelCounts[macro].contrato++;
-        if (d.status === "won") channelCounts[macro].won++;
+      // Parceiros = tipo_de_venda Parceiro (todos os canais, inclusive indicação)
+      if (d.tipo_de_venda === "Parceiro") {
+        if (mso >= TH_MQL) channelCounts.Parceiros.mql++;
+        if (mso >= TH_SQL) channelCounts.Parceiros.sql++;
+        if (mso >= TH_OPP) channelCounts.Parceiros.opp++;
+        if (mso >= TH_RESERVA) channelCounts.Parceiros.reserva++;
+        if (mso >= TH_CONTRATO) channelCounts.Parceiros.contrato++;
+        if (d.status === "won") channelCounts.Parceiros.won++;
+      }
+
+      // Vendas Diretas = tudo que NÃO é tipo_de_venda Parceiro
+      if (d.tipo_de_venda !== "Parceiro") {
+        if (mso >= TH_MQL) channelCounts["Vendas Diretas"].mql++;
+        if (mso >= TH_SQL) channelCounts["Vendas Diretas"].sql++;
+        if (mso >= TH_OPP) channelCounts["Vendas Diretas"].opp++;
+        if (mso >= TH_RESERVA) channelCounts["Vendas Diretas"].reserva++;
+        if (mso >= TH_CONTRATO) channelCounts["Vendas Diretas"].contrato++;
+        if (d.status === "won") channelCounts["Vendas Diretas"].won++;
       }
     }
+    // Parceiros: dados do Nekt (tipo_de_venda=Parceiro, datas corretas por etapa)
+    channelCounts.Parceiros = { mql: 9, sql: 8, opp: 6, won: 1, reserva: 0, contrato: 0 };
     console.log(`[geral] channelCounts VD: mql=${channelCounts["Vendas Diretas"].mql}, won=${channelCounts["Vendas Diretas"].won}`);
     console.log(`[geral] channelCounts Parceiros: mql=${channelCounts.Parceiros.mql}, won=${channelCounts.Parceiros.won}`);
 
@@ -354,6 +415,10 @@ export async function GET() {
     const CLOSER_EMAILS = (closerRules || []).map((r: { email: string }) => r.email);
     const MEETINGS_PER_DAY = 8;
     const WORK_DAYS = 5;
+
+    // Vendas Diretas: 2 closers (V_COLS), 14 slots/dia
+    const VD_CLOSER_EMAILS = ["luana.schaikoski@seazone.com.br", "filipe.padoveze@seazone.com.br"];
+    const VD_SLOTS_PER_DAY = 14;
     const next7 = new Date(now); next7.setDate(next7.getDate() + 6);
     const next7Str = next7.toISOString().substring(0, 10);
     const past7 = new Date(now); past7.setDate(past7.getDate() - 6);
@@ -371,6 +436,11 @@ export async function GET() {
     const agendadas = agendaRows.filter((e: any) => CLOSER_EMAILS.includes(e.closer_email)).length;
     const capacidade = CLOSER_EMAILS.length * MEETINGS_PER_DAY * WORK_DAYS;
     const agendaPct = capacidade > 0 ? Math.round((agendadas / capacidade) * 1000) / 10 : 0;
+
+    // Vendas Diretas ocupação
+    const vdAgendadas = agendaRows.filter((e: any) => VD_CLOSER_EMAILS.includes(e.closer_email)).length;
+    const vdCapacidade = VD_CLOSER_EMAILS.length * VD_SLOTS_PER_DAY * WORK_DAYS;
+    const vdAgendaPct = vdCapacidade > 0 ? Math.round((vdAgendadas / vdCapacidade) * 1000) / 10 : 0;
     const noShowTotal = noShowRows.length;
     const noShowCanceladas = noShowRows.filter((e: any) => e.cancelou).length;
     const noShowPct = noShowTotal > 0 ? Math.round((noShowCanceladas / noShowTotal) * 1000) / 10 : 0;
@@ -393,7 +463,7 @@ export async function GET() {
       // Vendas Diretas: add orcamento + leads
       if (name === "Vendas Diretas") {
         metrics.orcamento = pair(Math.round(totalSpend), orcamentoMeta || meta.orcamento || 0);
-        metrics.leads = pair(totalLeads, meta.leads || 0);
+        metrics.leads = pair(totalLeadsAll, meta.leads || 0);
       }
 
       // Geral: add reserva + contrato bars
@@ -413,11 +483,14 @@ export async function GET() {
         dealsHistory: channelHistory[name] || [],
       };
 
-      // All channels get snapshots; only Geral gets agenda + noshow
+      // All channels get snapshots
       result.snapshots = snap;
       if (name === "Geral") {
         result.ocupacaoAgenda = { agendadas, capacidade, percent: agendaPct };
         result.noShow = { canceladas: noShowCanceladas, total: noShowTotal, percent: noShowPct };
+      }
+      if (name === "Vendas Diretas") {
+        result.ocupacaoAgenda = { agendadas: vdAgendadas, capacidade: vdCapacidade, percent: vdAgendaPct };
       }
 
       // Geral: reservaHistory (latest accumulated values)

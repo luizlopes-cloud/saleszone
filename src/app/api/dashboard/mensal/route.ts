@@ -53,54 +53,70 @@ export async function GET(req: NextRequest) {
 
     // Fetch all daily counts in the full range (all tabs at once)
     // Must paginate — 6 months × ~30 days × ~11 empreendimentos = ~2000+ rows per tab
-    const countsPromises = TABS.map((tab) =>
+    // Fetch deals de squad_deals para MQL/SQL/OPP/WON (cada etapa pela data correta)
+    // Todos os canais exceto indicação, sem Duplicado/Erro
+    const [mqlDeals, sqlDeals, oppDeals, wonDeals, metaRes] = await Promise.all([
+      // MQL: por add_time
       paginate((offset, ps) =>
         supabase
-          .from("squad_daily_counts")
-          .select("date, count")
-          .eq("tab", tab)
-          .gte("date", globalStart)
-          .lte("date", globalEnd)
+          .from("squad_deals")
+          .select("add_time, canal, lost_reason")
+          .gte("add_time", globalStart)
           .range(offset, offset + ps - 1),
       ),
-    );
-
-    // Fetch metas for all months (service role to bypass RLS)
-    const metaDates = months.map((m) => m.metaDate);
-    const metaPromise = supabaseSR
-      .from("nekt_meta26_metas")
-      .select("data, won_szi_meta_pago, won_szi_meta_direto")
-      .in("data", metaDates);
-
-    const results = await Promise.all([
-      ...countsPromises,
-      metaPromise,
+      // SQL: por qualificacao_date
+      paginate((offset, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("qualificacao_date, canal, lost_reason")
+          .gte("qualificacao_date", globalStart)
+          .range(offset, offset + ps - 1),
+      ),
+      // OPP: por reuniao_date
+      paginate((offset, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("reuniao_date, canal, lost_reason")
+          .gte("reuniao_date", globalStart)
+          .range(offset, offset + ps - 1),
+      ),
+      // WON: por won_time
+      paginate((offset, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("won_time, canal, lost_reason")
+          .eq("status", "won")
+          .gte("won_time", globalStart)
+          .range(offset, offset + ps - 1),
+      ),
+      // Metas (service role to bypass RLS)
+      supabaseSR
+        .from("nekt_meta26_metas")
+        .select("data, won_szi_meta_pago, won_szi_meta_direto")
+        .in("data", months.map((m) => m.metaDate)),
     ]);
 
-    const mqlRows = results[0] as { date: string; count: number }[];
-    const sqlRows = results[1] as { date: string; count: number }[];
-    const oppRows = results[2] as { date: string; count: number }[];
-    const wonRows = results[3] as { date: string; count: number }[];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const metaRes = results[4] as any;
-
-    // Check meta errors
     if (metaRes?.error) throw new Error(`Meta query error: ${metaRes.error.message}`);
 
-    // Sum counts by month for each tab
-    function sumByMonth(rows: { date: string; count: number }[]): Map<string, number> {
+    // Agregar por mês — exclui indicação e Duplicado/Erro
+    function aggregateByMonth(deals: Record<string, string | null>[], dateField: string): Map<string, number> {
       const map = new Map<string, number>();
-      for (const row of rows) {
-        const monthKey = row.date.substring(0, 7); // "YYYY-MM"
-        map.set(monthKey, (map.get(monthKey) || 0) + (row.count || 0));
+      for (const d of deals) {
+        if (d.lost_reason === "Duplicado/Erro") continue;
+        const canal = (d.canal || "").toLowerCase();
+        if (canal.includes("indica")) continue;
+        const dateVal = d[dateField];
+        if (!dateVal) continue;
+        const monthKey = dateVal.substring(0, 7);
+        map.set(monthKey, (map.get(monthKey) || 0) + 1);
       }
       return map;
     }
 
-    const mqlByMonth = sumByMonth(mqlRows);
-    const sqlByMonth = sumByMonth(sqlRows);
-    const oppByMonth = sumByMonth(oppRows);
-    const wonByMonth = sumByMonth(wonRows);
+    const mqlByMonth = aggregateByMonth(mqlDeals, "add_time");
+    const sqlByMonth = aggregateByMonth(sqlDeals, "qualificacao_date");
+    const oppByMonth = aggregateByMonth(oppDeals, "reuniao_date");
+    const wonByMonth = aggregateByMonth(wonDeals, "won_time");
 
     // Index metas by DD/MM/YYYY → month key
     const metaByMonth = new Map<string, number>();
@@ -135,6 +151,7 @@ export async function GET(req: NextRequest) {
           mqlToSql: pct(sql, mql),
           sqlToOpp: pct(opp, sql),
           oppToWon: pct(won, opp),
+          mqlToWon: pct(won, mql),
         },
       };
     });

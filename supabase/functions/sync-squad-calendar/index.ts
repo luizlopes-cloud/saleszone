@@ -209,6 +209,10 @@ async function syncCalendar(supabase, serviceAccountEmail, privateKey) {
         const cancelou = closerAttendee?.responseStatus === "declined";
         // Transcript
         const transcript = evt.attachments?.find((a)=>a.title?.toLowerCase().includes("transcript"));
+        // Attendees emails (excluindo o próprio closer)
+        const attendeesEmails = (evt.attendees || [])
+          .map((a: { email: string }) => a.email.toLowerCase())
+          .filter((e: string) => e !== rule.email.toLowerCase());
         allRows.push({
           event_id: evt.htmlLink,
           closer_email: rule.email,
@@ -222,6 +226,7 @@ async function syncCalendar(supabase, serviceAccountEmail, privateKey) {
           cancelou,
           reagendamento: false,
           transcript_url: transcript?.fileUrl || null,
+          attendees_emails: attendeesEmails,
           synced_at: new Date().toISOString()
         });
         count++;
