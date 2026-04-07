@@ -144,6 +144,7 @@ export async function GET() {
     for (const ch of CHANNEL_ORDER) channelCounts[ch] = {};
 
     for (const deal of deals) {
+      if (deal.lost_reason === "Duplicado/Erro") continue;
       const group = getCanalGroup(String(deal.canal || ""));
       for (const tab of TABS) {
         const dateCol = TAB_DATE_COL[tab];
@@ -152,7 +153,10 @@ export async function GET() {
         const day = dateVal.substring(0, 10);
         if (day < startDate) continue; // only current month
         channelCounts[group][tab] = (channelCounts[group][tab] || 0) + 1;
-        channelCounts["Funil Completo"][tab] = (channelCounts["Funil Completo"][tab] || 0) + 1;
+        // MQL "sem indicação": Funil Completo excludes Parcerias (canais 582/583/2876)
+        if (tab !== "mql" || group !== "Parcerias") {
+          channelCounts["Funil Completo"][tab] = (channelCounts["Funil Completo"][tab] || 0) + 1;
+        }
       }
     }
 
