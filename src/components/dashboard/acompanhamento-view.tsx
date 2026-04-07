@@ -770,12 +770,19 @@ export function AcompanhamentoView({ data, activeTab, setActiveTab, loading, las
         }}
       >
         <div style={{ display: "flex", gap: "14px", alignItems: "center" }}>
-          {Object.entries(SQUAD_COLORS).map(([n, cc]) => (
-            <div key={n} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-              <span style={{ width: "7px", height: "7px", borderRadius: "9999px", backgroundColor: cc }} />
-              <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>Squad {n}</span>
-            </div>
-          ))}
+          {data?.squads && data.squads.length > 0
+            ? data.squads.map((sq) => (
+                <div key={sq.id} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                  <span style={{ width: "7px", height: "7px", borderRadius: "9999px", backgroundColor: SQUAD_COLORS[sq.id] || T.azul600 }} />
+                  <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>{sq.name}</span>
+                </div>
+              ))
+            : Object.entries(SQUAD_COLORS).map(([n, cc]) => (
+                <div key={n} style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                  <span style={{ width: "7px", height: "7px", borderRadius: "9999px", backgroundColor: cc }} />
+                  <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600 }}>Squad {n}</span>
+                </div>
+              ))}
         </div>
         <span style={{ fontSize: "11px", color: T.cinza400 }}>
           Pipedrive · {new Date().toLocaleDateString("pt-BR")}
