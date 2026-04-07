@@ -45,12 +45,16 @@ const SZS_SQUAD_COLORS: Record<number, string> = {
   1: T.azul600, 2: T.roxo600, 3: T.teal600,
 };
 
+type RatioFilter = "all" | "marketing" | "paid" | "ctwa";
+
 interface Props {
   data: RatioHistoryData | null;
   loading: boolean;
   daysBack: number;
   onDaysChange: (days: number) => void;
   moduleId?: string;
+  filter?: RatioFilter;
+  onFilterChange?: (f: RatioFilter) => void;
 }
 
 function ratioToConvPct(ratio: number): number {
@@ -729,7 +733,7 @@ function MiniTrend({ diff, direction, label }: { diff: number; direction: "bette
   );
 }
 
-export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId }: Props) {
+export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId, filter = "all", onFilterChange }: Props) {
   const [expanded, setExpanded] = useState(true);
   const [selectedRatio, setSelectedRatio] = useState<RatioKey>("opp_won");
   const isSZS = moduleId === "szs";
@@ -793,7 +797,7 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
           {/* Daily conversion heatmap with ratio selector */}
           {data.empDaily && data.dates && (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
                 <div style={{ display: "flex", gap: "3px", backgroundColor: T.bg, borderRadius: "8px", padding: "2px", border: `1px solid ${T.border}` }}>
                   {RATIO_KEYS.map(key => (
                     <button
@@ -814,6 +818,28 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
                     </button>
                   ))}
                 </div>
+                {onFilterChange && (
+                  <div style={{ display: "flex", gap: "2px", backgroundColor: T.bg, borderRadius: "8px", padding: "2px", border: `1px solid ${T.border}` }}>
+                    {([{ key: "all" as RatioFilter, label: "Geral" }, { key: "marketing" as RatioFilter, label: "Marketing" }, { key: "paid" as RatioFilter, label: "Mídia Paga" }, { key: "ctwa" as RatioFilter, label: "CTWA" }] as const).map(opt => (
+                      <button
+                        key={opt.key}
+                        onClick={() => onFilterChange(opt.key)}
+                        style={{
+                          padding: "5px 12px",
+                          borderRadius: "6px",
+                          border: "none",
+                          cursor: "pointer",
+                          fontSize: "11px",
+                          fontWeight: 500,
+                          backgroundColor: filter === opt.key ? T.primary : "transparent",
+                          color: filter === opt.key ? "#FFF" : T.mutedFg,
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <DailyConversionHeatmap
                 empDaily={data.empDaily}
