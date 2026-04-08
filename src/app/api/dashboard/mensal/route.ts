@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { supabase } from "@/lib/supabase";
 import { paginate } from "@/lib/paginate";
 
 export const runtime = "nodejs";
@@ -116,10 +117,36 @@ export async function GET(req: NextRequest) {
       return map;
     }
 
-    const mqlByMonth = aggregateByMonth(mqlDeals, "add_time");
-    const sqlByMonth = aggregateByMonth(sqlDeals, "qualificacao_date");
-    const oppByMonth = aggregateByMonth(oppDeals, "reuniao_date");
-    const wonByMonth = aggregateByMonth(wonDeals, "won_time");
+    let mqlByMonth: Map<string, number>;
+    let sqlByMonth: Map<string, number>;
+    let oppByMonth: Map<string, number>;
+    let wonByMonth: Map<string, number>;
+
+    if (mqlDeals.length > 0) {
+      // squad_deals disponível (service role)
+      mqlByMonth = aggregateByMonth(mqlDeals, "add_time");
+      sqlByMonth = aggregateByMonth(sqlDeals, "qualificacao_date");
+      oppByMonth = aggregateByMonth(oppDeals, "reuniao_date");
+      wonByMonth = aggregateByMonth(wonDeals, "won_time");
+    } else {
+      // Fallback: squad_daily_counts (anon key)
+      console.warn("[mensal] Fallback to squad_daily_counts");
+      const TABS = ["mql", "sql", "opp", "won"] as const;
+      const tabMaps = { mql: new Map<string, number>(), sql: new Map<string, number>(), opp: new Map<string, number>(), won: new Map<string, number>() };
+      for (const tab of TABS) {
+        const rows = await paginate((o, ps) =>
+          supabase.from("squad_daily_counts").select("date, count").eq("tab", tab).gte("date", globalStart).lte("date", globalEnd).range(o, o + ps - 1),
+        );
+        for (const r of rows) {
+          const mk = r.date.substring(0, 7);
+          tabMaps[tab].set(mk, (tabMaps[tab].get(mk) || 0) + (r.count || 0));
+        }
+      }
+      mqlByMonth = tabMaps.mql;
+      sqlByMonth = tabMaps.sql;
+      oppByMonth = tabMaps.opp;
+      wonByMonth = tabMaps.won;
+    }
 
     // Index metas by DD/MM/YYYY → month key
     const metaByMonth = new Map<string, number>();
