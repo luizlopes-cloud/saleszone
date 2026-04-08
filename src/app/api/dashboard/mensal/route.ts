@@ -26,9 +26,12 @@ export async function GET(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     );
+    const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!srvKey) throw new Error("No Supabase key available");
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) console.warn("[mensal] SUPABASE_SERVICE_ROLE_KEY missing — using anon key fallback");
     const supabaseSR = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      srvKey,
     );
 
     // Build month ranges (current month + N-1 previous)
