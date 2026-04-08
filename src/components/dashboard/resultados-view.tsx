@@ -479,7 +479,7 @@ export function ResultadosView({ data, loading, mediaFilter, setMediaFilter, reg
                 {s.label}
               </div>
               <div style={{ fontSize: "22px", fontWeight: 700, color: s.color, fontVariantNumeric: "tabular-nums" }}>
-                {fmt(value)}{meta > 0 ? <span style={{ fontSize: "14px", fontWeight: 400, color: T.cinza400 }}> / {fmt(meta)}</span> : null}
+                {fmt(value)}
               </div>
               {rateValue !== undefined && rateLabel && (
                 <div style={{ fontSize: "10px", color: T.cinza400, marginTop: "2px" }}>

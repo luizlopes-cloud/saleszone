@@ -49,7 +49,6 @@ export async function GET() {
           .select("deal_id, stage_order, owner_name, empreendimento")
           .eq("status", "open")
           .eq("is_marketing", true)
-          .not("empreendimento", "is", null)
           .range(o, o + ps - 1),
       ),
       // 2. Deals fechados nos últimos 90d (won + lost) para taxas de conversão

@@ -106,7 +106,7 @@ export async function GET(req: NextRequest) {
       : `${yearStr}-${String(mesNum + 1).padStart(2, "0")}-01`;
 
     // Queries paralelas
-    const [metaRes, countsRes, stageSnapshotRes, dealsRes, baserowLeadsRes, paidDealsRes, metasRes] = await Promise.all([
+    const [metaRes, countsRes, stageSnapshotRes, dealsRes, baserowLeadsRes, paidLeadsDeals, paidSqlDeals, paidOppDeals, paidWonDeals, metasRes, allLeadsDeals, allSqlDeals, allOppDeals, allWonDeals] = await Promise.all([
       // Meta Ads — spend_month/leads_month
       supabase
         .from("squad_meta_ads")
@@ -148,25 +148,79 @@ export async function GET(req: NextRequest) {
             .range(o, o + ps - 1),
         );
       })(),
-      // Deals de mídia paga no mês (rd_source contendo "pag") — para modo Mídia Paga
-      (() => {
-        const admin = createSquadSupabaseAdmin();
-        return paginate((o, ps) =>
-          admin
-            .from("squad_deals")
-            .select("empreendimento, max_stage_order, status, lost_reason")
-            .eq("is_marketing", true)
-            .not("empreendimento", "is", null)
-            .ilike("rd_source", "%pag%")
-            .gte("add_time", startDate)
-            .range(o, o + ps - 1),
-        );
-      })(),
+      // Mídia Paga — Leads/MQL + Reserva/Contrato acumulados (rd_source contendo "pag")
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("empreendimento, canal, lost_reason, max_stage_order, status, add_time")
+          .ilike("rd_source", "%pag%")
+          .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
+          .range(o, o + ps - 1),
+      ),
+      // Mídia Paga — SQL por qualificacao_date
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("empreendimento, lost_reason")
+          .ilike("rd_source", "%pag%")
+          .gte("qualificacao_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // Mídia Paga — OPP por reuniao_date
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("empreendimento, lost_reason")
+          .ilike("rd_source", "%pag%")
+          .gte("reuniao_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // Mídia Paga — WON por won_time
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("empreendimento, lost_reason")
+          .ilike("rd_source", "%pag%")
+          .gte("won_time", startDate)
+          .range(o, o + ps - 1),
+      ),
       // Metas do mês (squad_metas table)
       supabase
         .from("squad_metas")
         .select("squad_id, tab, meta")
         .eq("month", `${month}-01`),
+      // Todos — Leads/MQL por add_time + Reserva/Contrato acumulados (todos os canais)
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("empreendimento, canal, lost_reason, max_stage_order, status, add_time")
+          .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
+          .range(o, o + ps - 1),
+      ),
+      // Todos — SQL por qualificacao_date
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("empreendimento, lost_reason")
+          .gte("qualificacao_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // Todos — OPP por reuniao_date
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("empreendimento, lost_reason")
+          .gte("reuniao_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // Todos — WON por won_time
+      paginate((o, ps) =>
+        supabase
+          .from("squad_deals")
+          .select("empreendimento, lost_reason")
+          .gte("won_time", startDate)
+          .range(o, o + ps - 1),
+      ),
     ]);
 
     if (metaRes.error) throw new Error(`Meta Ads query error: ${metaRes.error.message}`);
@@ -224,18 +278,46 @@ export async function GET(req: NextRequest) {
       baserowLeadsMap.set(emp, (baserowLeadsMap.get(emp) || 0) + 1);
     }
 
-    // Agregar deals pagos (rd_source contendo "pag") por empreendimento
-    const paidCountsMap = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
-    for (const d of paidDealsRes) {
-      const emp = d.empreendimento;
-      if (!emp) continue;
+    // Agregar deals pagos (rd_source contendo "pag") — cada etapa por sua data
+    const paidLeadsMap = new Map<string, number>();
+    const paidMqlMap = new Map<string, number>();
+    const paidSqlMap = new Map<string, number>();
+    const paidOppMap = new Map<string, number>();
+    const paidWonMap = new Map<string, number>();
+    const paidReservaMap = new Map<string, number>();
+    const paidContratoMap = new Map<string, number>();
+    for (const d of paidLeadsDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      if (!paidCountsMap.has(emp)) paidCountsMap.set(emp, { mql: 0, sql: 0, opp: 0, won: 0 });
-      const cur = paidCountsMap.get(emp)!;
-      cur.mql++;
-      if (d.max_stage_order >= 5) cur.sql++;
-      if (d.max_stage_order >= 9) cur.opp++;
-      if (d.status === "won") cur.won++;
+      const key = d.empreendimento || "__sem_emp__";
+      // Reserva/Contrato acumulados — só deals com empreendimento (mesma lógica Resultados SZNI)
+      if (d.empreendimento) {
+        const mso = d.max_stage_order ?? 0;
+        if (mso >= 13) paidReservaMap.set(key, (paidReservaMap.get(key) || 0) + 1);
+        if (mso >= 14) paidContratoMap.set(key, (paidContratoMap.get(key) || 0) + 1);
+      }
+      // Leads/MQL só contam deals criados no mês (add_time >= startDate)
+      if (d.add_time && d.add_time >= startDate) {
+        paidLeadsMap.set(key, (paidLeadsMap.get(key) || 0) + 1);
+        const canal = (d.canal || "").toLowerCase();
+        if (!canal.includes("indica")) {
+          paidMqlMap.set(key, (paidMqlMap.get(key) || 0) + 1);
+        }
+      }
+    }
+    for (const d of paidSqlDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const key = d.empreendimento || "__sem_emp__";
+      paidSqlMap.set(key, (paidSqlMap.get(key) || 0) + 1);
+    }
+    for (const d of paidOppDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const key = d.empreendimento || "__sem_emp__";
+      paidOppMap.set(key, (paidOppMap.get(key) || 0) + 1);
+    }
+    for (const d of paidWonDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const key = d.empreendimento || "__sem_emp__";
+      paidWonMap.set(key, (paidWonMap.get(key) || 0) + 1);
     }
 
     // Agregar eventos por stage — deals fechados no mês (mesma coorte)
@@ -254,6 +336,48 @@ export async function GET(req: NextRequest) {
       if (d.status === "won") cur.wonEvento++;
     }
 
+    // Agregar deals por etapa — modo "Todos" (cada etapa usa sua data específica)
+    const allLeadsMap = new Map<string, number>();
+    const allMqlMap = new Map<string, number>();
+    const allSqlMap = new Map<string, number>();
+    const allOppMap = new Map<string, number>();
+    const allWonMap = new Map<string, number>();
+    const allReservaMap = new Map<string, number>();
+    const allContratoMap = new Map<string, number>();
+    for (const d of allLeadsDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const key = d.empreendimento || "__sem_emp__";
+      // Reserva/Contrato acumulados — só deals com empreendimento (mesma lógica Resultados SZNI)
+      if (d.empreendimento) {
+        const mso = d.max_stage_order ?? 0;
+        if (mso >= 13) allReservaMap.set(key, (allReservaMap.get(key) || 0) + 1);
+        if (mso >= 14) allContratoMap.set(key, (allContratoMap.get(key) || 0) + 1);
+      }
+      // Leads/MQL só contam deals criados no mês (add_time >= startDate)
+      if (d.add_time && d.add_time >= startDate) {
+        allLeadsMap.set(key, (allLeadsMap.get(key) || 0) + 1);
+        const canal = (d.canal || "").toLowerCase();
+        if (!canal.includes("indica")) {
+          allMqlMap.set(key, (allMqlMap.get(key) || 0) + 1);
+        }
+      }
+    }
+    for (const d of allSqlDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const key = d.empreendimento || "__sem_emp__";
+      allSqlMap.set(key, (allSqlMap.get(key) || 0) + 1);
+    }
+    for (const d of allOppDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const key = d.empreendimento || "__sem_emp__";
+      allOppMap.set(key, (allOppMap.get(key) || 0) + 1);
+    }
+    for (const d of allWonDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const key = d.empreendimento || "__sem_emp__";
+      allWonMap.set(key, (allWonMap.get(key) || 0) + 1);
+    }
+
     // Build por squad
     const squads: FunilSquad[] = SQUADS.map((sq) => {
       const empRows: FunilEmpreendimento[] = sq.empreendimentos.map((emp) => {
@@ -267,35 +391,24 @@ export async function GET(req: NextRequest) {
         let eventos: EventoCoorte;
 
         if (paidOnly) {
-          // Leads = formulários Baserow (ou Meta Ads), garantindo >= MQL
-          const baserowLeads = baserowLeadsMap.get(emp) || 0;
-          const paid = paidCountsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
-          const leadsBase = baserowLeads > 0 ? baserowLeads : meta.leads;
-          leads = Math.max(leadsBase, paid.mql);
-          mql = paid.mql;
-          sql = paid.sql;
-          opp = paid.opp;
-          won = paid.won;
-          // Reserva/contrato: proporção baseada na fração de deals pagos
-          const ratio = counts.mql > 0 ? paid.mql / counts.mql : 0;
-          reserva = Math.round(snapshot.reserva * ratio);
-          contrato = Math.round(snapshot.contrato * ratio);
-          eventos = {
-            oppEvento: Math.round(ev.oppEvento * ratio),
-            reservaEvento: Math.round(ev.reservaEvento * ratio),
-            contratoEvento: Math.round(ev.contratoEvento * ratio),
-            wonEvento: Math.round(ev.wonEvento * ratio),
-          };
+          // Mídia Paga: rd_source contendo "pag", cada etapa pela data correta
+          leads = paidLeadsMap.get(emp) || 0;
+          mql = paidMqlMap.get(emp) || 0;
+          sql = paidSqlMap.get(emp) || 0;
+          opp = paidOppMap.get(emp) || 0;
+          won = paidWonMap.get(emp) || 0;
+          reserva = paidReservaMap.get(emp) || 0;
+          contrato = paidContratoMap.get(emp) || 0;
+          eventos = ev;
         } else {
-          // Leads = formulários preenchidos (Baserow), garantindo >= MQL
-          const baserowLeads = baserowLeadsMap.get(emp) || 0;
-          leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, counts.mql);
-          mql = counts.mql;
-          sql = counts.sql;
-          opp = counts.opp;
-          won = counts.won;
-          reserva = snapshot.reserva;
-          contrato = snapshot.contrato;
+          // Todos: cada etapa pela data correta, todos os canais
+          leads = allLeadsMap.get(emp) || 0;
+          mql = allMqlMap.get(emp) || 0;
+          sql = allSqlMap.get(emp) || 0;
+          opp = allOppMap.get(emp) || 0;
+          won = allWonMap.get(emp) || 0;
+          reserva = allReservaMap.get(emp) || 0;
+          contrato = allContratoMap.get(emp) || 0;
           eventos = ev;
         }
 
@@ -312,6 +425,18 @@ export async function GET(req: NextRequest) {
 
     const allEmps = squads.flatMap((sq) => sq.empreendimentos);
     const grand = sumFunil(allEmps, "Total");
+
+    // Sobrescrever grand com totais reais de squad_deals (inclui deals fora dos SQUADS)
+    {
+      const maps = paidOnly
+        ? { leads: paidLeadsMap, mql: paidMqlMap, sql: paidSqlMap, opp: paidOppMap, won: paidWonMap, reserva: paidReservaMap, contrato: paidContratoMap }
+        : { leads: allLeadsMap, mql: allMqlMap, sql: allSqlMap, opp: allOppMap, won: allWonMap, reserva: allReservaMap, contrato: allContratoMap };
+      for (const key of ["leads", "mql", "sql", "opp", "won", "reserva", "contrato"] as const) {
+        let total = 0;
+        for (const [, v] of maps[key]) total += v;
+        (grand as unknown as Record<string, number>)[key] = total;
+      }
+    }
 
     // Build metas object from nekt_meta26_metas (service role - RLS blocks anon)
     const metasObj: Record<string, Record<string, number>> = { "Squad 1": {}, "Squad 2": {} };

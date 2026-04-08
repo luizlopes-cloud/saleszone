@@ -63,11 +63,21 @@ async function fetchUserActivities(
   const domain = process.env.PIPEDRIVE_COMPANY_DOMAIN || 'seazone-fd92b9'
 
   while (hasMore) {
-    const url = `https://${domain}.pipedrive.com/api/v1/activities?api_token=${apiToken}&user_id=${userId}&done=1&start_date=${startDate}&end_date=${endDate}&limit=${limit}&start=${start}`
+    // Pipedrive start_date/end_date filter is unreliable (timezone issues)
+    // Fetch done activities sorted by due_date DESC and filter in code
+    const url = `https://${domain}.pipedrive.com/api/v1/activities?api_token=${apiToken}&user_id=${userId}&done=1&sort=due_date+DESC&limit=${limit}&start=${start}`
     const res = await fetch(url, { cache: 'no-store' })
     if (!res.ok) throw new Error(`Pipedrive activities: ${res.status}`)
     const data = await res.json()
-    if (data.data) all.push(...data.data)
+    if (data.data) {
+      let pastRange = false
+      for (const act of data.data) {
+        if (act.due_date > endDate) continue
+        if (act.due_date < startDate) { pastRange = true; break }
+        all.push(act)
+      }
+      if (pastRange) break
+    }
     hasMore = data.additional_data?.pagination?.more_items_in_collection ?? false
     start = data.additional_data?.pagination?.next_start ?? start + limit
   }
