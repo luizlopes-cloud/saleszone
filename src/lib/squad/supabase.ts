@@ -5,8 +5,14 @@ import { createClient } from '@supabase/supabase-js'
 export function createSquadSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !key) {
-    throw new Error('Supabase env vars não configuradas (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)')
+  if (!url) {
+    throw new Error('NEXT_PUBLIC_SUPABASE_URL não configurada')
+  }
+  if (!key) {
+    console.warn('[supabase] SUPABASE_SERVICE_ROLE_KEY não encontrada — usando anon key como fallback. Tabelas com RLS podem retornar vazio.')
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!anonKey) throw new Error('Nem SERVICE_ROLE_KEY nem ANON_KEY configuradas')
+    return createClient(url, anonKey)
   }
   return createClient(url, key)
 }
