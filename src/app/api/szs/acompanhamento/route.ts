@@ -140,9 +140,9 @@ export async function GET(req: NextRequest) {
         const c = squadCounts90.get(sq.id) || { mql: 0, sql: 0, opp: 0, won: 0 };
         const metaWon = monthMetas[sq.id] || 0;
         const ratios = {
-          opp_won: c.won > 0 ? c.opp / c.won : 0,
-          sql_opp: c.opp > 0 ? c.sql / c.opp : 0,
-          mql_sql: c.sql > 0 ? c.mql / c.sql : 0,
+          opp_won: c.opp > 0 ? c.won / c.opp : 0,
+          sql_opp: c.sql > 0 ? c.opp / c.sql : 0,
+          mql_sql: c.mql > 0 ? c.sql / c.mql : 0,
         };
         const metaMap: Record<TabKey, number> = {
           won: (day / totalDaysInMonth) * metaWon,
