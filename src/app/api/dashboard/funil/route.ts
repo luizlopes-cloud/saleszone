@@ -93,6 +93,7 @@ function sumFunil(rows: FunilEmpreendimento[], label: string): FunilEmpreendimen
 
 export async function GET(req: NextRequest) {
   try {
+    const admin = createSquadSupabaseAdmin();
     const monthParam = req.nextUrl.searchParams.get("month");
     const filterParam = req.nextUrl.searchParams.get("filter"); // "paid" or null
     const paidOnly = filterParam === "paid";
@@ -126,7 +127,7 @@ export async function GET(req: NextRequest) {
       // Deals fechados no mês (won + lost) — para conversões OPP→Reserva→Contrato→WON
       // Mesma coorte: todos os deals que fecharam no mês, contados por max_stage_order
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("empreendimento, max_stage_order, status, lost_reason")
           .eq("is_marketing", true)
@@ -150,7 +151,7 @@ export async function GET(req: NextRequest) {
       })(),
       // Mídia Paga — Leads/MQL + Reserva/Contrato acumulados (rd_source contendo "pag")
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("empreendimento, canal, lost_reason, max_stage_order, status, add_time")
           .ilike("rd_source", "%pag%")
@@ -159,7 +160,7 @@ export async function GET(req: NextRequest) {
       ),
       // Mídia Paga — SQL por qualificacao_date
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("empreendimento, lost_reason")
           .ilike("rd_source", "%pag%")
@@ -168,7 +169,7 @@ export async function GET(req: NextRequest) {
       ),
       // Mídia Paga — OPP por reuniao_date
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("empreendimento, lost_reason")
           .ilike("rd_source", "%pag%")
@@ -177,7 +178,7 @@ export async function GET(req: NextRequest) {
       ),
       // Mídia Paga — WON por won_time
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("empreendimento, lost_reason")
           .ilike("rd_source", "%pag%")
@@ -191,7 +192,7 @@ export async function GET(req: NextRequest) {
         .eq("month", `${month}-01`),
       // Todos — Leads/MQL por add_time + Reserva/Contrato acumulados (todos os canais)
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("empreendimento, canal, lost_reason, max_stage_order, status, add_time")
           .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
@@ -199,7 +200,7 @@ export async function GET(req: NextRequest) {
       ),
       // Todos — SQL por qualificacao_date
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("empreendimento, lost_reason")
           .gte("qualificacao_date", startDate)
@@ -207,7 +208,7 @@ export async function GET(req: NextRequest) {
       ),
       // Todos — OPP por reuniao_date
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("empreendimento, lost_reason")
           .gte("reuniao_date", startDate)
@@ -215,7 +216,7 @@ export async function GET(req: NextRequest) {
       ),
       // Todos — WON por won_time
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("empreendimento, lost_reason")
           .gte("won_time", startDate)
