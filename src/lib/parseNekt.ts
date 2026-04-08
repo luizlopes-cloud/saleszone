@@ -114,7 +114,8 @@ function evaluateStatus(
   }
 
   if (r.dias_ativos < cp.mql) {
-    if (isFinite(cost_per_mql) && cost_per_mql > s.mql_meta * 3 && r.spend >= 100) return "MONITORAR"
+    // Alerta antecipado: custo/MQL acima de 2x o benchmark antes do primeiro checkpoint → PAUSAR
+    if (isFinite(cost_per_mql) && cost_per_mql > s.mql_meta * 2 && r.spend >= 100) return "PAUSAR"
     return "AGUARDAR"
   }
 
@@ -123,11 +124,11 @@ function evaluateStatus(
 
   if (r.dias_ativos < cp.sql) {
     if (r.mql === 0) return "PAUSAR"
-    const costOk = cost_per_mql <= s.mql_meta
+    // Custo acima do benchmark → PAUSAR (mql < 3 não protege custo ruim)
+    if (cost_per_mql > s.mql_meta) return "PAUSAR"
     const rateOk = r.mql < 3 || rate_mql_sql >= s.taxa_mql_sql
-    if (costOk && rateOk) return "MANTER"
-    if (costOk !== rateOk) return "MONITORAR"
-    return "PAUSAR"
+    if (rateOk) return "MANTER"
+    return "MONITORAR"
   }
 
   if (r.dias_ativos < cp.opp) {
