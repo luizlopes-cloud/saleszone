@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
+import { createSquadSupabaseAdmin, hasServiceRole } from "@/lib/squad/supabase";
 import { paginate } from "@/lib/paginate";
 import type { GeralData, GeralChannelResult, GeralMetricPair } from "@/lib/types";
 
@@ -134,13 +134,25 @@ export async function GET() {
       totalLeadsAll++;
     }
 
-    const totalCounts: Record<string, number> = {
-      mql: countExcludeIndica(geralMqlDeals),
-      sql: countExcludeIndica(geralSqlDeals),
-      opp: countExcludeIndica(geralOppDeals),
-      won: countExcludeIndica(geralWonDeals),
-    };
-    console.log(`[geral] squad_deals Geral: mql=${totalCounts.mql}, sql=${totalCounts.sql}, opp=${totalCounts.opp}, won=${totalCounts.won}`);
+    let totalCounts: Record<string, number>;
+    if (hasServiceRole() && geralMqlDeals.length > 0) {
+      totalCounts = {
+        mql: countExcludeIndica(geralMqlDeals),
+        sql: countExcludeIndica(geralSqlDeals),
+        opp: countExcludeIndica(geralOppDeals),
+        won: countExcludeIndica(geralWonDeals),
+      };
+    } else {
+      // Fallback: squad_daily_counts (anon key)
+      console.warn("[geral] Fallback to squad_daily_counts (no service role or empty squad_deals)");
+      const countsRows = await paginate((o, ps) =>
+        supabase.from("squad_daily_counts").select("tab, count").in("tab", ["mql", "sql", "opp", "won"]).gte("date", startDate).range(o, o + ps - 1),
+      );
+      totalCounts = { mql: 0, sql: 0, opp: 0, won: 0 };
+      for (const r of countsRows) totalCounts[r.tab] = (totalCounts[r.tab] || 0) + (r.count || 0);
+      totalLeadsAll = totalCounts.mql;
+    }
+    console.log(`[geral] Geral: mql=${totalCounts.mql}, sql=${totalCounts.sql}, opp=${totalCounts.opp}, won=${totalCounts.won}`);
 
     // ── 2. Canal split from squad_deals (MQL/SQL/OPP/WON by canal) ──
     // squad_deals has `tipo_de_venda` field for Parceiros breakdown
