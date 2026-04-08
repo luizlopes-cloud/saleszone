@@ -104,8 +104,9 @@ function median(arr: number[]): number {
 }
 
 function findSquadId(name: string): number | null {
+  const lower = name.toLowerCase();
   for (const sq of mc.squads) {
-    if (sq.preVenda === name) return sq.id;
+    if (lower.includes(sq.preVenda.toLowerCase()) || sq.preVenda.toLowerCase().includes(lower)) return sq.id;
   }
   return null;
 }
@@ -119,10 +120,24 @@ export async function GET() {
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    // TODO: SZS presellers — fill in when team structure is discovered
     const MAIN_PVS = mc.presellers.length > 0 ? [...mc.presellers] : [];
-    const deals = (rows || []).filter((d) => MAIN_PVS.length === 0 || MAIN_PVS.includes(d.preseller_name));
+    let pvDeals = (rows || []).filter((d) => MAIN_PVS.length === 0 || MAIN_PVS.includes(d.preseller_name));
     const now = new Date();
+
+    // Filter out lost deals by joining with szs_deals status
+    const pvDealIds = pvDeals.map((d) => Number(d.deal_id));
+    if (pvDealIds.length > 0) {
+      const { data: dealStatuses } = await supabase
+        .from("szs_deals")
+        .select("deal_id, status")
+        .in("deal_id", pvDealIds);
+      const lostIds = new Set(
+        (dealStatuses || [])
+          .filter((d) => d.status === "lost")
+          .map((d) => d.deal_id)
+      );
+      pvDeals = pvDeals.filter((d) => !lostIds.has(Number(d.deal_id)));
+    }
 
     // Buscar add_time dos deals
     const dealIds = deals.map((d) => Number(d.deal_id));
@@ -132,7 +147,7 @@ export async function GET() {
       .in("id", dealIds);
     const addTimeMap = new Map((dealsExtra || []).map((d) => [Number(d.id), d.add_time]));
 
-    const dealsWithBizTime = deals.map((d) => {
+    const dealsWithBizTime = pvDeals.map((d) => {
       const transbordo = new Date(d.transbordo_at);
       const actionTime = d.first_action_at ? new Date(d.first_action_at) : now;
       const bizMinutes = calcBusinessMinutes(transbordo, actionTime);
@@ -206,7 +221,7 @@ export async function GET() {
       presellers,
       recentDeals,
       totals: {
-        totalDeals: deals.length,
+        totalDeals: pvDeals.length,
         dealsComAcao: dealsWithBizTime.filter((d) => !d.is_pending).length,
         dealsPendentes: dealsWithBizTime.filter((d) => d.is_pending).length,
         avgMinutes: allTempos.length > 0 ? Math.round(allTempos.reduce((a, b) => a + b, 0) / allTempos.length) : 0,

@@ -67,6 +67,10 @@ function aggregateRows(rows: RatioSnapshot[]): RatioSnapshot[] {
 
 export async function GET(req: NextRequest) {
   const days = parseInt(req.nextUrl.searchParams.get("days") || "90");
+  const filter = req.nextUrl.searchParams.get("filter") || "all";
+
+  // SZS filter: "marketing" or "paid" → only Marketing canal_group
+  const canalFilter = (filter === "marketing" || filter === "paid") ? "Marketing" : null;
 
   try {
     const now = new Date();
@@ -78,19 +82,21 @@ export async function GET(req: NextRequest) {
     const dates = generateDates();
     const startDate = dates[dates.length - 1].date;
 
-    const [ratiosRes, countsRes] = await Promise.all([
-      supabase
-        .from("szs_ratios_daily")
-        .select("date, squad_id, ratios, counts_90d")
-        .gte("date", cutoffDate)
-        .lte("date", today)
-        .order("date", { ascending: false }),
-      supabase
-        .from("szs_daily_counts")
-        .select("date, tab, empreendimento, canal_group, count")
-        .gte("date", startDate)
-        .lte("date", today),
-    ]);
+    const countsPromise = supabase
+      .from("szs_daily_counts")
+      .select("date, tab, empreendimento, canal_group, count")
+      .gte("date", startDate)
+      .lte("date", today);
+
+    const [ratiosRes, countsResult] = canalFilter
+      ? await Promise.all([
+          supabase.from("szs_ratios_daily").select("date, squad_id, ratios, counts_90d").gte("date", cutoffDate).lte("date", today).order("date", { ascending: false }),
+          countsPromise.then(({ data, error }) => ({ data: (data || []).filter((r: any) => r.canal_group === canalFilter), error })),
+        ])
+      : await Promise.all([
+          supabase.from("szs_ratios_daily").select("date, squad_id, ratios, counts_90d").gte("date", cutoffDate).lte("date", today).order("date", { ascending: false }),
+          countsPromise,
+        ]);
 
     if (ratiosRes.error) throw new Error(`Supabase error: ${ratiosRes.error.message}`);
 
@@ -114,16 +120,31 @@ export async function GET(req: NextRequest) {
     // Current = most recent date's snapshots
     const latestDate = allRows.length > 0 ? allRows[0].date : today;
     const currentRows = allRows.filter(r => r.date === latestDate);
-    const globalCurrent = currentRows.find(r => r.squad_id === 0) || {
-      date: latestDate, squad_id: 0,
-      ratios: { mql_sql: 0, sql_opp: 0, opp_won: 0 },
-      counts_90d: { mql: 0, sql: 0, opp: 0, won: 0 },
-    };
-    const squadsCurrent = currentRows.filter(r => r.squad_id !== 0);
+
+    // When filter is active (Marketing only), use Marketing snapshot as global
+    let globalCurrent: RatioSnapshot;
+    let squadsCurrent: RatioSnapshot[];
+
+    if (canalFilter) {
+      // Show only Marketing (squad_id=1) snapshot
+      globalCurrent = currentRows.find(r => r.squad_id === 1) || {
+        date: latestDate, squad_id: 1,
+        ratios: { mql_sql: 0, sql_opp: 0, opp_won: 0 },
+        counts_90d: { mql: 0, sql: 0, opp: 0, won: 0 },
+      };
+      squadsCurrent = currentRows.filter(r => r.squad_id === 1);
+    } else {
+      globalCurrent = currentRows.find(r => r.squad_id === 0) || {
+        date: latestDate, squad_id: 0,
+        ratios: { mql_sql: 0, sql_opp: 0, opp_won: 0 },
+        counts_90d: { mql: 0, sql: 0, opp: 0, won: 0 },
+      };
+      squadsCurrent = currentRows.filter(r => r.squad_id !== 0);
+    }
 
     // Build per-squad daily counts keyed by squad name (using canal_group → squad mapping)
     const empDaily: Record<string, Record<string, Record<string, number>>> = {};
-    for (const row of countsRes.data || []) {
+    for (const row of countsResult.data || []) {
       const tab = row.tab as string;
       if (!["mql", "sql", "opp", "won"].includes(tab)) continue;
 
