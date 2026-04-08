@@ -56,6 +56,12 @@ const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
     Parceiros: { mql: 249, sql: 154, opp: 140, won: 73 },
     "Expansão": { mql: 1832, sql: 566, opp: 216, won: 95 },
   },
+  "2026-04": {
+    Geral: { mql: 3521, sql: 1446, opp: 780, won: 298 },
+    "Vendas Diretas": { mql: 1739, sql: 715, opp: 348, won: 104 },
+    Parceiros: { mql: 256, sql: 158, opp: 144, won: 75 },
+    "Expansão": { mql: 1967, sql: 608, opp: 232, won: 102 },
+  },
 };
 
 const CHANNEL_CLOSERS: Record<string, string[]> = {
