@@ -205,6 +205,7 @@ export async function GET(request: NextRequest) {
           .in("stage_id", [152, 76])
           .range(o, o + ps - 1),
       );
+      console.log(`[szs-resultados] snapDeals (stage 152/76): ${snapDeals.length} deals, cityFilter=${cityFilter}`);
       for (const d of snapDeals) {
         if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
         const canalGroup = getCanalGroup(d.canal || "");
