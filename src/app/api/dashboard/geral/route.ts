@@ -54,7 +54,7 @@ const METAS_BY_MONTH: Record<string, Record<string, ChannelMetas>> = {
   "2026-04": {
     "Vendas Diretas": { leads: 4726, mql: 3953, sql: 966, opp: 236, won: 26 },
     Parceiros: { mql: 896, sql: 154, opp: 126, won: 38 },
-    Geral: { mql: 3953, sql: 966, opp: 236, won: 26 },
+    Geral: { mql: 4849, sql: 1120, opp: 362, won: 64 },
   },
 };
 
@@ -189,8 +189,6 @@ export async function GET() {
         if (d.status === "won") channelCounts["Vendas Diretas"].won++;
       }
     }
-    // Parceiros: dados do Nekt (tipo_de_venda=Parceiro, datas corretas por etapa)
-    channelCounts.Parceiros = { mql: 9, sql: 8, opp: 6, won: 1, reserva: 0, contrato: 0 };
     console.log(`[geral] channelCounts VD: mql=${channelCounts["Vendas Diretas"].mql}, won=${channelCounts["Vendas Diretas"].won}`);
     console.log(`[geral] channelCounts Parceiros: mql=${channelCounts.Parceiros.mql}, won=${channelCounts.Parceiros.won}`);
 
@@ -416,8 +414,9 @@ export async function GET() {
     const MEETINGS_PER_DAY = 8;
     const WORK_DAYS = 5;
 
-    // Vendas Diretas: 2 closers (V_COLS), 14 slots/dia
-    const VD_CLOSER_EMAILS = ["luana.schaikoski@seazone.com.br", "filipe.padoveze@seazone.com.br"];
+    // Vendas Diretas: closers de V_COLS, 14 slots/dia
+    const { data: vdCloserRules } = await admin.from("squad_closer_rules").select("email").in("prefixo", ["Apresentação"]).eq("setor", "SZI");
+    const VD_CLOSER_EMAILS = (vdCloserRules || []).map((r: { email: string }) => r.email);
     const VD_SLOTS_PER_DAY = 14;
     const next7 = new Date(now); next7.setDate(next7.getDate() + 6);
     const next7Str = next7.toISOString().substring(0, 10);
