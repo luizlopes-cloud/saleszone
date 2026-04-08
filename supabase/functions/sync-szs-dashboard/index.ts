@@ -770,9 +770,9 @@ async function syncMetas(supabase: any) {
     console.log(`  90d ${tab}: ${counts90d[tab]}`);
   }
 
-  const ratioOppWon = counts90d.won > 0 ? counts90d.opp / counts90d.won : 0;
-  const ratioSqlOpp = counts90d.opp > 0 ? counts90d.sql / counts90d.opp : 0;
-  const ratioMqlSql = counts90d.sql > 0 ? counts90d.mql / counts90d.sql : 0;
+  const ratioOppWon = counts90d.opp > 0 ? counts90d.won / counts90d.opp : 0;
+  const ratioSqlOpp = counts90d.sql > 0 ? counts90d.opp / counts90d.sql : 0;
+  const ratioMqlSql = counts90d.mql > 0 ? counts90d.sql / counts90d.mql : 0;
   const ratios = { opp_won: ratioOppWon, sql_opp: ratioSqlOpp, mql_sql: ratioMqlSql };
 
   const metaRows: any[] = [];
@@ -826,9 +826,9 @@ async function syncMetas(supabase: any) {
       date: today,
       squad_id: cId,
       ratios: {
-        opp_won: cc.won > 0 ? cc.opp / cc.won : 0,
-        sql_opp: cc.opp > 0 ? cc.sql / cc.opp : 0,
-        mql_sql: cc.sql > 0 ? cc.mql / cc.sql : 0,
+        opp_won: cc.opp > 0 ? cc.won / cc.opp : 0,
+        sql_opp: cc.sql > 0 ? cc.opp / cc.sql : 0,
+        mql_sql: cc.mql > 0 ? cc.sql / cc.mql : 0,
       },
       counts_90d: cc,
       synced_at: new Date().toISOString(),
