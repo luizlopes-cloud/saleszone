@@ -820,7 +820,11 @@ async function syncMetas(supabase: any) {
   const dailyRows = [
     { date: today, squad_id: 0, ratios, counts_90d: counts90d, synced_at: new Date().toISOString() },
   ];
-  for (const [canalName, cId] of Object.entries(CANAL_ID_MAP)) {
+  // Deduplicate by squad_id (CANAL_ID_MAP has multiple keys mapping to same id)
+  const seenSquadIds = new Set<number>();
+  for (const cId of Object.values(CANAL_ID_MAP)) {
+    if (seenSquadIds.has(cId)) continue;
+    seenSquadIds.add(cId);
     const cc = canalCounts90d[cId];
     dailyRows.push({
       date: today,

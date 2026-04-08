@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
+import { paginate } from "@/lib/paginate";
 import { generateDates } from "@/lib/dates";
 import { getModuleConfig } from "@/lib/modules";
 import { getSquadIdFromCanalGroup } from "@/lib/szs-utils";
@@ -78,18 +80,22 @@ export async function GET(req: NextRequest) {
     const dates = generateDates();
     const startDate = dates[dates.length - 1].date;
 
-    const [ratiosRes, countsRes] = await Promise.all([
-      supabase
+    const admin = createSquadSupabaseAdmin();
+    const [ratiosRes, countsRows] = await Promise.all([
+      admin
         .from("szs_ratios_daily")
         .select("date, squad_id, ratios, counts_90d")
         .gte("date", cutoffDate)
         .lte("date", today)
         .order("date", { ascending: false }),
-      supabase
-        .from("szs_daily_counts")
-        .select("date, tab, empreendimento, canal_group, count")
-        .gte("date", startDate)
-        .lte("date", today),
+      paginate((o, ps) =>
+        supabase
+          .from("szs_daily_counts")
+          .select("date, tab, empreendimento, canal_group, count")
+          .gte("date", startDate)
+          .lte("date", today)
+          .range(o, o + ps - 1),
+      ),
     ]);
 
     if (ratiosRes.error) throw new Error(`Supabase error: ${ratiosRes.error.message}`);
@@ -123,7 +129,7 @@ export async function GET(req: NextRequest) {
 
     // Build per-squad daily counts keyed by squad name (using canal_group → squad mapping)
     const empDaily: Record<string, Record<string, Record<string, number>>> = {};
-    for (const row of countsRes.data || []) {
+    for (const row of countsRows) {
       const tab = row.tab as string;
       if (!["mql", "sql", "opp", "won"].includes(tab)) continue;
 
