@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
+import { createSquadSupabaseAdmin, hasServiceRole } from "@/lib/squad/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { SQUADS, EXTRA_EMPREENDIMENTOS } from "@/lib/constants";
 import { paginate } from "@/lib/paginate";
@@ -401,8 +401,8 @@ export async function GET(req: NextRequest) {
           reserva = paidReservaMap.get(emp) || 0;
           contrato = paidContratoMap.get(emp) || 0;
           eventos = ev;
-        } else {
-          // Todos: cada etapa pela data correta, todos os canais
+        } else if (hasServiceRole()) {
+          // Todos: cada etapa pela data correta de squad_deals (requer service role)
           leads = allLeadsMap.get(emp) || 0;
           mql = allMqlMap.get(emp) || 0;
           sql = allSqlMap.get(emp) || 0;
@@ -410,6 +410,17 @@ export async function GET(req: NextRequest) {
           won = allWonMap.get(emp) || 0;
           reserva = allReservaMap.get(emp) || 0;
           contrato = allContratoMap.get(emp) || 0;
+          eventos = ev;
+        } else {
+          // Fallback sem service role: squad_daily_counts + baserow/meta ads
+          const baserowLeads = baserowLeadsMap.get(emp) || 0;
+          leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, counts.mql);
+          mql = counts.mql;
+          sql = counts.sql;
+          opp = counts.opp;
+          won = counts.won;
+          reserva = snapshot.reserva;
+          contrato = snapshot.contrato;
           eventos = ev;
         }
 
@@ -471,8 +482,8 @@ export async function GET(req: NextRequest) {
     const allEmps = [...squads.flatMap((sq) => sq.empreendimentos), ...extraRows];
     const grand = sumFunil(allEmps, "Total");
 
-    // Sobrescrever grand com totais reais de squad_deals (inclui deals fora dos SQUADS)
-    {
+    // Sobrescrever grand com totais reais de squad_deals (só quando service role disponível)
+    if (hasServiceRole()) {
       const maps = paidOnly
         ? { leads: paidLeadsMap, mql: paidMqlMap, sql: paidSqlMap, opp: paidOppMap, won: paidWonMap, reserva: paidReservaMap, contrato: paidContratoMap }
         : { leads: allLeadsMap, mql: allMqlMap, sql: allSqlMap, opp: allOppMap, won: allWonMap, reserva: allReservaMap, contrato: allContratoMap };
