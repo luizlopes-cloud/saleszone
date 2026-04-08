@@ -84,7 +84,7 @@ export async function GET() {
     const [geralMqlDeals, geralSqlDeals, geralOppDeals, geralWonDeals] = await Promise.all([
       // MQL: por add_time
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("canal, lost_reason")
           .gte("add_time", startDate)
@@ -92,7 +92,7 @@ export async function GET() {
       ),
       // SQL: por qualificacao_date
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("canal, lost_reason")
           .gte("qualificacao_date", startDate)
@@ -100,7 +100,7 @@ export async function GET() {
       ),
       // OPP: por reuniao_date
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("canal, lost_reason")
           .gte("reuniao_date", startDate)
@@ -108,7 +108,7 @@ export async function GET() {
       ),
       // WON: por won_time
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("canal, lost_reason")
           .eq("status", "won")
