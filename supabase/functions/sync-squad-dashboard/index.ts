@@ -37,6 +37,7 @@ const SQUADS = [
 ];
 const TOTAL_CLOSERS = SQUADS.reduce((sum, sq) => sum + sq.closers, 0);
 // Empreendimentos fora dos squads ativos mas presentes no pipeline 28 Marketing
+// NOTA: Mantenha em sincronia com src/lib/constants.ts (Deno não importa de src/)
 const EXTRA_EMPREENDIMENTOS = [
   "Bonito Spot",
   "Santinho Spot",
