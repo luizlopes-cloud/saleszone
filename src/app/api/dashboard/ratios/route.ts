@@ -32,8 +32,9 @@ export async function GET(req: NextRequest) {
     const startDate90 = start90.toISOString().substring(0, 10);
 
     // Fetch daily ratio snapshots (pre-computed — for chart history)
+    const admin = createSquadSupabaseAdmin();
     const [ratiosRes, countsRes] = await Promise.all([
-      supabase
+      admin
         .from("squad_ratios_daily")
         .select("date, squad_id, ratios, counts_90d")
         .gte("date", cutoffDate)
