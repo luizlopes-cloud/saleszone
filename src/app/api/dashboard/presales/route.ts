@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { SQUADS } from "@/lib/constants";
 import { getModuleConfig } from "@/lib/modules";
@@ -157,41 +156,7 @@ export async function GET() {
       }
     }
 
-    // Buscar notas do Pipedrive para deals sem last_mia_at (detectar "Relato enviado pela Mia")
-    const dealsWithoutMia = deals.filter((d) => !d.last_mia_at);
-    if (dealsWithoutMia.length > 0) {
-      try {
-        const srvClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-        const { data: tokenData } = await srvClient.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" });
-        const pipToken = tokenData;
-        if (pipToken) {
-          // Process in batches of 10 to avoid rate limits
-          for (let i = 0; i < dealsWithoutMia.length; i += 10) {
-            const batch = dealsWithoutMia.slice(i, i + 10);
-            await Promise.all(
-              batch.map(async (deal) => {
-                try {
-                  const url = `https://seazone-fd92b9.pipedrive.com/api/v1/deals/${deal.deal_id}/notes?api_token=${pipToken}&limit=50`;
-                  const res = await fetch(url);
-                  if (!res.ok) return;
-                  const json = await res.json();
-                  const notes = json.data || [];
-                  for (const note of notes) {
-                    const content = note.content || "";
-                    if (/relato enviado pela (mia|mariana)|morada\.ai|assistente virtual/i.test(content)) {
-                      deal.last_mia_at = note.add_time;
-                      break;
-                    }
-                  }
-                } catch { /* skip on error */ }
-              })
-            );
-          }
-        }
-      } catch (err) {
-        console.warn("[presales] Could not fetch Pipedrive notes:", err);
-      }
-    }
+    // last_mia_at é populado pelo sync-squad-presales (que busca notas do Pipedrive)
 
     // Calcular tempo em horário útil para cada deal
     const dealsWithBizTime = deals.map((d) => {
