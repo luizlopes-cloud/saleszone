@@ -448,14 +448,17 @@ export async function GET(req: NextRequest) {
 
       if (paidOnly) {
         const baserowLeads = baserowLeadsMap.get(emp) || 0;
-        const paid = paidCountsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
+        const paidMql = paidMqlMap.get(emp) || 0;
+        const paidSql = paidSqlMap.get(emp) || 0;
+        const paidOpp = paidOppMap.get(emp) || 0;
+        const paidWon = paidWonMap.get(emp) || 0;
         const leadsBase = baserowLeads > 0 ? baserowLeads : meta.leads;
-        leads = Math.max(leadsBase, paid.mql);
-        mql = paid.mql;
-        sql = paid.sql;
-        opp = paid.opp;
-        won = paid.won;
-        const ratio = counts.mql > 0 ? paid.mql / counts.mql : 0;
+        leads = Math.max(leadsBase, paidMql);
+        mql = paidMql;
+        sql = paidSql;
+        opp = paidOpp;
+        won = paidWon;
+        const ratio = counts.mql > 0 ? paidMql / counts.mql : 0;
         reserva = Math.round(snapshot.reserva * ratio);
         contrato = Math.round(snapshot.contrato * ratio);
         eventos = {
