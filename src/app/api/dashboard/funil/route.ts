@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { createClient } from "@supabase/supabase-js";
-import { SQUADS } from "@/lib/constants";
+import { SQUADS, EXTRA_EMPREENDIMENTOS } from "@/lib/constants";
 import { paginate } from "@/lib/paginate";
 import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
 
@@ -424,7 +424,51 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    const allEmps = squads.flatMap((sq) => sq.empreendimentos);
+    // Build extra empreendimento rows (not in any squad, but counted in grand total)
+    const extraRows: FunilEmpreendimento[] = EXTRA_EMPREENDIMENTOS.map((emp) => {
+      const meta = metaMap.get(emp) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
+      const counts = countsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
+      const snapshot = snapshotMap.get(emp) || { reserva: 0, contrato: 0 };
+      const ev = eventoMap.get(emp) || { oppEvento: 0, reservaEvento: 0, contratoEvento: 0, wonEvento: 0 };
+
+      let leads: number, mql: number, sql: number, opp: number, won: number;
+      let reserva: number, contrato: number;
+      let eventos: EventoCoorte;
+
+      if (paidOnly) {
+        const baserowLeads = baserowLeadsMap.get(emp) || 0;
+        const paid = paidCountsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
+        const leadsBase = baserowLeads > 0 ? baserowLeads : meta.leads;
+        leads = Math.max(leadsBase, paid.mql);
+        mql = paid.mql;
+        sql = paid.sql;
+        opp = paid.opp;
+        won = paid.won;
+        const ratio = counts.mql > 0 ? paid.mql / counts.mql : 0;
+        reserva = Math.round(snapshot.reserva * ratio);
+        contrato = Math.round(snapshot.contrato * ratio);
+        eventos = {
+          oppEvento: Math.round(ev.oppEvento * ratio),
+          reservaEvento: Math.round(ev.reservaEvento * ratio),
+          contratoEvento: Math.round(ev.contratoEvento * ratio),
+          wonEvento: Math.round(ev.wonEvento * ratio),
+        };
+      } else {
+        const baserowLeads = baserowLeadsMap.get(emp) || 0;
+        leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, counts.mql);
+        mql = counts.mql;
+        sql = counts.sql;
+        opp = counts.opp;
+        won = counts.won;
+        reserva = snapshot.reserva;
+        contrato = snapshot.contrato;
+        eventos = ev;
+      }
+
+      return buildFunil(emp, meta.impressions, meta.clicks, leads, mql, sql, opp, won, reserva, contrato, eventos, meta.spend);
+    });
+
+    const allEmps = [...squads.flatMap((sq) => sq.empreendimentos), ...extraRows];
     const grand = sumFunil(allEmps, "Total");
 
     // Sobrescrever grand com totais reais de squad_deals (inclui deals fora dos SQUADS)
