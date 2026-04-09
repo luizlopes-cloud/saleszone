@@ -12,7 +12,7 @@ export interface LeadRecord {
   campaign_name: string
   vertical: string
   created_at: string       // ISO
-  status: "aguardando" | "ok" | "sem_pipedrive" | "sem_mia" | "fora_sla"
+  status: "aguardando" | "ok" | "sem_pipedrive" | "sem_mia" | "fora_sla" | "descartado"
   pipedrive_deal_id?: number
   mia_link?: string
   checked_at?: string

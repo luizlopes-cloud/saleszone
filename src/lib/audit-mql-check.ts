@@ -284,6 +284,7 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
 
   const now = Date.now()
   const pending = leads.filter(l => {
+    if (l.status === "descartado") return false
     // Aguardando: checa após 5 min (webhook já esperou 7min, GH Actions é o fallback)
     if (l.status === "aguardando" && now - new Date(l.created_at).getTime() > FIVE_MINUTES) return true
     // Sem MIA: re-checa por até 4h desde a criação (janela fixa — não renova a cada check)
@@ -370,6 +371,7 @@ export async function recheckSla(
   const changes: RecheckChange[] = []
 
   for (const lead of leads) {
+    if (lead.status === "descartado") continue
     const wasOk     = lead.sla_ok
     const wasFora   = lead.status === "fora_sla"
     lead.sla_ok = checkSla(lead, slaData)
