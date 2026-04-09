@@ -175,14 +175,23 @@ function mapFieldsToQuestions(
 
   // Fallback 2 (posicional): campos não atribuídos → perguntas ainda sem resposta, em ordem
   // Pressuposto: Meta envia campos na mesma ordem das perguntas SLA (comportamento padrão)
-  // Resolve valores ambíguos como "Sim"/"Não" que aparecem em múltiplas perguntas
+  // Resolve valores ambíguos como "Sim"/"Não" que aparecem em múltiplas perguntas.
+  // Restrição: só atribui se o valor pertencer às opções da pergunta alvo — impede que
+  // campos extras do formulário (ex: "Empreendimento", "Você é corretor?") poluam perguntas
+  // SLA que não foram respondidas (o que causaria falsos "fora_sla").
   if (unmatched.length > 0) {
     const unanswered = questions.map((_, i) => i).filter(i => !result.has(i))
-    for (let k = 0; k < Math.min(unmatched.length, unanswered.length); k++) {
-      const value = canonical(customFields[unmatched[k]].value)
-      const existing = result.get(unanswered[k]) || []
-      existing.push(value)
-      result.set(unanswered[k], existing)
+    let ui = 0
+    for (let k = 0; k < unmatched.length && ui < unanswered.length; k++) {
+      const value   = canonical(customFields[unmatched[k]].value)
+      const normVal = norm(value)
+      const qIdx    = unanswered[ui]
+      if (questions[qIdx].opcoes.some(o => norm(o) === normVal)) {
+        const existing = result.get(qIdx) || []
+        existing.push(value)
+        result.set(qIdx, existing)
+        ui++
+      }
     }
   }
 
