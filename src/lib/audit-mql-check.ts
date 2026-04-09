@@ -123,10 +123,10 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
   const pending = leads.filter(l => {
     // Aguardando: checa após 5 min (dá tempo pro Pipedrive receber o lead)
     if (l.status === "aguardando" && now - new Date(l.created_at).getTime() > FIVE_MINUTES) return true
-    // Sem Pipedrive: re-checa por até 2h (lead pode ter chegado no Pipedrive com atraso)
-    if (l.status === "sem_pipedrive" && l.checked_at && now - new Date(l.checked_at).getTime() < TWO_HOURS) return true
-    // Sem MIA: re-checa por até 4h
-    if (l.status === "sem_mia" && l.checked_at && now - new Date(l.checked_at).getTime() < FOUR_HOURS) return true
+    // Sem Pipedrive: re-checa por até 2h desde a CRIAÇÃO (janela fixa, não renova a cada check)
+    if (l.status === "sem_pipedrive" && now - new Date(l.created_at).getTime() < TWO_HOURS) return true
+    // Sem MIA: re-checa por até 4h desde a CRIAÇÃO
+    if (l.status === "sem_mia" && now - new Date(l.created_at).getTime() < FOUR_HOURS) return true
     return false
   })
 
