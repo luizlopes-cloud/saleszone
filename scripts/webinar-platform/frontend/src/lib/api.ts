@@ -1,4 +1,4 @@
-import type { Session, Message } from "./types";
+import type { Session, Message, Slot, Registration } from "./types";
 
 const BASE = import.meta.env.VITE_API_URL || "";
 
@@ -38,4 +38,34 @@ export const api = {
     request<any>("/api/admin/registrations/cta", {
       method: "POST", body: JSON.stringify({ session_id: sessionId, token, form_data: formData }),
     }),
+
+  // Admin API (requires Supabase JWT in Authorization header)
+  admin: {
+    getDashboard: (token: string) =>
+      request<any>("/api/admin/dashboard", { headers: { Authorization: `Bearer ${token}` } }),
+    getSlots: (token: string) =>
+      request<Slot[]>("/api/slots/", { headers: { Authorization: `Bearer ${token}` } }),
+    createSlot: (token: string, data: Partial<Slot>) =>
+      request<Slot>("/api/slots/", { method: "POST", body: JSON.stringify(data), headers: { Authorization: `Bearer ${token}` } }),
+    updateSlot: (token: string, id: string, data: Partial<Slot>) =>
+      request<Slot>(`/api/slots/${id}`, { method: "PUT", body: JSON.stringify(data), headers: { Authorization: `Bearer ${token}` } }),
+    deleteSlot: (token: string, id: string) =>
+      request<null>(`/api/slots/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }),
+    getSessions: (token: string, params?: string) =>
+      request<Session[]>(`/api/sessions/${params ? '?' + params : ''}`, { headers: { Authorization: `Bearer ${token}` } }),
+    updateSessionStatus: (token: string, id: string, status: string, reason?: string) =>
+      request<Session>(`/api/sessions/${id}/status`, { method: "PATCH", body: JSON.stringify({ status, cancel_reason: reason }), headers: { Authorization: `Bearer ${token}` } }),
+    createSession: (token: string, data: any) =>
+      request<Session>("/api/sessions/", { method: "POST", body: JSON.stringify(data), headers: { Authorization: `Bearer ${token}` } }),
+    toggleCTA: (token: string, sessionId: string, active: boolean) =>
+      request<any>(`/api/admin/sessions/${sessionId}/cta`, { method: "POST", body: JSON.stringify({ active }), headers: { Authorization: `Bearer ${token}` } }),
+    sendPresenterMessage: (token: string, sessionId: string, content: string, email: string) =>
+      request<any>(`/api/admin/sessions/${sessionId}/message`, { method: "POST", body: JSON.stringify({ content, presenter_email: email }), headers: { Authorization: `Bearer ${token}` } }),
+    getSessionRegistrations: (token: string, sessionId: string) =>
+      request<Registration[]>(`/api/admin/sessions/${sessionId}/registrations`, { headers: { Authorization: `Bearer ${token}` } }),
+    exportCSV: (_token: string, sessionId?: string) => {
+      const params = sessionId ? `?session_id=${sessionId}` : '';
+      return `${BASE}/api/admin/registrations/export${params}`;  // Returns URL for download
+    },
+  },
 };
