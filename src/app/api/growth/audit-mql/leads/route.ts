@@ -106,10 +106,12 @@ async function checkPending(leads: LeadRecord[]): Promise<{ leads: LeadRecord[];
     return false
   })
   if (pending.length === 0) return { leads, changed: false }
+  // Limite de segurança: no máximo 20 leads por chamada para evitar timeout
+  const batch = pending.slice(0, 20)
 
   const slaData = await readData().catch(() => null)
 
-  for (const lead of pending) {
+  for (const lead of batch) {
     lead.checked_at = new Date().toISOString()
 
     // SLA antes do Pipedrive — lead fora do SLA não deveria estar no Pipe
@@ -148,7 +150,7 @@ async function checkPending(leads: LeadRecord[]): Promise<{ leads: LeadRecord[];
     }
   }
 
-  const pendingMap = new Map(pending.map(l => [l.id, l]))
+  const pendingMap = new Map(batch.map(l => [l.id, l]))
   return { leads: leads.map(l => pendingMap.get(l.id) || l), changed: true }
 }
 
