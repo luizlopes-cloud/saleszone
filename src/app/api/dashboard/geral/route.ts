@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin, hasServiceRole } from "@/lib/squad/supabase";
+import { createAuthenticatedSupabaseAdmin } from "@/lib/supabase/server";
 import { paginate } from "@/lib/paginate";
 import type { GeralData, GeralChannelResult, GeralMetricPair } from "@/lib/types";
 
@@ -62,9 +63,16 @@ function pair(real: number, meta: number): GeralMetricPair {
   return { real, meta };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const admin = createSquadSupabaseAdmin();
+    // Use authenticated client so that auth.jwt() is populated in RLS policies.
+    // Falls back to createSquadSupabaseAdmin() if cookies aren't available (e.g. internal calls).
+    let admin = createSquadSupabaseAdmin();
+    try {
+      admin = await createAuthenticatedSupabaseAdmin(req);
+    } catch {
+      // Fall through to fallback
+    }
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
