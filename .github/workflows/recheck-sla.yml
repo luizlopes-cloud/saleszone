@@ -8,9 +8,17 @@ on:
         required: false
         default: "2026-04-09,2026-04-08,2026-04-07"
       action:
-        description: "Ação: dedup (limpar duplicatas) ou recheck_sla (re-avaliar SLA)"
+        description: "Ação: dedup | recheck_sla | trim_before"
         required: false
         default: "dedup"
+      dry:
+        description: "dry=true para preview sem gravar (só para recheck_sla)"
+        required: false
+        default: "false"
+      trim_before:
+        description: "ISO timestamp para trim_before (ex: 2026-04-09T20:59:00.000Z)"
+        required: false
+        default: ""
 
 jobs:
   recheck:
@@ -22,14 +30,21 @@ jobs:
           BASE_URL: https://saleszone.vercel.app
           DATES_INPUT: ${{ github.event.inputs.dates }}
           ACTION: ${{ github.event.inputs.action }}
+          TRIM_BEFORE: ${{ github.event.inputs.trim_before }}
         run: |
           DATES_JSON=$(echo "$DATES_INPUT" | tr ',' '\n' | jq -R . | jq -sc .)
+          DATE=$(echo "$DATES_INPUT" | tr ',' '\n' | head -1)
           echo "Ação: $ACTION | Datas: $DATES_JSON"
           if [ "$ACTION" = "dedup" ]; then
             BODY="{\"dedup\": true, \"dates\": $DATES_JSON}"
+          elif [ "$ACTION" = "trim_before" ]; then
+            BODY="{\"trim_before\": \"$TRIM_BEFORE\", \"date\": \"$DATE\"}"
+          elif [ "${{ github.event.inputs.dry }}" = "true" ]; then
+            BODY="{\"recheck_sla\": true, \"dry\": true, \"dates\": $DATES_JSON}"
           else
             BODY="{\"recheck_sla\": true, \"dates\": $DATES_JSON}"
           fi
+          echo "Body: $BODY"
           STATUS=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
             -X POST "$BASE_URL/api/growth/audit-mql/check" \
             -H "Authorization: Bearer $CRON_SECRET" \
