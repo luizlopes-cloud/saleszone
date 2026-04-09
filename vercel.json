@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/growth/audit-mql/recovery",
-      "schedule": "*/30 * * * *"
+      "schedule": "*/10 * * * *"
     }
   ]
 }

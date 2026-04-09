@@ -30,7 +30,9 @@ async function getFormsForPage(pageId: string): Promise<{ id: string; name: stri
   while (url) {
     const data = await metaFetch(url)
     if (!data?.data) break
-    forms.push(...data.data.map((f: { id: string; name: string }) => ({ id: f.id, name: f.name })))
+    forms.push(...data.data
+      .filter((f: { id: string; name: string; status: string }) => f.status === "ACTIVE")
+      .map((f: { id: string; name: string }) => ({ id: f.id, name: f.name })))
     url = data.paging?.next || ""
   }
   return forms
