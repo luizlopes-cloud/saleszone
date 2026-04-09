@@ -504,16 +504,19 @@ export default function SlaPage() {
       const newFaixas     = Array.from(draft.mql_faixas.accepted)
       const newPagamentos = Array.from(draft.mql_pagamentos.accepted)
 
-      const res = await fetch(`/api/sla-mql/${row.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: editStatus, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos }),
-      })
-      if (!res.ok) { const j = await res.json(); throw new Error(j.error || "Erro ao salvar") }
-
+      // Calcula estado completo ANTES do fetch para evitar race condition:
+      // se dois saves correm em paralelo, cada PATCH envia o array inteiro,
+      // eliminando a necessidade de read-modify-write no servidor.
       const updated = rows.map(r =>
         r.id === row.id ? { ...r, status: editStatus, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos } : r
       )
+
+      const res = await fetch(`/api/sla-mql/${row.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: editStatus, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos, allRows: updated }),
+      })
+      if (!res.ok) { const j = await res.json(); throw new Error(j.error || "Erro ao salvar") }
       setRows(updated)
       persist(updated)
 

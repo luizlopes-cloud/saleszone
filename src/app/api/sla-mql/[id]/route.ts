@@ -17,13 +17,16 @@ export async function PATCH(
       mql_intencoes: string[]
       mql_faixas: string[]
       mql_pagamentos: string[]
+      allRows?: { id: number; vertical: string; nome: string; status: boolean; commercial_squad: string; mql_intencoes: string[]; mql_faixas: string[]; mql_pagamentos: string[] }[]
     }
 
     const before = await readData()
     if (!before.rows.find(r => r.id === numId)) {
       return NextResponse.json({ error: `Row ${numId} não encontrada no blob` }, { status: 404 })
     }
-    const rows = before.rows.map(r => r.id === numId ? { ...r, ...body } : r)
+    // Se o cliente enviou o array completo, usá-lo diretamente elimina a race condition
+    // de read-modify-write quando múltiplos saves correm em paralelo.
+    const rows = body.allRows ?? before.rows.map(r => r.id === numId ? { ...r, ...body } : r)
     await writeData({ ...before, rows })
 
     // Verifica se a escrita persistiu (detecta blob sempre retornando SEED/cache)
