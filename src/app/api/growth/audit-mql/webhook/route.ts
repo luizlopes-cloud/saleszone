@@ -3,7 +3,7 @@ import crypto from "crypto"
 import { waitUntil } from "@vercel/functions"
 import { LeadRecord, dateKey, appendLeadSafe, extractVertical } from "@/lib/audit-mql"
 
-export const maxDuration = 240 // 4 min: 3min de espera + margem para o check
+export const maxDuration = 480 // 8 min: 7min de espera + margem para o check
 export const dynamic = "force-dynamic"
 
 const META_TOKEN       = process.env.META_ADS_TOKEN              || ""
@@ -87,7 +87,7 @@ async function sendCapiLeadSzs(leadgenId: string, email: string, phone: string) 
 // ─── Webhook processing ───────────────────────────────────────────────────────
 
 async function delayedCheck(baseUrl: string) {
-  await new Promise(resolve => setTimeout(resolve, 3 * 60 * 1000)) // espera 3 min
+  await new Promise(resolve => setTimeout(resolve, 7 * 60 * 1000)) // espera 7 min (índice de busca do Pipedrive tem lag ~5min)
   const cronSecret = process.env.CRON_SECRET
   await fetch(`${baseUrl}/api/growth/audit-mql/check`, {
     method: "POST",
