@@ -101,6 +101,7 @@ async function notify(lead: LeadRecord, problem: "sem_pipedrive" | "sem_mia") {
 async function checkPending(leads: LeadRecord[]): Promise<{ leads: LeadRecord[]; changed: boolean }> {
   const now = Date.now()
   const pending = leads.filter(l => {
+    if (l.status === "descartado") return false
     if (l.status === "aguardando" && now - new Date(l.created_at).getTime() > TWO_MINUTES) return true
     if (l.status === "sem_mia" && l.checked_at && now - new Date(l.checked_at).getTime() < FOUR_HOURS) return true
     return false
@@ -169,6 +170,7 @@ export async function GET(req: NextRequest) {
     leads = updated
   }
 
+  leads = leads.filter(l => l.status !== "descartado")
   leads.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   return NextResponse.json(leads, { headers: { "Cache-Control": "no-store" } })
 }
