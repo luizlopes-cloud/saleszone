@@ -242,6 +242,8 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
     if (l.status === "aguardando" && now - new Date(l.created_at).getTime() > FIVE_MINUTES) return true
     // Sem MIA: re-checa por até 4h desde a criação (janela fixa — não renova a cada check)
     if (l.status === "sem_mia" && now - new Date(l.created_at).getTime() < FOUR_HOURS) return true
+    // Sem Pipedrive: re-checa por até 4h — Pipedrive tem lag de indexação, deal pode aparecer depois
+    if (l.status === "sem_pipedrive" && now - new Date(l.created_at).getTime() < FOUR_HOURS) return true
     return false
   })
 
