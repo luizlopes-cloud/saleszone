@@ -212,6 +212,8 @@ export async function GET(req: NextRequest) {
       if (merged3.mql > 0 || merged3.sql > 0 || merged3.opp > 0 || merged3.won > 0) {
         filteredSquadsOut.push({ date: latestDate, squad_id: 3, ratios: computeRatios(merged3), counts_90d: merged3 });
       }
+
+      squadsCurrent = filteredSquadsOut;
     }
 
     const result: RatioHistoryData = {
