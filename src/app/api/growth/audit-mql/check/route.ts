@@ -37,6 +37,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ dedup: results, ts: new Date().toISOString() })
   }
 
+  // POST com { trim_before: "ISO timestamp", date: "YYYY-MM-DD" } — remove leads anteriores ao timestamp
+  if (body.trim_before) {
+    const cutoff = new Date(body.trim_before)
+    const date: string = body.date || today
+    const leads = await readLeads(date)
+    const kept = leads.filter(l => new Date(l.created_at) >= cutoff)
+    await writeLeads(date, kept)
+    return NextResponse.json({ trim_before: body.trim_before, date, before: leads.length, after: kept.length, removed: leads.length - kept.length })
+  }
+
   // POST com { recheck_sla: true } re-avalia SLA de todos os leads retroativamente
   // Adicionar { dry: true } para preview sem gravar
   if (body.recheck_sla) {
