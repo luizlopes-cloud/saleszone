@@ -1,6 +1,11 @@
 name: Backfill Audit MQL (form_values + missed leads)
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/app/api/growth/audit-mql/recovery/route.ts"
   workflow_dispatch:
     inputs:
       days:
@@ -16,7 +21,7 @@ jobs:
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           BASE_URL: https://saleszone.vercel.app
-          DAYS: ${{ github.event.inputs.days }}
+          DAYS: ${{ github.event.inputs.days || '14' }}
         run: |
           for i in $(seq 0 $((DAYS - 1))); do
             DATE=$(date -d "-${i} days" +%Y-%m-%d 2>/dev/null || date -v -${i}d +%Y-%m-%d)
