@@ -2,7 +2,7 @@ from flask import Blueprint, request, jsonify
 from datetime import datetime, timezone
 import secrets
 import supabase_client as db
-from app import limiter
+from extensions import limiter
 
 bp = Blueprint("registrations", __name__)
 

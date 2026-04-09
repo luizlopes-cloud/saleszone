@@ -7,15 +7,13 @@ if _user_site and Path(_user_site).exists() and _user_site not in sys.path:
     sys.path.insert(0, _user_site)
 
 from flask import Flask, jsonify
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
 
 import config
 from supabase_client import SupabaseError
+from extensions import limiter
 
 app = Flask(__name__)
-
-limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour"])
+limiter.init_app(app)
 
 @app.errorhandler(SupabaseError)
 def handle_supabase_error(e):
@@ -44,26 +42,7 @@ def add_cors(response):
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     return response
 
-def require_admin():
-    from flask import request, abort
-    import urllib.request as urllib_req
-    import json
-    auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
-        abort(401)
-    token = auth[7:]
-    try:
-        req = urllib_req.Request(
-            f"{config.SUPABASE_URL}/auth/v1/user",
-            headers={"apikey": config.SUPABASE_ANON_KEY, "Authorization": f"Bearer {token}"}
-        )
-        with urllib_req.urlopen(req) as resp:
-            user = json.loads(resp.read().decode())
-            if not user.get("email", "").endswith("@seazone.com.br"):
-                abort(403)
-            return user
-    except Exception:
-        abort(401)
+from auth import require_admin  # noqa: F401 - re-exported for backwards compat
 
 from routes.slots import bp as slots_bp
 from routes.sessions import bp as sessions_bp
