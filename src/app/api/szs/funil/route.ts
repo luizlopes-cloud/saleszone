@@ -4,7 +4,7 @@ import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
-import { SZS_METAS_WON_BY_SQUAD } from "@/lib/szs-utils";
+import { getCidadeGroup, SZS_METAS_WON_BY_SQUAD } from "@/lib/szs-utils";
 
 export const dynamic = "force-dynamic";
 
@@ -92,12 +92,44 @@ export async function GET(req: NextRequest) {
     const mesFim = `${yearStr}-${String(Number(monthStr) + 1).padStart(2, "0")}-01`;
     const admin = createSquadSupabaseAdmin();
 
-    const [countsData, stageData, baserowLeadsRes, paidDealsRes] = await Promise.all([
+    const [countsData, stageData, allDealsRes, paidDealsRes, baserowLeadsRes] = await Promise.all([
       fetchAll(supabase.from("szs_daily_counts").select("tab, canal_group, count").in("tab", ["mql", "sql", "opp", "won"]).gte("date", startDate)),
       fetchAll(supabase.from("szs_daily_counts").select("tab, canal_group, count").in("tab", ["reserva", "contrato"])),
+      // All deals for bridge cidade→canal (no canal filter for complete attribution)
+      fetchAll(admin.from("szs_deals").select("empreendimento, canal_group, max_stage_order, status, lost_reason").gte("add_time", startDate)),
+      // Paid deals (canal=12, paid source) for funnel metrics
+      fetchAll(admin.from("szs_deals").select("canal, canal_group, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").gte("add_time", startDate)),
+      // All form fills from baserow (leads, not qualified)
       fetchAll(admin.from("baserow_szs_leads").select("cidade").gte("data_criacao_ads", startDate).lt("data_criacao_ads", mesFim)),
-      fetchAll(admin.from("szs_deals").select("canal, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").gte("add_time", startDate)),
     ]);
+
+    // Bridge: primary canal per cidade (canal with most qualified deals from that cidade)
+    const cidadeCanalCount = new Map<string, Map<string, number>>();
+    for (const d of allDealsRes) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const cidade = getCidadeGroup(d.empreendimento);
+      if (!cidadeCanalCount.has(cidade)) cidadeCanalCount.set(cidade, new Map());
+      const canalGroup = d.canal_group || "Outros";
+      cidadeCanalCount.get(cidade)!.set(canalGroup, (cidadeCanalCount.get(cidade)!.get(canalGroup) || 0) + 1);
+    }
+    const cidadeToCanal = new Map<string, string>();
+    for (const [cidade, canalCounts] of cidadeCanalCount) {
+      let topCanal = "Outros";
+      let topCount = 0;
+      for (const [canal, count] of canalCounts) {
+        if (count > topCount) { topCount = count; topCanal = canal; }
+      }
+      cidadeToCanal.set(cidade, topCanal);
+    }
+
+    // Leads per canal from baserow (ALL form fills, not qualified)
+    const leadsPerCanal = new Map<string, number>();
+    for (const row of baserowLeadsRes) {
+      if (!row.cidade) continue;
+      const cidade = getCidadeGroup(row.cidade);
+      const canal = cidadeToCanal.get(cidade) || "Outros";
+      leadsPerCanal.set(canal, (leadsPerCanal.get(canal) || 0) + 1);
+    }
 
     // Build counts by squadId|canalGroup
     const squadCanalCounts = new Map<string, Record<string, number>>();
@@ -138,16 +170,23 @@ export async function GET(req: NextRequest) {
 
         let mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
 
+        let leads: number;
+
         if (paidOnly) {
+          const marketingLeads = leadsPerCanal.get("Marketing") || 0;
+          leads = Math.max(marketingLeads, Math.round(paid.mql * mqlShare));
           mql = Math.round(paid.mql * mqlShare); sql = Math.round(paid.sql * mqlShare);
           opp = Math.round(paid.opp * mqlShare); won = Math.round(paid.won * mqlShare);
           reserva = 0; contrato = 0;
         } else {
+          // leads from baserow per canal (all form fills) >= MQL (only qualified)
+          const canalLeads = leadsPerCanal.get(canal) || 0;
+          leads = Math.max(canalLeads, counts.mql || 0);
           mql = counts.mql || 0; sql = counts.sql || 0; opp = counts.opp || 0; won = counts.won || 0;
           reserva = counts.reserva || 0; contrato = counts.contrato || 0;
         }
 
-        return buildFunil(canal, 0, 0, mql, mql, sql, opp, won, reserva, contrato, 0);
+        return buildFunil(canal, 0, 0, leads, mql, sql, opp, won, reserva, contrato, 0);
       });
 
       empRows.sort((a, b) => (b.mql + b.sql + b.opp + b.won) - (a.mql + a.sql + a.opp + a.won));
