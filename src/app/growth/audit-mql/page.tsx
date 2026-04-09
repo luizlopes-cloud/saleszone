@@ -383,8 +383,16 @@ export default function AuditMQL() {
       const merged = results.flat()
       const seen = new Set<string>()
       const deduped = merged.filter(l => { if (seen.has(l.id)) return false; seen.add(l.id); return true })
-      deduped.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      setLeads(deduped)
+      // Filtra leads pelo created_at em BRT — garante que só aparecem leads do range selecionado
+      const startDate = new Date(r.start + "T03:00:00Z") // midnight BRT = 03:00 UTC
+      const endDate   = new Date(r.end   + "T03:00:00Z")
+      endDate.setDate(endDate.getDate() + 1) // end of day BRT = 03:00 UTC next day
+      const filtered = deduped.filter(l => {
+        const t = new Date(l.created_at).getTime()
+        return t >= startDate.getTime() && t < endDate.getTime()
+      })
+      filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      setLeads(filtered)
       setLastUpdate(new Date())
     } finally { setLoading(false) }
   }, [])
