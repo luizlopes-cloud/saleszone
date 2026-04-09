@@ -96,7 +96,7 @@ export async function GET(req: NextRequest) {
       fetchAll(supabase.from("szs_daily_counts").select("tab, canal_group, count").in("tab", ["mql", "sql", "opp", "won"]).gte("date", startDate)),
       fetchAll(supabase.from("szs_daily_counts").select("tab, canal_group, count").in("tab", ["reserva", "contrato"])),
       fetchAll(admin.from("baserow_szs_leads").select("cidade").gte("data_criacao_ads", startDate).lt("data_criacao_ads", mesFim)),
-      fetchAll(admin.from("szs_deals").select("canal_group, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").not("canal_group", "is", null).gte("add_time", startDate)),
+      fetchAll(admin.from("szs_deals").select("canal, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").gte("add_time", startDate)),
     ]);
 
     // Build counts by squadId|canalGroup
@@ -113,7 +113,7 @@ export async function GET(req: NextRequest) {
     const paidCountsMap = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
     for (const d of paidDealsRes) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const canal = d.canal_group || "Outros";
+      const canal = d.canal === "12" ? "Marketing" : "Outros";
       if (!paidCountsMap.has(canal)) paidCountsMap.set(canal, { mql: 0, sql: 0, opp: 0, won: 0 });
       const cur = paidCountsMap.get(canal)!;
       cur.mql++;
