@@ -221,31 +221,51 @@ function mapValuesToQuestions(
 }
 
 export function checkSla(lead: LeadRecord, slaData: SlaData): boolean {
-  // Tenta identificar vertical pelo nome da campanha; se não reconhecido ("Outros", "Hóspedes"),
-  // infere pelas respostas do formulário (ex: campanha "Itacaré Spot" sem marcador [SZI])
-  let v = slaVertical(lead.vertical)
-  if (!v) v = inferVerticalFromAnswers(lead, slaData)
-  if (!v) return true                          // vertical desconhecida = não verificar
+  // ── Passo 1: determinar quais rows SLA verificar ──────────────────────────────
 
-  const questions = slaData.forms[v]
+  // Prioridade: campo "Empreendimento" do formulário → row direta por nome.
+  // É o cruzamento mais confiável: evita depender de marcadores na campanha
+  // (que podem faltar, ex: "Itacaré Spot") e de fallbacks posicionais.
+  let targetRows: SlaRow[] = []
+  let vertical: string | null = null
+
+  const empField = lead.form_fields?.find(f => norm(f.name).includes("empreendimento"))
+  if (empField) {
+    const row = slaData.rows.find(r => norm(r.nome) === norm(empField.value))
+    if (row) {
+      if (!row.status) return true          // empreendimento inativo = não verificar
+      targetRows = [row]
+      vertical   = row.vertical
+    }
+  }
+
+  // Fallback: detecta vertical pelo nome da campanha ou pelas respostas do formulário
+  if (!vertical) {
+    vertical = slaVertical(lead.vertical)
+    if (!vertical) vertical = inferVerticalFromAnswers(lead, slaData)
+    if (!vertical) return true              // vertical desconhecida = não verificar
+
+    targetRows = slaData.rows.filter(r => r.vertical === vertical && r.status)
+    if (!targetRows.length) return true     // sem rows ativas = não verificar
+  }
+
+  // ── Passo 2: mapear respostas do formulário às perguntas SLA ─────────────────
+
+  const questions = slaData.forms[vertical]
   if (!questions?.length) return true
-
-  const activeRows = slaData.rows.filter(r => r.vertical === v && r.status)
-  if (!activeRows.length) return true          // sem rows ativas = não verificar
 
   let valuesByQ: Map<number, string[]>
   if (lead.form_fields?.length) {
     valuesByQ = mapFieldsToQuestions(lead.form_fields, questions)
   } else if (lead.form_values?.length) {
-    // Leads legados: usa form_values com detecção por valor único
     valuesByQ = mapValuesToQuestions(lead.form_values, questions)
   } else {
-    return true  // sem dados do formulário = não verificar
+    return true                             // sem dados do formulário = não verificar
   }
 
-  // SLA categories mapeiam sequencialmente: Q0 → mql_intencoes, Q1 → mql_faixas, Q2 → mql_pagamentos
-  // Comparação via norm() = case-insensitive, ignora acentos
-  return activeRows.some(row => {
+  // ── Passo 3: checar contra os critérios SLA ───────────────────────────────────
+  // Q0 → mql_intencoes, Q1 → mql_faixas, Q2 → mql_pagamentos
+  return targetRows.some(row => {
     const categories = [row.mql_intencoes, row.mql_faixas, row.mql_pagamentos]
     return categories.every((accepted, qIdx) => {
       if (accepted.length === 0) return true        // sem restrição
