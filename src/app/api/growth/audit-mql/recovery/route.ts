@@ -227,12 +227,6 @@ async function recoverDate(targetDate: string, pageTokens: Map<string, string>) 
   return { date: targetDate, recovered, backfilled, skipped, errors, existingBefore: existing.length, recoveredLeads }
 }
 
-function yesterdayKey() {
-  const d = new Date(Date.now() - 3 * 60 * 60 * 1000)
-  d.setDate(d.getDate() - 1)
-  return d.toISOString().slice(0, 10)
-}
-
 async function recoverAndCheck(targetDate: string, pageTokens: Map<string, string>) {
   const result = await recoverDate(targetDate, pageTokens)
   if (result.recovered > 0 || result.backfilled > 0) await runCheck(targetDate)
@@ -248,8 +242,8 @@ export async function GET(req: NextRequest) {
   }
 
   const pageTokens = await getPageTokens()
-  const [r1, r2] = await Promise.all([recoverAndCheck(yesterdayKey(), pageTokens), recoverAndCheck(dateKey(), pageTokens)])
-  return NextResponse.json({ yesterday: r1, today: r2 })
+  const r = await recoverAndCheck(dateKey(), pageTokens)
+  return NextResponse.json({ today: r })
 }
 
 export async function POST(req: NextRequest) {
@@ -267,6 +261,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(await recoverAndCheck(targetDate, pageTokens))
   }
 
-  const [r1, r2] = await Promise.all([recoverAndCheck(yesterdayKey(), pageTokens), recoverAndCheck(dateKey(), pageTokens)])
-  return NextResponse.json({ yesterday: r1, today: r2 })
+  const r = await recoverAndCheck(dateKey(), pageTokens)
+  return NextResponse.json({ today: r })
 }
