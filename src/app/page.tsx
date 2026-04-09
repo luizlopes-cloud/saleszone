@@ -103,6 +103,7 @@ export default function Dashboard() {
   const [orcData, setOrcData] = useState<OrcamentoData | null>(null);
   const [mediaFilter, setMediaFilter] = useState<MediaFilter>("paid");
   const [acompFilter, setAcompFilter] = useState<"all" | "marketing" | "paid" | "ctwa" | "vd" | "expansao" | "sao-paulo" | "salvador" | "florianopolis" | "outros">("all");
+  const [ratioFilter, setRatioFilter] = useState<"all" | "marketing" | "paid" | "ctwa">("all");
   const [perfData, setPerfData] = useState<PerformanceData | null>(null);
   const [perfDays, setPerfDays] = useState(90);
   const [baselineData, setBaselineData] = useState<BaselineData | null>(null);
@@ -481,9 +482,11 @@ export default function Dashboard() {
     }
   }, []);
 
-  const fetchRatios = useCallback(async (days: number = 90) => {
+  const fetchRatios = useCallback(async (days: number = 90, filter: string = "all") => {
     try {
-      const res = await fetch(`${moduleConfig.apiBase}/ratios?days=${days}`);
+      const params = new URLSearchParams({ days: String(days) });
+      if (filter !== "all") params.set("filter", filter);
+      const res = await fetch(`${moduleConfig.apiBase}/ratios?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setRatioData(await res.json());
     } catch (err) {
@@ -530,11 +533,20 @@ export default function Dashboard() {
     }
   }, [acompFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Re-fetch when ratioFilter changes
+  useEffect(() => {
+    if (!hydrated) return;
+    if (mainView === "acompanhamento") {
+      setRatioData(null);
+      fetchRatios(ratioDays, ratioFilter);
+    }
+  }, [ratioFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!hydrated) return;
     if (mainView === "acompanhamento") {
       if (!acompData[activeTab]) fetchAcomp(activeTab, acompFilter);
-      if (!ratioData) fetchRatios(ratioDays);
+      if (!ratioData) fetchRatios(ratioDays, ratioFilter);
     } else if (mainView === "alinhamento" && !alinhData) {
       fetchAlinh();
     } else if (mainView === "ociosidade" && !ocioData) {
@@ -741,8 +753,10 @@ export default function Dashboard() {
               data={ratioData}
               loading={loading}
               daysBack={ratioDays}
-              onDaysChange={(d) => { setRatioDays(d); setRatioData(null); fetchRatios(d); }}
+              onDaysChange={(d) => { setRatioDays(d); setRatioData(null); fetchRatios(d, ratioFilter); }}
               moduleId={activeModule}
+              filter={ratioFilter}
+              onFilterChange={(f) => { setRatioFilter(f); setRatioData(null); }}
             />
           </>
         )}
