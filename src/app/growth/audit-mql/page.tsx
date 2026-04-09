@@ -100,6 +100,7 @@ const STATUS_META: Record<Status, { bg: string; label: string; color: string }> 
   sem_mia:       { bg: "#FFF7ED", label: "SEM MIA",       color: T.laranja500 },
   sem_pipedrive: { bg: "#FEF2F2", label: "SEM PIPEDRIVE", color: T.destructive },
   fora_sla:      { bg: "#FDF4FF", label: "FORA SLA",      color: "#9333EA"    },
+  descartado:    { bg: "#F3F4F6", label: "DESCARTADO",    color: "#9CA3AF"    },
 }
 
 const VERTICAL_COLORS: Record<string, string> = {
