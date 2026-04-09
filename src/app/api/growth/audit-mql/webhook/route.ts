@@ -30,13 +30,19 @@ async function fetchLeadData(leadgenId: string) {
   const lastName  = fields["last_name"]  || ""
   const fullName  = fields["full_name"]  || `${firstName} ${lastName}`.trim()
 
+  // Coleta todos os valores do formulário (para verificação SLA)
+  const formValues: string[] = (data.field_data || []).flatMap(
+    (f: { name: string; values: string[] }) => f.values || []
+  )
+
   return {
-    name:    fullName,
-    email:   fields["email"] || "",
-    phone:   fields["phone_number"] || fields["phone"] || "",
-    ad_id:   String(data.ad_id   || ""),
-    form_id: String(data.form_id || ""),
-    page_id: String(data.page_id || ""),
+    name:        fullName,
+    email:       fields["email"] || "",
+    phone:       fields["phone_number"] || fields["phone"] || "",
+    ad_id:       String(data.ad_id   || ""),
+    form_id:     String(data.form_id || ""),
+    page_id:     String(data.page_id || ""),
+    form_values: formValues,
   }
 }
 
@@ -120,6 +126,7 @@ async function processPayload(body: Record<string, unknown>, baseUrl: string) {
           vertical:      extractVertical(campaign),
           created_at:    new Date().toISOString(),
           status:        "aguardando",
+          form_values:   leadData?.form_values || [],
         }
 
         const saved = await appendLeadSafe(dateKey(), record)
