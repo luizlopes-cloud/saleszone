@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS } from "@/lib/constants";
 import { getModuleConfig } from "@/lib/modules";
 import type { PresalesData, PresellerSummary, PresalesDealRow } from "@/lib/types";
@@ -147,7 +148,8 @@ export async function GET() {
     // Paginar em batches de 500 (limite do .in())
     for (let i = 0; i < dealIds.length; i += 500) {
       const batch = dealIds.slice(i, i + 500);
-      const { data: dealsExtra } = await supabase
+      const admin = createSquadSupabaseAdmin();
+      const { data: dealsExtra } = await admin
         .from("squad_deals")
         .select("deal_id, add_time")
         .in("deal_id", batch);
