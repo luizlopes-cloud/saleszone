@@ -234,3 +234,28 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
 
   return { checked: pending.length, resolved }
 }
+
+// Re-avalia SLA de TODOS os leads de um dia (corrige retroativos)
+export async function recheckSla(key: string): Promise<{ total: number; fixed: number }> {
+  const leads = await readLeads(key)
+  if (leads.length === 0) return { total: 0, fixed: 0 }
+
+  const slaData = await readData().catch(() => null)
+  if (!slaData) return { total: leads.length, fixed: 0 }
+
+  let fixed = 0
+  for (const lead of leads) {
+    const wasOk = lead.sla_ok
+    lead.sla_ok = checkSla(lead, slaData)
+
+    // Lead que estava ok/sem_pipedrive mas na verdade é fora_sla
+    if (lead.sla_ok === false && wasOk !== false) {
+      lead.status = "fora_sla"
+      lead.notified = true
+      fixed++
+    }
+  }
+
+  if (fixed > 0) await writeLeads(key, leads)
+  return { total: leads.length, fixed }
+}
