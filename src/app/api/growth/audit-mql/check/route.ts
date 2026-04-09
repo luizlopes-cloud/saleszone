@@ -37,14 +37,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ dedup: results, ts: new Date().toISOString() })
   }
 
-  // POST com { trim_before: "ISO timestamp", date: "YYYY-MM-DD" } — remove leads anteriores ao timestamp
+  // POST com { trim_before: "ISO timestamp", date: "YYYY-MM-DD" } — marca leads anteriores ao timestamp como "descartado"
+  // Leads permanecem no blob (impedindo recovery de re-adicioná-los) mas são filtrados do GET /leads
   if (body.trim_before) {
     const cutoff = new Date(body.trim_before)
     const date: string = body.date || today
     const leads = await readLeads(date)
-    const kept = leads.filter(l => new Date(l.created_at) >= cutoff)
-    await writeLeads(date, kept)
-    return NextResponse.json({ trim_before: body.trim_before, date, before: leads.length, after: kept.length, removed: leads.length - kept.length })
+    let discarded = 0
+    for (const l of leads) {
+      if (new Date(l.created_at) < cutoff && l.status !== "descartado") {
+        l.status = "descartado"
+        l.notified = true
+        discarded++
+      }
+    }
+    if (discarded > 0) await writeLeads(date, leads)
+    return NextResponse.json({ trim_before: body.trim_before, date, total: leads.length, discarded, ts: new Date().toISOString() })
   }
 
   // POST com { recheck_sla: true } re-avalia SLA de todos os leads retroativamente
