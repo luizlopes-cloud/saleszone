@@ -36,7 +36,18 @@ const SQUADS = [
   { id: 3, closers: 2, empreendimentos: ["Jurerê Spot II", "Jurerê Spot III", "Barra Grande Spot", "Vistas de Anitá II"] },
 ];
 const TOTAL_CLOSERS = SQUADS.reduce((sum, sq) => sum + sq.closers, 0);
-const ALL_EMPREENDIMENTOS = SQUADS.flatMap(sq => sq.empreendimentos);
+// Empreendimentos fora dos squads ativos mas presentes no pipeline 28 Marketing
+// NOTA: Mantenha em sincronia com src/lib/constants.ts (Deno não importa de src/)
+const EXTRA_EMPREENDIMENTOS = [
+  "Bonito Spot",
+  "Santinho Spot",
+  "Japaratinga Spot",
+  "Imbassaí Spot",
+  "Trancoso Spot",
+  "Morro das Pedras Spot",
+  "Meireles Spot",
+];
+const ALL_EMPREENDIMENTOS = [...SQUADS.flatMap(sq => sq.empreendimentos), ...EXTRA_EMPREENDIMENTOS];
 const TABS = ["mql", "sql", "opp", "won"] as const;
 const ALL_TABS = ["mql", "sql", "opp", "won", "reserva", "contrato"] as const;
 type Tab = typeof TABS[number];

@@ -56,20 +56,28 @@ const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
     Parceiros: { mql: 249, sql: 154, opp: 140, won: 73 },
     "Expansão": { mql: 1832, sql: 566, opp: 216, won: 95 },
   },
+  "2026-04": {
+    Geral: { mql: 3521, sql: 1446, opp: 780, won: 298 },
+    "Vendas Diretas": { mql: 1739, sql: 715, opp: 348, won: 104 },
+    Parceiros: { mql: 256, sql: 158, opp: 144, won: 75 },
+    "Expansão": { mql: 1967, sql: 608, opp: 232, won: 102 },
+  },
 };
 
 const CHANNEL_CLOSERS: Record<string, string[]> = {
-  Geral: ["Gabriela Lemos", "Gabriela Branco", "Giovanna de Araujo Zanchetta"],
-  "Vendas Diretas": ["Gabriela Lemos"],
+  Geral: ["Gabriela Lemos", "Gabriela Branco", "Giovanna Araujo Zanchetta", "Maria Amaral", "Samuel Barreto"],
+  "Vendas Diretas": ["Gabriela Lemos", "Maria Amaral"],
   Parceiros: ["Gabriela Branco"],
-  "Expansão": ["Giovanna de Araujo Zanchetta"],
+  "Expansão": ["Giovanna Araujo Zanchetta", "Samuel Barreto"],
 };
 
 /* ── Closer email → macro channel (for calendar events) ──── */
 const CLOSER_EMAIL_CHANNEL: Record<string, string> = {
+  "maria.amaral@seazone.com.br": "Vendas Diretas",
   "gabriela.lemos@seazone.com.br": "Vendas Diretas",
   "gabriela.branco@seazone.com.br": "Parceiros",
   "giovanna.araujo@seazone.com.br": "Expansão",
+  "samuel.barreto@seazone.com.br": "Expansão",
 };
 
 const MEETINGS_PER_DAY = 16;
@@ -188,24 +196,33 @@ export async function GET(request: NextRequest) {
       .eq("date", todayStr)
       .maybeSingle();
 
+    // Snapshots de Ag.Dados e Contrato direto de szs_deals (sempre atualizado, filtrável por cidade e canal)
+    {
+      const snapDeals = await paginate((o, ps) =>
+        admin.from("szs_deals")
+          .select("stage_id, empreendimento, canal")
+          .eq("status", "open")
+          .in("stage_id", [152, 76])
+          .range(o, o + ps - 1),
+      );
+      console.log(`[szs-resultados] snapDeals (stage 152/76): ${snapDeals.length} deals, cityFilter=${cityFilter}`);
+      for (const d of snapDeals) {
+        if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
+        const canalGroup = getCanalGroup(d.canal || "");
+        const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
+        if (d.stage_id === 152) { snapshots[macro].agDados++; snapshots.Geral.agDados++; }
+        if (d.stage_id === 76) { snapshots[macro].contrato++; snapshots.Geral.contrato++; }
+      }
+    }
+    // Total open from pipedrive_daily_snapshot or szs_open_snapshots (fallback)
     if (pdSnap) {
-      const byStage = (pdSnap.by_stage || {}) as Record<string, number>;
       snapshots.Geral.totalOpen = pdSnap.total_open || 0;
-      snapshots.Geral.agDados = byStage["152"] || 0;
-      snapshots.Geral.contrato = byStage["76"] || 0;
     } else {
-      // Fallback: szs_open_snapshots
       const todaySnap = await paginate((o, ps) =>
         admin.from("szs_open_snapshots").select("*").eq("date", todayStr).range(o, o + ps - 1)
       );
       for (const s of todaySnap) {
-        const macro = MACRO_CHANNELS[s.canal_group] || "Vendas Diretas";
-        snapshots[macro].totalOpen += s.total_open || 0;
-        snapshots[macro].agDados += s.ag_dados || 0;
-        snapshots[macro].contrato += s.contrato || 0;
         snapshots.Geral.totalOpen += s.total_open || 0;
-        snapshots.Geral.agDados += s.ag_dados || 0;
-        snapshots.Geral.contrato += s.contrato || 0;
       }
     }
 
@@ -338,12 +355,12 @@ export async function GET(request: NextRequest) {
     next7.setDate(next7.getDate() + 6);
     const next7Str = next7.toISOString().substring(0, 10);
     const calendarRows = await paginate((o, ps) =>
-      admin.from("szs_calendar_events").select("closer_email").gte("dia", today).lte("dia", next7Str).eq("cancelou", false).range(o, o + ps - 1)
+      admin.from("szs_calendar_events").select("closer_email, empreendimento").gte("dia", today).lte("dia", next7Str).eq("cancelou", false).range(o, o + ps - 1)
     );
     for (const ev of calendarRows) {
+      if (cityFilter && getCidadeGroup(ev.empreendimento || "") !== cityFilter) continue;
       const macro = CLOSER_EMAIL_CHANNEL[ev.closer_email];
       if (macro) snapshots[macro].agendado++;
-      // All calendar events from SZS closers count toward Geral
       snapshots["Geral"].agendado++;
     }
 
@@ -352,11 +369,12 @@ export async function GET(request: NextRequest) {
     past7.setDate(past7.getDate() - 6);
     const past7Str = past7.toISOString().substring(0, 10);
     const noShowRows = await paginate((o, ps) =>
-      admin.from("szs_calendar_events").select("closer_email, cancelou").gte("dia", past7Str).lte("dia", today).range(o, o + ps - 1)
+      admin.from("szs_calendar_events").select("closer_email, cancelou, empreendimento").gte("dia", past7Str).lte("dia", today).range(o, o + ps - 1)
     );
     const noShowData: Record<string, { canceladas: number; total: number }> = {};
     for (const ch of CHANNEL_ORDER) noShowData[ch] = { canceladas: 0, total: 0 };
     for (const ev of noShowRows) {
+      if (cityFilter && getCidadeGroup(ev.empreendimento || "") !== cityFilter) continue;
       const macro = CLOSER_EMAIL_CHANNEL[ev.closer_email];
       if (macro) {
         noShowData[macro].total++;

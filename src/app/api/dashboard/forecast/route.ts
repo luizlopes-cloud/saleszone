@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { V_COLS, SQUAD_V_MAP, SQUADS } from "@/lib/constants";
 import { paginate } from "@/lib/paginate";
 import type { ForecastData, ForecastStageSnapshot, ForecastCloserRow, ForecastSquadRow } from "@/lib/types";
@@ -26,6 +27,7 @@ function getSquadId(closerName: string): number {
 
 export async function GET() {
   try {
+    const admin = createSquadSupabaseAdmin();
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
@@ -44,18 +46,17 @@ export async function GET() {
     const [openDeals, hist90d, won90d, wonThisMonth, metasRows] = await Promise.all([
       // 1. Deals abertos, canal marketing
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("deal_id, stage_order, owner_name, empreendimento")
           .eq("status", "open")
           .eq("is_marketing", true)
-          .not("empreendimento", "is", null)
           .range(o, o + ps - 1),
       ),
       // 2. Deals fechados nos últimos 90d (won + lost) para taxas de conversão
       //    Inclui max_stage_order para saber por qual etapa passaram
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("deal_id, status, stage_order, max_stage_order, lost_reason, add_time, won_time")
           .eq("is_marketing", true)
@@ -66,7 +67,7 @@ export async function GET() {
       ),
       // 3. WON nos últimos 90d (por won_time) para leadtime — inclui deals antigos que fecharam recentemente
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("deal_id, add_time, won_time, max_stage_order")
           .eq("status", "won")
@@ -77,7 +78,7 @@ export async function GET() {
       ),
       // 4. WON do mês corrente
       paginate((o, ps) =>
-        supabase
+        admin
           .from("squad_deals")
           .select("deal_id, owner_name, empreendimento")
           .eq("status", "won")
