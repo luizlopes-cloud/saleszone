@@ -95,13 +95,6 @@ function slaVertical(auditVertical: string): string | null {
   return null
 }
 
-function formsKey(auditVertical: string): string | null {
-  if (auditVertical === "Investimentos") return "SZI"
-  if (auditVertical === "Serviços")      return "Serviços"
-  if (auditVertical === "Marketplace")   return "Marketplace"
-  return null
-}
-
 // Normaliza texto para comparação (remove acentos, pontuação, espaços)
 function norm(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "")
@@ -120,6 +113,26 @@ const META_VALUE_MAP: Record<string, string> = {
 
 function canonical(val: string): string {
   return META_VALUE_MAP[val] ?? val
+}
+
+// Quando extractVertical não identifica a vertical pelo nome da campanha (ex: "Itacaré Spot"),
+// tenta inferir pelo conteúdo do formulário — opções com >10 chars são distintivas por vertical
+function inferVerticalFromAnswers(lead: LeadRecord, slaData: SlaData): string | null {
+  const normVals = new Set<string>()
+  if (lead.form_fields?.length) {
+    for (const f of lead.form_fields) normVals.add(norm(canonical(f.value)))
+  }
+  if (lead.form_values?.length) {
+    for (const v of lead.form_values) normVals.add(norm(canonical(v)))
+  }
+  if (normVals.size === 0) return null
+
+  for (const fk of Object.keys(slaData.forms)) {
+    const questions = slaData.forms[fk]
+    const distinctive = questions.flatMap(q => q.opcoes).filter(o => o.length > 10)
+    if (distinctive.some(o => normVals.has(norm(o)))) return fk
+  }
+  return null
 }
 
 // Mapeia form_fields do lead às perguntas SLA por índice de pergunta
@@ -142,10 +155,11 @@ function mapFieldsToQuestions(
     // Tenta match por nome do campo ≈ texto da pergunta
     let idx = questions.findIndex(q => norm(q.pergunta) === normName)
 
-    // Fallback 1: valor canônico pertence às opções de exatamente uma pergunta
+    // Fallback 1: valor canônico pertence às opções de exatamente uma pergunta (norm = case-insensitive)
     if (idx === -1) {
+      const normVal = norm(value)
       const candidates = questions
-        .map((q, i) => ({ i, match: q.opcoes.includes(value) }))
+        .map((q, i) => ({ i, match: q.opcoes.some(o => norm(o) === normVal) }))
         .filter(c => c.match)
       if (candidates.length === 1) idx = candidates[0].i
     }
@@ -184,8 +198,9 @@ function mapValuesToQuestions(
   const result = new Map<number, string[]>()
   for (const val of new Set(values)) {
     const value = canonical(val)
+    const normVal = norm(value)
     const candidates = questions
-      .map((q, i) => ({ i, match: q.opcoes.includes(value) }))
+      .map((q, i) => ({ i, match: q.opcoes.some(o => norm(o) === normVal) }))
       .filter(c => c.match)
     if (candidates.length === 1) {
       const existing = result.get(candidates[0].i) || []
@@ -197,12 +212,13 @@ function mapValuesToQuestions(
 }
 
 export function checkSla(lead: LeadRecord, slaData: SlaData): boolean {
-  const v = slaVertical(lead.vertical)
-  if (!v) return true                          // vertical sem SLA (Hóspedes, etc.) = não verificar
+  // Tenta identificar vertical pelo nome da campanha; se não reconhecido ("Outros", "Hóspedes"),
+  // infere pelas respostas do formulário (ex: campanha "Itacaré Spot" sem marcador [SZI])
+  let v = slaVertical(lead.vertical)
+  if (!v) v = inferVerticalFromAnswers(lead, slaData)
+  if (!v) return true                          // vertical desconhecida = não verificar
 
-  const fk = formsKey(lead.vertical)
-  if (!fk) return true
-  const questions = slaData.forms[fk]
+  const questions = slaData.forms[v]
   if (!questions?.length) return true
 
   const activeRows = slaData.rows.filter(r => r.vertical === v && r.status)
@@ -219,13 +235,14 @@ export function checkSla(lead: LeadRecord, slaData: SlaData): boolean {
   }
 
   // SLA categories mapeiam sequencialmente: Q0 → mql_intencoes, Q1 → mql_faixas, Q2 → mql_pagamentos
+  // Comparação via norm() = case-insensitive, ignora acentos
   return activeRows.some(row => {
     const categories = [row.mql_intencoes, row.mql_faixas, row.mql_pagamentos]
     return categories.every((accepted, qIdx) => {
       if (accepted.length === 0) return true        // sem restrição
       const answers = valuesByQ.get(qIdx) || []
       if (answers.length === 0) return true          // sem resposta para esta pergunta = não falhar
-      return answers.some(a => accepted.includes(a))
+      return answers.some(a => accepted.some(acc => norm(acc) === norm(a)))
     })
   })
 }
