@@ -75,12 +75,39 @@ def register():
     }
 
     result = db.insert("webinar_registrations", registration)
-    created = result[0] if result else registration
+    reg = result[0] if result else registration
+
+    # Best-effort integrations (don't fail registration if these fail)
+
+    # 1. Pipedrive: find and associate deal
+    try:
+        from services.pipedrive import find_deal_by_email
+        deal_id = find_deal_by_email(data["email"])
+        if deal_id:
+            db.update("webinar_registrations", {"id": f"eq.{reg['id']}"}, {"pipedrive_deal_id": deal_id})
+    except Exception as e:
+        print(f"[register] Pipedrive lookup failed: {e}")
+
+    # 2. Google Calendar: add lead as attendee
+    try:
+        from services.google_calendar import add_attendee
+        if session.get("calendar_event_id"):
+            add_attendee(session["calendar_event_id"], data["email"])
+    except Exception as e:
+        print(f"[register] Calendar invite failed: {e}")
+
+    # 3. Morada: send confirmation
+    try:
+        from services.morada import send_confirmation
+        room_url = f"/webinar/sala/{reg['session_id']}?token={reg['access_token']}"
+        send_confirmation(data["phone"], data["name"], session.get("date", ""), session.get("starts_at", ""), room_url)
+    except Exception as e:
+        print(f"[register] Morada confirmation failed: {e}")
 
     return jsonify({
         "access_token": access_token,
         "room_url": room_url,
-        "registration": created,
+        "registration": reg,
     }), 201
 
 
