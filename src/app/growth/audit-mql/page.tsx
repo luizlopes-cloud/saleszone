@@ -370,8 +370,8 @@ export default function AuditMQL() {
 
   useEffect(() => { if (tab === "log") fetchLog() }, [tab, fetchLog])
 
-  const fetchLeads = useCallback(async (r: DateRange) => {
-    setLoading(true)
+  const fetchLeads = useCallback(async (r: DateRange, silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const dates = datesInRange(r.start, r.end)
       const results = await Promise.all(
@@ -394,7 +394,7 @@ export default function AuditMQL() {
       filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       setLeads(filtered)
       setLastUpdate(new Date())
-    } finally { setLoading(false) }
+    } finally { if (!silent) setLoading(false) }
   }, [])
 
   const runRecovery = useCallback(async () => {
@@ -427,7 +427,7 @@ export default function AuditMQL() {
   useEffect(() => {
     fetchLeads(range)
     if (!isToday) return
-    const interval = setInterval(() => fetchLeads(range), 30_000)
+    const interval = setInterval(() => fetchLeads(range, true), 30_000)
     return () => clearInterval(interval)
   }, [range, fetchLeads, isToday])
 
