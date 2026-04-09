@@ -140,8 +140,27 @@ function mapFieldsToQuestions(
   return result
 }
 
+// Fallback para leads legados com apenas form_values (array flat sem nomes de campo)
+// Atribui cada valor à pergunta SLA que o contém como opção única
+function mapValuesToQuestions(
+  values: string[],
+  questions: { pergunta: string; opcoes: string[] }[]
+): Map<number, string[]> {
+  const result = new Map<number, string[]>()
+  for (const val of new Set(values)) {
+    const candidates = questions
+      .map((q, i) => ({ i, match: q.opcoes.includes(val) }))
+      .filter(c => c.match)
+    if (candidates.length === 1) {
+      const existing = result.get(candidates[0].i) || []
+      existing.push(val)
+      result.set(candidates[0].i, existing)
+    }
+  }
+  return result
+}
+
 export function checkSla(lead: LeadRecord, slaData: SlaData): boolean {
-  if (!lead.form_fields?.length) return true  // sem dados do formulário = não verificar
   const v = slaVertical(lead.vertical)
   if (!v) return true                          // vertical sem SLA (Hóspedes, etc.) = não verificar
 
@@ -153,7 +172,15 @@ export function checkSla(lead: LeadRecord, slaData: SlaData): boolean {
   const activeRows = slaData.rows.filter(r => r.vertical === v && r.status)
   if (!activeRows.length) return true          // sem rows ativas = não verificar
 
-  const valuesByQ = mapFieldsToQuestions(lead.form_fields, questions)
+  let valuesByQ: Map<number, string[]>
+  if (lead.form_fields?.length) {
+    valuesByQ = mapFieldsToQuestions(lead.form_fields, questions)
+  } else if (lead.form_values?.length) {
+    // Leads legados: usa form_values com detecção por valor único
+    valuesByQ = mapValuesToQuestions(lead.form_values, questions)
+  } else {
+    return true  // sem dados do formulário = não verificar
+  }
 
   // SLA categories mapeiam sequencialmente: Q0 → mql_intencoes, Q1 → mql_faixas, Q2 → mql_pagamentos
   return activeRows.some(row => {
