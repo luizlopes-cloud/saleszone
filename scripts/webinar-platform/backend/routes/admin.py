@@ -3,7 +3,7 @@ import io
 from datetime import datetime, timezone
 from flask import Blueprint, request, jsonify, make_response
 import supabase_client as db
-from app import require_admin
+from auth import require_admin
 
 bp = Blueprint("admin", __name__)
 
