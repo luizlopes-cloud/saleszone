@@ -36,13 +36,14 @@ function offsetKeyFrom(key: string, days: number) {
   const d = new Date(key + "T12:00:00Z"); d.setDate(d.getDate() + days)
   return d.toISOString().slice(0, 10)
 }
+const BRT = "America/Sao_Paulo"
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: BRT })
 }
 function fmtDateTime(iso: string) {
   const d = new Date(iso)
-  const date = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
-  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  const date = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: BRT })
+  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: BRT })
   return { date, time }
 }
 function datesInRange(start: string, end: string): string[] {
@@ -382,8 +383,16 @@ export default function AuditMQL() {
       const merged = results.flat()
       const seen = new Set<string>()
       const deduped = merged.filter(l => { if (seen.has(l.id)) return false; seen.add(l.id); return true })
-      deduped.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      setLeads(deduped)
+      // Filtra leads pelo created_at em BRT — garante que só aparecem leads do range selecionado
+      const startDate = new Date(r.start + "T03:00:00Z") // midnight BRT = 03:00 UTC
+      const endDate   = new Date(r.end   + "T03:00:00Z")
+      endDate.setDate(endDate.getDate() + 1) // end of day BRT = 03:00 UTC next day
+      const filtered = deduped.filter(l => {
+        const t = new Date(l.created_at).getTime()
+        return t >= startDate.getTime() && t < endDate.getTime()
+      })
+      filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      setLeads(filtered)
       setLastUpdate(new Date())
     } finally { setLoading(false) }
   }, [])
@@ -701,8 +710,8 @@ export default function AuditMQL() {
                       const fm = Object.fromEntries((l.form_fields || []).map(f => [f.name, f.value]))
                       const dt = new Date(l.created_at)
                       return [
-                        dt.toLocaleDateString("pt-BR"),
-                        dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                        dt.toLocaleDateString("pt-BR", { timeZone: BRT }),
+                        dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: BRT }),
                         l.name, l.email, l.phone, l.vertical || "", l.campaign_name || "",
                         STATUS_META[l.status]?.label || l.status,
                         ...allFieldNames.map(n => fm[n] || ""),
