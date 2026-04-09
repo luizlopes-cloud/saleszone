@@ -11,10 +11,12 @@ Plataforma web onde leads agendam e assistem a apresentações ao vivo feitas pe
 ## Stack
 
 - **Backend:** Python 3 + Flask (porta 5060)
+- **Dependências pip:** Flask, Flask-Limiter, supabase-py, google-api-python-client, google-auth
 - **Frontend:** React + Vite + TypeScript + Tailwind
-- **Banco:** Supabase (projeto existente jp-rambo)
+- **Banco:** Supabase (projeto existente ewgqbkdriflarmmifrvs)
 - **Realtime:** Supabase Realtime (chat + CTA sync)
 - **Localização:** `saleszone/scripts/webinar-platform/`
+- **Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY`, `GOOGLE_CALENDAR_CREDENTIALS`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `PIPEDRIVE_API_TOKEN`, `MORADA_API_KEY`
 
 ## Estrutura do Projeto
 
@@ -78,6 +80,8 @@ Sessões concretas geradas a partir dos slots.
 | cancel_reason | text | Motivo do cancelamento (nullable) |
 | created_at | timestamptz | DEFAULT now() |
 
+**Índices:** INDEX(status), INDEX(date).
+
 ### `webinar_registrations`
 
 Inscrições dos leads.
@@ -91,8 +95,7 @@ Inscrições dos leads.
 | email | text | Email |
 | phone | text | Telefone |
 | pipedrive_deal_id | int | Deal associado (nullable) |
-| status | enum | registered / confirmed / attended / cancelled |
-| confirmed_at | timestamptz | Quando confirmou via Morada |
+| confirmed_at | timestamptz | Quando confirmou via Morada (nullable) |
 | attended_at | timestamptz | Quando entrou na call (nullable) |
 | cancelled_at | timestamptz | Quando cancelou (nullable) |
 | converted | bool | Preencheu formulário do CTA |
@@ -101,6 +104,13 @@ Inscrições dos leads.
 | reminder_24h_sent_at | timestamptz | Quando lembrete 24h foi enviado |
 | reminder_1h_sent_at | timestamptz | Quando lembrete 1h foi enviado |
 | created_at | timestamptz | DEFAULT now() |
+
+**Estado derivado dos timestamps (sem enum `status`):**
+- Registrado: `created_at IS NOT NULL` e demais null
+- Confirmado: `confirmed_at IS NOT NULL`
+- Presente: `attended_at IS NOT NULL`
+- Cancelado: `cancelled_at IS NOT NULL`
+- Convertido: `converted_at IS NOT NULL`
 
 **Constraints:** UNIQUE(session_id, email) — impede inscrição duplicada na mesma sessão.
 **Índices:** INDEX(session_id), INDEX(email), INDEX(access_token).
@@ -173,6 +183,7 @@ Sessões são geradas automaticamente a partir dos slots ativos:
 - Slots lotados ficam desabilitados (cinza)
 - Horários a cada 30 min ao longo do dia (configurável via admin)
 - Ao clicar no horário → formulário de registro (nome, email, telefone)
+- Backend rejeita registro se sessão tem `status = cancelled` (retorna erro amigável)
 - Após registro → tela de confirmação "Adicionado à sua agenda"
 
 ### 2. Página de Espera (`/webinar/sala/{session_id}?token={access_token}`)
@@ -261,7 +272,7 @@ Sessões são geradas automaticamente a partir dos slots ativos:
 
 - **Conta:** webinar@seazone.com.br (conta dedicada, separada de agendamentos@ que é para calls 1:1)
 - **Ao criar sessão:** cria evento com conferenceData (Google Meet link gerado automaticamente)
-- **Ao lead se inscrever:** adiciona lead como attendee no evento existente da sessão
+- **Ao lead se inscrever:** adiciona lead como attendee com `guestsCanSeeOtherGuests: false` (leads não veem emails uns dos outros)
 - **Ao lead cancelar:** remove attendee do evento (não deleta o evento)
 - **Ao cancelar sessão:** deleta o evento (ou atualiza status para cancelled)
 
