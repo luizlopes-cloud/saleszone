@@ -7,7 +7,6 @@ const MIA_FIELD_KEY    = process.env.PIPEDRIVE_MORADA_FIELD_KEY || "3dda4dab1781
 const SLACK_WEBHOOK    = process.env.SLACK_WEBHOOK_AUDIT_MQL    || ""
 
 const FIVE_MINUTES = 5 * 60 * 1000
-const TWO_HOURS    = 2 * 60 * 60 * 1000
 const FOUR_HOURS   = 4 * 60 * 60 * 1000
 
 // ─── Pipedrive ────────────────────────────────────────────────────────────────
@@ -121,11 +120,9 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
 
   const now = Date.now()
   const pending = leads.filter(l => {
-    // Aguardando: checa após 5 min (dá tempo pro Pipedrive receber o lead)
+    // Aguardando: checa após 5 min (webhook já esperou 7min, GH Actions é o fallback)
     if (l.status === "aguardando" && now - new Date(l.created_at).getTime() > FIVE_MINUTES) return true
-    // Sem Pipedrive: re-checa por até 2h desde a CRIAÇÃO (janela fixa, não renova a cada check)
-    if (l.status === "sem_pipedrive" && now - new Date(l.created_at).getTime() < TWO_HOURS) return true
-    // Sem MIA: re-checa por até 4h desde a CRIAÇÃO
+    // Sem MIA: re-checa por até 4h desde a criação (janela fixa — não renova a cada check)
     if (l.status === "sem_mia" && now - new Date(l.created_at).getTime() < FOUR_HOURS) return true
     return false
   })
