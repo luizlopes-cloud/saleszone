@@ -107,6 +107,21 @@ function norm(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "")
 }
 
+// Valores que a Meta API envia para o campo "Qual a disponibilidade do imóvel para locação?"
+// são diferentes dos rótulos exibidos no formulário e armazenados no SLA.
+// Este mapa converte o valor recebido da Meta para o rótulo canônico do SLA.
+const META_VALUE_MAP: Record<string, string> = {
+  "Está disponível para alugar":  "Disponível imediatamente",
+  "Já está alugando anual":        "Alugado com contrato anual",
+  "Está em reforma":               "Em reforma / preparação",
+  "Moro no imóvel":                "Não está disponível",
+  "Ja é locado por temporada":     "Já opera por temporada",
+}
+
+function canonical(val: string): string {
+  return META_VALUE_MAP[val] ?? val
+}
+
 // Mapeia form_fields do lead às perguntas SLA por índice de pergunta
 // Retorna Map<questionIndex, valor[]> — cada pergunta tem seus próprios valores
 function mapFieldsToQuestions(
@@ -119,21 +134,22 @@ function mapFieldsToQuestions(
   for (const field of fields) {
     if (standardFields.has(field.name)) continue
 
+    const value = canonical(field.value)
     const normName = norm(field.name)
     // Tenta match por nome do campo ≈ texto da pergunta
     let idx = questions.findIndex(q => norm(q.pergunta) === normName)
 
-    // Fallback: verifica se o valor pertence às opções de exatamente uma pergunta
+    // Fallback: verifica se o valor (canonicalizado) pertence às opções de exatamente uma pergunta
     if (idx === -1) {
       const candidates = questions
-        .map((q, i) => ({ i, match: q.opcoes.includes(field.value) }))
+        .map((q, i) => ({ i, match: q.opcoes.includes(value) }))
         .filter(c => c.match)
       if (candidates.length === 1) idx = candidates[0].i
     }
 
     if (idx >= 0) {
       const existing = result.get(idx) || []
-      existing.push(field.value)
+      existing.push(value)
       result.set(idx, existing)
     }
   }
@@ -148,12 +164,13 @@ function mapValuesToQuestions(
 ): Map<number, string[]> {
   const result = new Map<number, string[]>()
   for (const val of new Set(values)) {
+    const value = canonical(val)
     const candidates = questions
-      .map((q, i) => ({ i, match: q.opcoes.includes(val) }))
+      .map((q, i) => ({ i, match: q.opcoes.includes(value) }))
       .filter(c => c.match)
     if (candidates.length === 1) {
       const existing = result.get(candidates[0].i) || []
-      existing.push(val)
+      existing.push(value)
       result.set(candidates[0].i, existing)
     }
   }
