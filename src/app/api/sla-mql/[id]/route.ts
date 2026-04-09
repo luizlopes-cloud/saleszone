@@ -19,9 +19,27 @@ export async function PATCH(
       mql_pagamentos: string[]
     }
 
-    const data = await readData()
-    const rows = data.rows.map(r => r.id === numId ? { ...r, ...body } : r)
-    await writeData({ ...data, rows })
+    const before = await readData()
+    if (!before.rows.find(r => r.id === numId)) {
+      return NextResponse.json({ error: `Row ${numId} não encontrada no blob` }, { status: 404 })
+    }
+    const rows = before.rows.map(r => r.id === numId ? { ...r, ...body } : r)
+    await writeData({ ...before, rows })
+
+    // Verifica se a escrita persistiu (detecta blob sempre retornando SEED/cache)
+    const after = await readData()
+    const saved = after.rows.find(r => r.id === numId)
+    const sort  = (a: string[]) => JSON.stringify([...a].sort())
+    const match = saved &&
+      sort(saved.mql_intencoes)  === sort(body.mql_intencoes) &&
+      sort(saved.mql_faixas)     === sort(body.mql_faixas) &&
+      sort(saved.mql_pagamentos) === sort(body.mql_pagamentos) &&
+      saved.status               === body.status
+    if (!match) {
+      console.error("[sla-mql PATCH] write-verify falhou", { numId, sent: body, got: saved })
+      return NextResponse.json({ error: "Escrita não persistiu — blob retornou dados antigos após save" }, { status: 500 })
+    }
+
     return NextResponse.json({ ok: true })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
