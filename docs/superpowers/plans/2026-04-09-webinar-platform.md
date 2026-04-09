@@ -47,7 +47,6 @@ saleszone/scripts/webinar-platform/
 ├── frontend/
 │   ├── package.json
 │   ├── vite.config.ts
-│   ├── tailwind.config.js
 │   ├── tsconfig.json
 │   ├── index.html
 │   ├── .env                      # VITE_API_URL, VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY
@@ -287,13 +286,24 @@ import urllib.request
 from config import SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_ANON_KEY
 
 
+class SupabaseError(Exception):
+    def __init__(self, status, message):
+        self.status = status
+        self.message = message
+        super().__init__(f"Supabase {status}: {message}")
+
+
 def _request(method, path, data=None, params=None, use_service_role=True):
     """Make a request to Supabase REST API."""
     key = SUPABASE_SERVICE_ROLE_KEY if use_service_role else SUPABASE_ANON_KEY
     url = f"{SUPABASE_URL}/rest/v1/{path}"
 
     if params:
-        qs = "&".join(f"{k}={v}" for k, v in params.items())
+        # Support duplicate keys (e.g., date=gte.X and date=lte.Y) via list of tuples
+        if isinstance(params, list):
+            qs = "&".join(f"{k}={v}" for k, v in params)
+        else:
+            qs = "&".join(f"{k}={v}" for k, v in params.items())
         url = f"{url}?{qs}"
 
     headers = {
@@ -306,22 +316,29 @@ def _request(method, path, data=None, params=None, use_service_role=True):
     body = json.dumps(data).encode() if data else None
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
 
-    with urllib.request.urlopen(req) as resp:
-        text = resp.read().decode()
-        return json.loads(text) if text else None
+    try:
+        with urllib.request.urlopen(req) as resp:
+            text = resp.read().decode()
+            return json.loads(text) if text else None
+    except urllib.error.HTTPError as e:
+        body = e.read().decode() if e.fp else ""
+        raise SupabaseError(e.code, body)
 
 
 def select(table, filters=None, order=None, limit=None):
-    """SELECT from a table. filters is a dict of column=eq.value pairs."""
-    params = {}
+    """SELECT from a table. filters is a dict or list of (key, value) tuples.
+    Use list of tuples for duplicate keys (e.g., date range queries)."""
+    params = []
     if filters:
-        for k, v in filters.items():
-            params[k] = v
+        if isinstance(filters, dict):
+            params.extend(filters.items())
+        else:
+            params.extend(filters)
     if order:
-        params["order"] = order
+        params.append(("order", order))
     if limit:
-        params["limit"] = str(limit)
-    params["select"] = "*"
+        params.append(("limit", str(limit)))
+    params.append(("select", "*"))
     return _request("GET", table, params=params)
 
 
@@ -350,23 +367,38 @@ def delete(table, filters):
 
 ```python
 import sys
+import site
 from pathlib import Path
 
-# Add user site-packages (macOS pattern from monorepo)
-_site = Path.home() / "Library/Python/3.9/lib/python/site-packages"
-if _site.exists() and str(_site) not in sys.path:
-    sys.path.insert(0, str(_site))
+# Add user site-packages (auto-detect Python version)
+_user_site = site.getusersitepackages()
+if _user_site and Path(_user_site).exists() and _user_site not in sys.path:
+    sys.path.insert(0, _user_site)
 
-from flask import Flask
+from flask import Flask, jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 
 import config
+from supabase_client import SupabaseError
 
 app = Flask(__name__)
 
 # Rate limiting
 limiter = Limiter(get_remote_address, app=app, default_limits=["200 per hour"])
+
+# Global error handler — never expose tracebacks
+@app.errorhandler(SupabaseError)
+def handle_supabase_error(e):
+    print(f"[supabase] {e}")
+    if e.status == 409:
+        return jsonify({"error": "Registro duplicado"}), 409
+    return jsonify({"error": "Erro interno"}), 500
+
+@app.errorhandler(Exception)
+def handle_generic_error(e):
+    print(f"[error] {type(e).__name__}: {e}")
+    return jsonify({"error": "Erro interno"}), 500
 
 # CORS
 @app.after_request
@@ -380,6 +412,28 @@ def add_cors(response):
             response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
     return response
+
+# Admin auth helper
+def require_admin():
+    """Validate Supabase JWT from Authorization header. Returns user or aborts 401."""
+    from flask import request, abort
+    import urllib.request, json
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        abort(401)
+    token = auth[7:]
+    try:
+        req = urllib.request.Request(
+            f"{config.SUPABASE_URL}/auth/v1/user",
+            headers={"apikey": config.SUPABASE_ANON_KEY, "Authorization": f"Bearer {token}"}
+        )
+        with urllib.request.urlopen(req) as resp:
+            user = json.loads(resp.read().decode())
+            if not user.get("email", "").endswith("@seazone.com.br"):
+                abort(403)
+            return user
+    except Exception:
+        abort(401)
 
 # Register blueprints
 from routes.slots import bp as slots_bp
@@ -689,8 +743,43 @@ def update_slot(slot_id):
     if "presenter_email" in data and not data["presenter_email"].endswith("@seazone.com.br"):
         return jsonify({"error": "presenter_email must be @seazone.com.br"}), 400
 
+    # If deactivating, handle future sessions cascade
+    if data.get("is_active") is False:
+        _cascade_deactivate_slot(slot_id)
+
     result = db.update("webinar_slots", {"id": f"eq.{slot_id}"}, data)
     return jsonify(result[0] if result else {})
+
+
+def _cascade_deactivate_slot(slot_id):
+    """Cancel or delete future sessions when a slot is deactivated."""
+    from datetime import date, datetime
+    future_sessions = db.select("webinar_sessions", filters=[
+        ("slot_id", f"eq.{slot_id}"),
+        ("date", f"gte.{date.today().isoformat()}"),
+        ("status", "eq.scheduled"),
+    ])
+    for s in (future_sessions or []):
+        regs = db.select("webinar_registrations", filters={
+            "session_id": f"eq.{s['id']}",
+            "cancelled_at": "is.null",
+        })
+        if regs:
+            # Has registrations: cancel + notify via Morada
+            db.update("webinar_sessions", {"id": f"eq.{s['id']}"}, {
+                "status": "cancelled",
+                "cancelled_at": datetime.utcnow().isoformat(),
+                "cancel_reason": "Horário desativado",
+            })
+            try:
+                from services.morada import send_cancellation
+                for reg in regs:
+                    send_cancellation(reg["phone"], reg["name"], s.get("date", ""), s.get("starts_at", ""))
+            except Exception as e:
+                print(f"[cascade] Morada notification failed: {e}")
+        else:
+            # No registrations: delete
+            db.delete("webinar_sessions", {"id": f"eq.{s['id']}"})
 
 
 @bp.route("/<slot_id>", methods=["DELETE"])
@@ -792,13 +881,14 @@ bp = Blueprint("sessions", __name__)
 
 @bp.route("/", methods=["GET"])
 def list_sessions():
-    filters = {}
+    # Use list of tuples to support duplicate keys (date range)
+    filters = []
     if request.args.get("date_from"):
-        filters["date"] = f"gte.{request.args['date_from']}"
+        filters.append(("date", f"gte.{request.args['date_from']}"))
     if request.args.get("date_to"):
-        filters["date"] = f"lte.{request.args['date_to']}"
+        filters.append(("date", f"lte.{request.args['date_to']}"))
     if request.args.get("status"):
-        filters["status"] = f"eq.{request.args['status']}"
+        filters.append(("status", f"eq.{request.args['status']}"))
 
     sessions = db.select("webinar_sessions", filters=filters, order="starts_at.asc")
     return jsonify(sessions)
@@ -816,22 +906,58 @@ def list_available():
         "status": f"eq.scheduled",
     }, order="starts_at.asc")
 
-    # Count registrations per session
-    for s in sessions:
+    if not sessions:
+        return jsonify([])
+
+    # Batch-fetch all slots to avoid N+1 queries
+    slot_ids = set(s["slot_id"] for s in sessions if s.get("slot_id"))
+    slots_map = {}
+    if slot_ids:
+        all_slots = db.select("webinar_slots")
+        slots_map = {s["id"]: s for s in (all_slots or [])}
+
+    # Batch-fetch all registrations for these sessions
+    session_ids = [s["id"] for s in sessions]
+    all_regs = []
+    for sid in session_ids:
         regs = db.select("webinar_registrations", filters={
-            "session_id": f"eq.{s['id']}",
+            "session_id": f"eq.{sid}",
             "cancelled_at": "is.null",
         })
-        s["registration_count"] = len(regs) if regs else 0
-        # Get max_participants from slot
-        if s.get("slot_id"):
-            slots = db.select("webinar_slots", filters={"id": f"eq.{s['slot_id']}"})
-            s["max_participants"] = slots[0]["max_participants"] if slots else 50
-        else:
-            s["max_participants"] = 50
+        all_regs.extend([(sid, r) for r in (regs or [])])
+
+    reg_counts = {}
+    for sid, _ in all_regs:
+        reg_counts[sid] = reg_counts.get(sid, 0) + 1
+
+    for s in sessions:
+        s["registration_count"] = reg_counts.get(s["id"], 0)
+        slot = slots_map.get(s.get("slot_id"))
+        s["max_participants"] = slot["max_participants"] if slot else 50
         s["available"] = s["max_participants"] - s["registration_count"]
 
     return jsonify([s for s in sessions if s["available"] > 0])
+
+
+@bp.route("/", methods=["POST"])
+def create_session():
+    """Admin: create a one-off session (not from a slot)."""
+    from app import require_admin
+    require_admin()
+
+    data = request.get_json()
+    required = ["date", "starts_at", "ends_at"]
+    for field in required:
+        if not data.get(field):
+            return jsonify({"error": f"Missing: {field}"}), 400
+
+    result = db.insert("webinar_sessions", {
+        "date": data["date"],
+        "starts_at": data["starts_at"],
+        "ends_at": data["ends_at"],
+        "status": "scheduled",
+    })
+    return jsonify(result[0] if result else {}), 201
 
 
 @bp.route("/<session_id>", methods=["GET"])
@@ -844,6 +970,9 @@ def get_session(session_id):
 
 @bp.route("/<session_id>/status", methods=["PATCH"])
 def update_status(session_id):
+    from app import require_admin
+    require_admin()
+
     data = request.get_json()
     new_status = data.get("status")
     valid = ("scheduled", "live", "ended", "cancelled")
@@ -854,6 +983,21 @@ def update_status(session_id):
     if new_status == "cancelled":
         update_data["cancelled_at"] = datetime.utcnow().isoformat()
         update_data["cancel_reason"] = data.get("cancel_reason", "")
+
+        # Notify registered leads via Morada
+        try:
+            regs = db.select("webinar_registrations", filters={
+                "session_id": f"eq.{session_id}",
+                "cancelled_at": "is.null",
+            })
+            session = db.select("webinar_sessions", filters={"id": f"eq.{session_id}"})
+            if regs and session:
+                from services.morada import send_cancellation
+                s = session[0]
+                for reg in regs:
+                    send_cancellation(reg["phone"], reg["name"], s.get("date", ""), s.get("starts_at", ""))
+        except Exception as e:
+            print(f"[cancel] Morada notification failed: {e}")
 
     result = db.update("webinar_sessions", {"id": f"eq.{session_id}"}, update_data)
     return jsonify(result[0] if result else {})
@@ -1056,6 +1200,31 @@ def mark_attended():
         return jsonify(result[0] if result else {})
 
     return jsonify(reg)
+
+
+@bp.route("/cancel", methods=["POST"])
+def cancel_registration():
+    """Lead cancels their registration."""
+    data = request.get_json()
+    reg = _validate_token(data.get("session_id"), data.get("token"))
+    if not reg:
+        return jsonify({"error": "Invalid token"}), 401
+
+    # Mark cancelled
+    db.update("webinar_registrations",
+              {"id": f"eq.{reg['id']}"},
+              {"cancelled_at": datetime.utcnow().isoformat()})
+
+    # Remove from Google Calendar event
+    try:
+        session = db.select("webinar_sessions", filters={"id": f"eq.{data['session_id']}"})
+        if session and session[0].get("calendar_event_id"):
+            from services.google_calendar import remove_attendee
+            remove_attendee(session[0]["calendar_event_id"], reg.get("email", ""))
+    except Exception as e:
+        print(f"[cancel] Calendar remove failed: {e}")
+
+    return jsonify({"status": "cancelled"})
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1229,8 +1398,12 @@ import supabase_client as db
 
 bp = Blueprint("admin", __name__)
 
-# TODO: Add JWT validation for admin auth (Supabase Auth)
-# For MVP, admin routes are protected by CORS (only admin frontend origin)
+
+@bp.before_request
+def check_admin_auth():
+    """All admin routes require valid Supabase JWT from @seazone.com.br."""
+    from app import require_admin
+    require_admin()
 
 
 @bp.route("/dashboard", methods=["GET"])
@@ -1327,14 +1500,63 @@ def submit_cta():
     if not regs:
         return jsonify({"error": "Invalid token"}), 401
 
+    reg = regs[0]
     result = db.update("webinar_registrations",
-                       {"id": f"eq.{regs[0]['id']}"},
+                       {"id": f"eq.{reg['id']}"},
                        {
                            "converted": True,
                            "converted_at": datetime.utcnow().isoformat(),
                            "cta_response": form_data,
                        })
+
+    # Create Pipedrive activity if deal exists
+    try:
+        if reg.get("pipedrive_deal_id"):
+            from services.pipedrive import create_activity
+            create_activity(
+                reg["pipedrive_deal_id"],
+                "Webinar — interesse demonstrado",
+                f"Lead demonstrou interesse no webinar. Resposta: {form_data}",
+            )
+    except Exception as e:
+        print(f"[cta] Pipedrive activity failed: {e}")
+
     return jsonify(result[0] if result else {})
+
+
+@bp.route("/registrations/export", methods=["GET"])
+def export_csv():
+    """Export registrations as CSV."""
+    import csv
+    import io
+
+    session_id = request.args.get("session_id")
+    filters = {"cancelled_at": "is.null"}
+    if session_id:
+        filters["session_id"] = f"eq.{session_id}"
+
+    regs = db.select("webinar_registrations", filters=filters, order="created_at.desc")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Nome", "Email", "Telefone", "Sessão", "Registrado em", "Presente", "Convertido"])
+    for r in (regs or []):
+        writer.writerow([
+            r.get("name", ""),
+            r.get("email", ""),
+            r.get("phone", ""),
+            r.get("session_id", ""),
+            r.get("created_at", ""),
+            "Sim" if r.get("attended_at") else "Não",
+            "Sim" if r.get("converted") else "Não",
+        ])
+
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=inscricoes.csv"},
+    )
 ```
 
 - [ ] **Step 2: Commit**
@@ -1908,11 +2130,13 @@ export default function Countdown({ targetTime, onReached }: Props) {
   const [reached, setReached] = useState(false);
 
   useEffect(() => {
+    let id: ReturnType<typeof setInterval>;
     const tick = () => {
       const diff = new Date(targetTime).getTime() - Date.now();
       if (diff <= 0) {
         setReached(true);
         onReached();
+        clearInterval(id);
         return;
       }
       const h = Math.floor(diff / 3600000);
@@ -1923,7 +2147,7 @@ export default function Countdown({ targetTime, onReached }: Props) {
       );
     };
     tick();
-    const id = setInterval(tick, 1000);
+    id = setInterval(tick, 1000);
     return () => clearInterval(id);
   }, [targetTime, onReached]);
 
@@ -1998,14 +2222,19 @@ export default function ChatPanel({ sessionId, token, userName }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const [sendError, setSendError] = useState("");
+
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || sending) return;
     setSending(true);
+    setSendError("");
     try {
       await api.sendMessage(sessionId, token, input.trim());
       setInput("");
-    } catch {}
+    } catch (err: any) {
+      setSendError(err.message || "Erro ao enviar");
+    }
     setSending(false);
   };
 
@@ -2022,6 +2251,7 @@ export default function ChatPanel({ sessionId, token, userName }: Props) {
         ))}
         <div ref={bottomRef} />
       </div>
+      {sendError && <p className="px-3 text-red-500 text-xs">{sendError}</p>}
       <form onSubmit={send} className="p-3 border-t flex gap-2">
         <input
           value={input}
