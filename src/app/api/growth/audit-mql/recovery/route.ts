@@ -28,10 +28,14 @@ async function getPageTokens(): Promise<Map<string, string>> {
   let url: string | null = `https://graph.facebook.com/v19.0/me/accounts?fields=id,access_token&limit=100&access_token=${META_TOKEN}`
   while (url) {
     const data = await metaFetch(url)
-    if (!data?.data) break
+    if (!data?.data) {
+      console.error("[recovery] getPageTokens: resposta inválida da Meta API", data)
+      break
+    }
     for (const p of data.data) map.set(String(p.id), String(p.access_token))
     url = data.paging?.next || null
   }
+  if (map.size === 0) console.error("[recovery] getPageTokens: nenhum Page token obtido — verificar META_ADS_TOKEN")
   return map
 }
 
