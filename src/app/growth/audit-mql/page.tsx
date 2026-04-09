@@ -944,21 +944,22 @@ export default function AuditMQL() {
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 700 }}>O que é o Audit MQL</h2>
             <p style={{ margin: 0, fontSize: 13, color: T.mutedFg, lineHeight: 1.7 }}>
-              Sistema de monitoramento em tempo real que rastreia cada lead gerado pelos formulários do Meta Ads (Lead Gen) da Seazone e verifica se foi processado corretamente — passando pelo CRM Pipedrive e pelo atendimento via Morada IA (MIA). Inclui verificação de SLA (se o lead atende aos critérios dos empreendimentos ativos) e recovery automático de leads perdidos.
+              Sistema de monitoramento em tempo real que rastreia cada lead gerado pelos formulários do Meta Ads (Lead Gen) da Seazone. Para cada lead, verifica em sequência: (1) se as respostas do formulário atendem ao SLA do empreendimento, (2) se o deal foi criado no Pipedrive e (3) se a Morada IA iniciou o atendimento. Inclui recovery automático de leads que falharam no webhook, alertas no Slack e re-verificação contínua por até 4h.
             </p>
           </div>
 
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
-            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Como funciona</h2>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Como funciona — fluxo completo</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {[
-                { step: "1", title: "Lead gerado no Meta Ads", desc: "Quando alguém preenche um formulário Lead Gen, o Meta envia os dados em tempo real via webhook para este sistema. Páginas inscritas: Seazone, Seazone Marketplace, Seazone Investimentos, Anfitrião Seazone, Vistas de Anitá, Seazone Rentals." },
-                { step: "2", title: "Registro imediato", desc: "O lead é registrado com status \"Aguardando\" e aparece na tabela em até segundos. Atualiza automaticamente a cada 30s enquanto você está no dia de hoje." },
-                { step: "3", title: "Verificação no Pipedrive (7 min depois)", desc: "Após 7 minutos (aguarda índice de busca do Pipedrive), o sistema busca a pessoa por e-mail e telefone. Se não encontrar deal, classifica como \"Sem Pipedrive\" e envia alerta no Slack." },
-                { step: "4", title: "Verificação SLA", desc: "Se o deal existe, verifica se as respostas do formulário atendem aos critérios SLA de pelo menos um empreendimento ativo. Se não atendem, classifica como \"Fora SLA\". Clique na linha para ver quais respostas causaram a reprovação." },
-                { step: "5", title: "Verificação da Morada IA", desc: "Se passou no SLA, verifica se o campo \"Link da Conversa\" foi preenchido pela Morada IA. Se vazio, classifica como \"Sem MIA\" e envia alerta. Re-verifica a cada request por até 4h desde a criação do lead." },
-                { step: "6", title: "Status final OK", desc: "Lead com deal no Pipedrive, dentro do SLA e com conversa MIA preenchida." },
-                { step: "7", title: "Recovery automático (a cada 30 min)", desc: "Um cron roda a cada 30 minutos buscando leads diretamente na Meta API. Leads que chegaram no Meta mas falharam no webhook são recuperados automaticamente e já entram na fila de verificação Pipedrive/SLA/MIA." },
+                { step: "1", title: "Lead gerado no Meta Ads", desc: "Quando alguém preenche um formulário Lead Gen, o Meta envia os dados em tempo real via webhook para /api/growth/audit-mql/webhook. O lead chega com nome, e-mail, telefone, todas as respostas do formulário e o ID da campanha." },
+                { step: "2", title: "Registro imediato como Aguardando", desc: "O lead é salvo no Blob Storage com status \"Aguardando\" e aparece na tabela em segundos. A página atualiza automaticamente a cada 30s enquanto você está no dia de hoje." },
+                { step: "3", title: "Verificação SLA (antes do Pipedrive)", desc: "Após ~2 minutos, o sistema verifica se as respostas do formulário estão dentro do SLA. Para SZI: usa o campo \"Empreendimento\" do formulário para identificar o empreendimento diretamente e checar seus critérios (intenção, faixa de investimento, pagamento). Para SZS e Marketplace: detecta a vertical pelo nome da campanha. Se o lead não atende ao SLA, é marcado como \"Fora SLA\" imediatamente, sem buscar no Pipedrive. Configuração em /growth/sla-mql." },
+                { step: "4", title: "Verificação no Pipedrive", desc: "Se passou no SLA (ou se o empreendimento não está configurado), busca a pessoa por e-mail e depois por telefone (com fallback sem código de país +55). Se não encontrar deal, classifica como \"Sem Pipedrive\" e envia alerta no Slack. Re-verifica por até 4h desde a criação." },
+                { step: "5", title: "Verificação da Morada IA", desc: "Se o deal existe, verifica o campo \"Link da Conversa\" (campo custom no Pipedrive preenchido pela Morada IA). Se vazio, classifica como \"Sem MIA\" e envia alerta no Slack. Re-verifica automaticamente a cada request por até 4h — a MIA pode ter um delay de minutos após o lead chegar." },
+                { step: "6", title: "Status OK", desc: "Lead com SLA aprovado (ou vertical sem critérios), deal encontrado no Pipedrive e campo MIA preenchido. Nenhuma ação necessária." },
+                { step: "7", title: "Recovery automático (a cada 10 min)", desc: "Um cron busca leads diretamente na Meta Graph API para todas as páginas inscritas. Leads que chegaram no Meta mas falharam no webhook (falha de rede, timeout, etc.) são recuperados e entram normalmente na fila SLA → Pipedrive → MIA. Leads recuperados com mais de 15 minutos não disparam alerta no Slack." },
+                { step: "8", title: "Fallback cron GitHub Actions (a cada 15 min)", desc: "Um workflow no GitHub Actions re-verifica leads pendentes caso o cron da Vercel falhe. Garante que nenhum lead fique preso em \"Aguardando\" por mais de 15 minutos por falha de infraestrutura." },
               ].map(({ step, title, desc }) => (
                 <div key={step} style={{ display: "flex", gap: 14 }}>
                   <div style={{ width: 28, height: 28, borderRadius: "50%", background: T.primary,
@@ -977,11 +978,11 @@ export default function AuditMQL() {
             <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Status dos leads</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                { label: "AGUARDANDO",    color: T.primary,    desc: "Lead recém-chegado. Aguardando 7 minutos para verificação no Pipedrive (tempo necessário para o índice de busca do Pipedrive indexar o novo deal)." },
-                { label: "OK",            color: T.verde600,   desc: "Lead encontrado no Pipedrive, dentro do SLA e com conversa MIA preenchida." },
-                { label: "SEM MIA",       color: T.laranja500, desc: "Deal existe no Pipedrive, mas o campo \"Link da Conversa\" não foi preenchido pela Morada IA. Alerta enviado no Slack. Re-verificado por até 4h." },
-                { label: "SEM PIPEDRIVE", color: T.destructive,desc: "Lead não encontrado no Pipedrive 7 minutos após o registro. Alerta enviado no Slack." },
-                { label: "FORA SLA",      color: "#9333EA",    desc: "Lead tem deal e MIA, mas as respostas do formulário não atendem aos critérios SLA de nenhum empreendimento ativo. Clique na linha para ver as respostas destacadas." },
+                { label: "AGUARDANDO",    color: T.primary,    desc: "Lead recém-chegado. Ainda não foi verificado — aguarda ~2 minutos antes da primeira checagem SLA + Pipedrive." },
+                { label: "OK",            color: T.verde600,   desc: "Passou no SLA (ou sem critérios configurados), deal encontrado no Pipedrive e campo \"Link da Conversa\" preenchido pela Morada IA." },
+                { label: "SEM MIA",       color: T.laranja500, desc: "Deal existe no Pipedrive, mas o campo \"Link da Conversa\" ainda não foi preenchido pela Morada IA. Alerta enviado no Slack. Re-verificado automaticamente a cada request por até 4h desde a criação do lead." },
+                { label: "SEM PIPEDRIVE", color: T.destructive,desc: "Lead não encontrado no Pipedrive (nem por e-mail nem por telefone) após ~2 minutos do registro. Alerta enviado no Slack. Re-verificado por até 4h — Pipedrive pode ter lag de indexação." },
+                { label: "FORA SLA",      color: "#9333EA",    desc: "As respostas do formulário não atendem aos critérios SLA do empreendimento. Verificado ANTES do Pipedrive — lead fora do SLA não deveria estar no funil, então nenhuma busca é feita. Clique na linha para ver as respostas e qual critério foi reprovado." },
               ].map(({ label, color, desc }) => (
                 <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color,
@@ -990,6 +991,34 @@ export default function AuditMQL() {
                   <span style={{ fontSize: 12, color: T.mutedFg, lineHeight: 1.6, paddingTop: 2 }}>{desc}</span>
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Verificação SLA — como funciona</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              <p style={{ margin: 0 }}>
+                O SLA define quais respostas de formulário qualificam um lead para cada empreendimento. A configuração fica em <strong style={{ color: T.fg }}>/growth/sla-mql</strong> e é salva no Blob Storage. Cada empreendimento ativo tem critérios em 3 categorias:
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[
+                  { cat: "Intenção (Q0)", desc: "Ex: \"Investimento - renda com aluguel\", \"Uso próprio - moradia\". Mapeado para a primeira pergunta do formulário." },
+                  { cat: "Faixa de Investimento (Q1)", desc: "Ex: \"R$ 200.001 a R$ 300.000 em até 54 meses\". Mapeado para a segunda pergunta." },
+                  { cat: "Forma de Pagamento (Q2)", desc: "Ex: \"À vista via PIX ou boleto\". Mapeado para a terceira pergunta. Se o formulário não tem essa pergunta, não reprova o lead." },
+                ].map(({ cat, desc }) => (
+                  <div key={cat} style={{ display: "flex", gap: 10 }}>
+                    <span style={{ fontWeight: 700, color: T.fg, whiteSpace: "nowrap" }}>{cat}:</span>
+                    <span>{desc}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div><strong style={{ color: T.fg }}>Detecção do empreendimento (SZI):</strong> Formulários SZI têm um dropdown "Empreendimento". O sistema usa esse campo para identificar diretamente o empreendimento e checar seus critérios. É o método mais confiável — independe do nome da campanha.</div>
+                <div><strong style={{ color: T.fg }}>Detecção da vertical (SZS e Marketplace):</strong> O sistema identifica a vertical pelo nome da campanha (ex: "[SZS]", "SERVI", "[MKTPLACE]"). Cada vertical tem uma única configuração SLA.</div>
+                <div><strong style={{ color: T.fg }}>Regra de aprovação:</strong> O lead passa se atender aos critérios de pelo menos um empreendimento ativo da vertical. Para cada categoria, se não houver critério configurado (lista vazia) ou se o formulário não tiver essa pergunta, a categoria não reprova.</div>
+                <div><strong style={{ color: T.fg }}>Categorias sem resposta:</strong> Se o formulário não possui a pergunta (ex: Ponta das Canas não pergunta sobre pagamento), aquela categoria é ignorada — o lead não é reprovado por ausência de resposta.</div>
+                <div><strong style={{ color: T.fg }}>Empreendimento inativo:</strong> Se o empreendimento está com status inativo no SLA, o lead passa automaticamente sem verificação de critérios.</div>
+              </div>
             </div>
           </div>
 
@@ -1076,6 +1105,131 @@ export default function AuditMQL() {
                     <div><strong>Onde renovar:</strong> {where}</div>
                     <div><strong>Onde atualizar:</strong> {update}</div>
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Algoritmo de leitura do SLA — field mapping</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              <p style={{ margin: 0 }}>O SLA tem 3 perguntas por vertical (Q0, Q1, Q2). As respostas vêm do formulário Meta como pares <code>nome_do_campo → valor</code>. O sistema mapeia cada valor à pergunta correta em 3 etapas:</p>
+              {[
+                { step: "Match por nome do campo", desc: "Primeiro tenta casar o nome do campo (ex: \"voce_procura_investimento\") com o texto da pergunta SLA via comparação normalizada (sem acentos, case-insensitive). Se encontrar, atribui o valor à pergunta." },
+                { step: "Match por valor único", desc: "Se o nome não casou, verifica se o valor (ex: \"R$ 200.001 a R$ 300.000 em até 54 meses\") aparece nas opções de exatamente uma pergunta SLA. Se sim, atribui àquela pergunta. Valores ambíguos como \"Sim\" ou \"Não\" (que aparecem em múltiplas perguntas) são ignorados nesta etapa." },
+                { step: "Fallback posicional (último recurso)", desc: "Valores ainda não atribuídos são associados às perguntas ainda sem resposta, em ordem de chegada — mas somente se o valor pertencer às opções daquela pergunta. Isso resolve ambiguidades de \"Sim\"/\"Não\" e ignora campos extras como \"Empreendimento\" ou \"Você é corretor?\" que não são perguntas SLA." },
+              ].map(({ step, desc }, i) => (
+                <div key={i} style={{ display: "flex", gap: 10 }}>
+                  <span style={{ fontWeight: 700, color: T.fg, whiteSpace: "nowrap", minWidth: 20 }}>{i + 1}.</span>
+                  <div><strong style={{ color: T.fg }}>{step}:</strong> {desc}</div>
+                </div>
+              ))}
+              <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+                <strong style={{ color: T.fg }}>Normalização:</strong> Todas as comparações usam <code>norm()</code> — converte para minúsculas, remove acentos e pontuação. "Investimento - renda com aluguel" e "investimento renda com aluguel" são tratados como iguais. Isso evita falsos negativos por diferença de capitalização ou acentuação entre Meta e SLA.
+              </div>
+              <div>
+                <strong style={{ color: T.fg }}>Tradução de valores Meta:</strong> A Meta API envia alguns valores com nomes diferentes dos exibidos no formulário. Ex: "Está disponível para alugar" (API) → "Disponível imediatamente" (SLA). O sistema tem um mapa de tradução (<code>META_VALUE_MAP</code>) que converte automaticamente antes de comparar.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Janelas de re-verificação</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[
+                { status: "AGUARDANDO", window: "Imediatamente após ~2 min da criação", detail: "Primeira checagem SLA + Pipedrive + MIA. Dispara no próximo acesso à página ou no cron de 15 min." },
+                { status: "SEM PIPEDRIVE", window: "Re-verifica por até 4h desde a criação", detail: "Pipedrive tem lag de indexação — um deal criado com delay pode aparecer em verificações posteriores. Após 4h, o status congela." },
+                { status: "SEM MIA", window: "Re-verifica por até 4h desde a criação", detail: "A Morada IA pode demorar minutos para preencher o campo. Após 4h sem preenchimento, o status congela em Sem MIA." },
+                { status: "FORA SLA", window: "Não re-verifica automaticamente", detail: "O SLA é verificado no momento da checagem com os critérios vigentes. Se os critérios do SLA mudarem, é necessário rodar o recheck retroativo manualmente via GitHub Actions → workflow \"Recheck SLA retroativo\"." },
+                { status: "OK", window: "Não re-verifica", detail: "Status final. Lead processado com sucesso." },
+              ].map(({ status, window: w, detail }) => (
+                <div key={status} style={{ background: T.muted, borderRadius: 8, padding: "10px 14px" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                    <code style={{ fontSize: 11, fontWeight: 700 }}>{status}</code>
+                    <span style={{ fontSize: 11, color: T.fg, fontWeight: 600 }}>{w}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.6 }}>{detail}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Alertas Slack</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              <div><strong style={{ color: T.fg }}>Canal:</strong> <code>#avaliação-diaria-mql</code></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[
+                  { trigger: "🚨 Lead sem deal no Pipedrive", when: "Na primeira verificação onde o lead não é encontrado (~2 min após chegar). Inclui nome, e-mail, telefone, campanha e LeadGen ID." },
+                  { trigger: "⚠️ Lead sem atendimento MIA", when: "Na primeira verificação onde o deal existe mas o campo \"Link da Conversa\" está vazio. Inclui nome, vertical, link do deal no Pipedrive e campanha." },
+                  { trigger: "Sem alerta para Fora SLA", when: "Leads fora do SLA não disparam alerta — por design, esses leads não deveriam estar no funil e a equipe não precisa de ação." },
+                  { trigger: "Sem alerta duplicado", when: "Cada lead alerta no máximo uma vez (campo notified=true após envio). Re-verificações posteriores não reenviam o alerta mesmo se o status mudar." },
+                ].map(({ trigger, when }) => (
+                  <div key={trigger} style={{ display: "flex", gap: 10 }}>
+                    <span style={{ fontWeight: 600, color: T.fg, flexShrink: 0, minWidth: 200 }}>{trigger}</span>
+                    <span>{when}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Como depurar um lead específico</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              {[
+                { step: "1", title: "Clique na linha do lead", desc: "Abre o detalhe com todas as respostas do formulário. Leads Fora SLA mostram as respostas destacadas em vermelho quando reprovadas." },
+                { step: "2", title: "Verifique a vertical", desc: "A vertical é detectada pelo nome da campanha. Se aparecer como \"Outros\", a campanha não tem marcador reconhecido ([SZI], [SZS], [MKTPLACE]). Para SZI, o campo \"Empreendimento\" no formulário resolve isso automaticamente." },
+                { step: "3", title: "Cheque o SLA configurado", desc: "Acesse /growth/sla-mql para ver os critérios ativos por empreendimento. Verifique se o empreendimento está ativo e se os critérios batem com as respostas do lead." },
+                { step: "4", title: "Verifique no Pipedrive", desc: "Para leads \"Sem Pipedrive\", busque manualmente pelo e-mail ou telefone no Pipedrive. Se o deal existir, pode ser problema de encoding de telefone (ex: número com DDD diferente do que a Meta enviou)." },
+                { step: "5", title: "Recovery manual", desc: "Se um lead não chegou pelo webhook, acesse GitHub Actions → seazone-socios/saleszone → Workflows → Backfill Audit MQL → Run workflow com a data desejada. O recovery busca todos os leads do dia diretamente na Meta API." },
+              ].map(({ step, title, desc }) => (
+                <div key={step} style={{ display: "flex", gap: 12 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: "50%", background: T.mutedFg,
+                    color: "#fff", fontSize: 11, fontWeight: 700, flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center" }}>{step}</div>
+                  <div style={{ paddingTop: 2 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 1 }}>{title}</div>
+                    <div style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.6 }}>{desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Cronograma de automações</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[
+                { horario: "Tempo real", fonte: "Webhook Meta", desc: "Lead chega e é salvo imediatamente com status Aguardando." },
+                { horario: "A cada 10 min", fonte: "Vercel Cron (recovery)", desc: "Busca leads diretamente na Meta API e faz recovery de perdidos. Também chama o runCheck para re-verificar pendentes." },
+                { horario: "A cada 15 min", fonte: "GitHub Actions (fallback)", desc: "Fallback do cron Vercel. Garante que leads não ficam presos em Aguardando por mais de 15 minutos." },
+                { horario: "08h BRT (diário)", fonte: "Vercel Cron (resumo)", desc: "Envia resumo diário no Slack com total de leads, status breakdown e alertas não resolvidos do dia anterior." },
+                { horario: "Acesso à página", fonte: "GET /api/.../leads", desc: "Cada vez que a aba Leads é aberta ou atualiza (30s), verifica leads Aguardando com 2+ minutos e Sem MIA com menos de 4h." },
+              ].map(({ horario, fonte, desc }) => (
+                <div key={horario} style={{ background: T.muted, borderRadius: 8, padding: "10px 14px", display: "flex", gap: 14 }}>
+                  <div style={{ minWidth: 110, flexShrink: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.fg }}>{horario}</div>
+                    <div style={{ fontSize: 10, color: T.mutedFg }}>{fonte}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.6 }}>{desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Armazenamento — Blob Storage</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              <p style={{ margin: 0 }}>Todos os dados são persistidos no Vercel Blob Storage (privado). Não usa banco de dados relacional.</p>
+              {[
+                { path: "audit-mql/YYYY-MM-DD.json", desc: "Um arquivo por dia (fuso BRT = UTC-3). Contém array de todos os LeadRecords do dia com status, respostas do formulário, IDs Pipedrive, link MIA e histórico de verificações." },
+                { path: "sla-mql/data.json", desc: "Configuração atual do SLA: rows (empreendimentos com critérios por categoria) e forms (perguntas por vertical). Editado via /growth/sla-mql." },
+                { path: "sla-mql/log.json", desc: "Histórico de alterações no SLA (últimas 500 entradas). Registra quem alterou, o quê e quando." },
+              ].map(({ path, desc }) => (
+                <div key={path} style={{ background: T.muted, borderRadius: 8, padding: "10px 14px" }}>
+                  <code style={{ fontSize: 11, fontWeight: 700, display: "block", marginBottom: 4 }}>{path}</code>
+                  <div style={{ fontSize: 11, lineHeight: 1.6 }}>{desc}</div>
                 </div>
               ))}
             </div>
