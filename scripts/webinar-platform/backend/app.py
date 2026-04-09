@@ -26,6 +26,9 @@ def handle_supabase_error(e):
 
 @app.errorhandler(Exception)
 def handle_generic_error(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return jsonify({"error": e.description}), e.code
     print(f"[error] {type(e).__name__}: {e}")
     return jsonify({"error": "Erro interno"}), 500
 
