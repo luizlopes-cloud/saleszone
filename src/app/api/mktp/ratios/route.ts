@@ -11,6 +11,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const days = parseInt(req.nextUrl.searchParams.get("days") || "90");
+  const filterParam = req.nextUrl.searchParams.get("filter");
+  const paidOnly = filterParam === "paid";
+  const marketingOnly = filterParam === "marketing";
+  const ctwaOnly = filterParam === "ctwa";
+  const hasFilter = paidOnly || marketingOnly || ctwaOnly;
 
   try {
     const now = new Date();
@@ -71,17 +76,24 @@ export async function GET(req: NextRequest) {
 
     // Build empDaily by CANAL (from mktp_deals which has canal field)
     const admin = createSquadSupabaseAdmin();
-    const dealRows = await paginate((o, ps) =>
-      admin
+    const dealRows = await paginate((o, ps) => {
+      const q = admin
         .from("mktp_deals")
-        .select("canal, add_time, max_stage_order, status")
+        .select("canal, add_time, rd_source, is_marketing, max_stage_order, status")
         .not("canal", "is", null)
         .gte("add_time", startDate)
-        .range(o, o + ps - 1),
-    );
+        .range(o, o + ps - 1);
+      return q;
+    });
 
     const empDaily: Record<string, Record<string, Record<string, number>>> = {};
     for (const d of dealRows) {
+      const isMarketing = d.is_marketing || d.canal === "12";
+      if (!isMarketing) continue;
+      const rdLower = (d.rd_source || "").toLowerCase();
+      if (paidOnly && !rdLower.includes("pag")) continue;
+      if (ctwaOnly && !rdLower.includes("whats")) continue;
+
       const canalName = getMktpCanalName(d.canal);
       const dateStr = (d.add_time || "").substring(0, 10);
       if (!dateStr) continue;
@@ -92,6 +104,24 @@ export async function GET(req: NextRequest) {
       if (mso >= 5) empDaily[canalName][dateStr].sql += 1;
       if (mso >= 9) empDaily[canalName][dateStr].opp += 1;
       if (d.status === "won") empDaily[canalName][dateStr].won += 1;
+    }
+
+    // Recalculate globalCurrent from filtered empDaily when filter is active
+    if (hasFilter) {
+      const totMql = Object.values(empDaily).reduce((s, byDate) =>
+        s + Object.values(byDate).reduce((s2, c) => s2 + (c.mql || 0), 0), 0);
+      const totSql = Object.values(empDaily).reduce((s, byDate) =>
+        s + Object.values(byDate).reduce((s2, c) => s2 + (c.sql || 0), 0), 0);
+      const totOpp = Object.values(empDaily).reduce((s, byDate) =>
+        s + Object.values(byDate).reduce((s2, c) => s2 + (c.opp || 0), 0), 0);
+      const totWon = Object.values(empDaily).reduce((s, byDate) =>
+        s + Object.values(byDate).reduce((s2, c) => s2 + (c.won || 0), 0), 0);
+      globalCurrent.ratios = {
+        mql_sql: totMql > 0 ? Math.round((totSql / totMql) * 100) / 100 : 0,
+        sql_opp: totSql > 0 ? Math.round((totOpp / totSql) * 100) / 100 : 0,
+        opp_won: totOpp > 0 ? Math.round((totWon / totOpp) * 100) / 100 : 0,
+      };
+      globalCurrent.counts_90d = { mql: totMql, sql: totSql, opp: totOpp, won: totWon };
     }
 
     const result: RatioHistoryData = {
