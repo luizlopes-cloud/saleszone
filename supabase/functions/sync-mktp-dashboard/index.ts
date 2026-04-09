@@ -165,6 +165,7 @@ function countDeals(
     // Filter to MKTP pipeline only (/deals endpoint returns ALL pipelines)
     if (deal.pipeline_id !== PIPELINE_ID) continue;
     if (!isMarketingDeal(deal)) continue;
+    if (deal.lost_reason === "Duplicado/Erro") continue;
     mkt++;
     const emp = getEmpreendimento(deal);
     if (!emp) continue;
