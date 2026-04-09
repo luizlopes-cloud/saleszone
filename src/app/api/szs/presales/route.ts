@@ -144,19 +144,19 @@ export async function GET() {
       pvDeals = pvDeals.filter((d) => !lostIds.has(Number(d.deal_id)));
     }
 
-    // Buscar add_time dos deals (paginated)
+    // Buscar add_time dos deals de szs_deals (dados atualizados)
     const addTimeMap = new Map<string, string>();
     for (let i = 0; i < pvDealIds.length; i += 500) {
       const batch = pvDealIds.slice(i, i + 500);
       const { data, error: err } = await supabase
-        .from("nekt_pipedrive_deals_v2")
-        .select("id, add_time")
-        .in("id", batch);
+        .from("szs_deals")
+        .select("deal_id, add_time")
+        .in("deal_id", batch);
       if (err) {
         console.error("Failed to fetch add_time:", err.message);
       } else {
         for (const d of data || []) {
-          addTimeMap.set(String(d.id), d.add_time);
+          if (d.add_time) addTimeMap.set(String(d.deal_id), d.add_time);
         }
       }
     }
