@@ -41,9 +41,9 @@ const MKTP_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
     "Funil Completo": { leads: 3354, mql: 1677, sql: 530, opp: 126, won: 15, reserva: 25, contrato: 18 },
   },
   "2026-04": {
-    "Vendas Diretas": { mql: 0, sql: 0, opp: 0, won: 20 },
-    Parcerias: { mql: 0, sql: 0, opp: 0, won: 10 },
-    "Funil Completo": { mql: 0, sql: 0, opp: 0, won: 30 },
+    "Vendas Diretas": { mql: 804, sql: 201, opp: 69, won: 10 },
+    Parcerias: { mql: 20, sql: 16, opp: 14, won: 5 },
+    "Funil Completo": { mql: 1707, sql: 406, opp: 128, won: 15 },
   },
 };
 
@@ -77,6 +77,14 @@ interface ResultadosMKTPData {
 
 export const dynamic = "force-dynamic";
 
+/* ── Timezone helper: extract BRT date (UTC-3) from UTC timestamp ── */
+function toDateBRT(ts: string | null | undefined): string | null {
+  if (!ts) return null;
+  const d = new Date(ts);
+  const brt = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+  return brt.toISOString().substring(0, 10);
+}
+
 /* ── Tab → date column in mktp_deals ─────────────────────── */
 const TAB_DATE_COL: Record<string, string> = {
   mql: "add_time",
@@ -105,7 +113,7 @@ export async function GET() {
     cutoff90.setDate(cutoff90.getDate() - 90);
     const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
-    const DEAL_COLS = "canal, status, stage_id, max_stage_order, add_time, won_time, lost_time, qualificacao_date, reuniao_date, lost_reason";
+    const DEAL_COLS = "deal_id, canal, status, stage_id, max_stage_order, add_time, won_time, lost_time, qualificacao_date, reuniao_date, lost_reason";
 
     /* ── 1. Fetch all deals from mktp_deals for current + previous month + 90d history ── */
     const allDeals = await paginate((o, ps) =>
@@ -127,16 +135,10 @@ export async function GET() {
         .range(o, o + ps - 1)
     );
 
-    // Merge, dedup by combining (won deals with old add_time but recent won_time)
-    const dealMap = new Map<string, any>();
-    for (const d of allDeals) {
-      const key = `${d.canal}|${d.add_time}|${d.status}|${d.stage_id}`;
-      dealMap.set(key, d);
-    }
-    for (const d of wonDeals) {
-      const key = `${d.canal}|${d.add_time}|${d.status}|${d.stage_id}`;
-      dealMap.set(key, d);
-    }
+    // Merge, dedup by deal_id
+    const dealMap = new Map<number, any>();
+    for (const d of allDeals) dealMap.set(d.deal_id, d);
+    for (const d of wonDeals) dealMap.set(d.deal_id, d);
     const deals = Array.from(dealMap.values());
 
     /* ── 2. Count funnel by channel for current month ──────── */
@@ -148,10 +150,8 @@ export async function GET() {
       const group = getCanalGroup(String(deal.canal || ""));
       for (const tab of TABS) {
         const dateCol = TAB_DATE_COL[tab];
-        const dateVal = deal[dateCol];
-        if (!dateVal) continue;
-        const day = dateVal.substring(0, 10);
-        if (day < startDate) continue; // only current month
+        const day = toDateBRT(deal[dateCol]);
+        if (!day || day < startDate) continue; // only current month (BRT)
         channelCounts[group][tab] = (channelCounts[group][tab] || 0) + 1;
         // MQL "sem indicação": Funil Completo excludes Parcerias (canais 582/583/2876)
         if (tab !== "mql" || group !== "Parcerias") {
@@ -164,7 +164,7 @@ export async function GET() {
     const prevWon: Record<string, number> = {};
     for (const deal of deals) {
       if (deal.status !== "won") continue;
-      const wonDate = deal.won_time?.substring(0, 10);
+      const wonDate = toDateBRT(deal.won_time);
       if (!wonDate || wonDate < prevStart || wonDate > prevEnd) continue;
       const group = getCanalGroup(String(deal.canal || ""));
       prevWon[group] = (prevWon[group] || 0) + 1;
@@ -184,7 +184,7 @@ export async function GET() {
     for (const deal of deals) {
       if (deal.lost_reason === "Duplicado/Erro") continue;
       // Deal must have closed in current month (won or lost)
-      const closeDate = deal.status === "won" ? deal.won_time?.substring(0, 10) : deal.lost_time?.substring(0, 10);
+      const closeDate = deal.status === "won" ? toDateBRT(deal.won_time) : toDateBRT(deal.lost_time);
       const isOpen = deal.status === "open";
       // Include open deals too (they're currently in the funnel)
       if (!isOpen && (!closeDate || closeDate < startDate)) continue;
@@ -321,8 +321,8 @@ export async function GET() {
 
     for (const d of histDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const addDay = d.add_time?.substring(0, 10) || "";
-      const closeDay = d.status === "won" ? d.won_time?.substring(0, 10) : d.status === "lost" ? d.lost_time?.substring(0, 10) : null;
+      const addDay = toDateBRT(d.add_time) || "";
+      const closeDay = d.status === "won" ? toDateBRT(d.won_time) : d.status === "lost" ? toDateBRT(d.lost_time) : null;
       const mso = d.max_stage_order || 0;
       const group = getCanalGroup(String(d.canal || ""));
 
