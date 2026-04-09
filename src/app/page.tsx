@@ -482,13 +482,13 @@ export default function Dashboard() {
     }
   }, []);
 
-  const fetchRatios = useCallback(async (days: number = 90, filter?: string) => {
+  const fetchRatios = useCallback(async (days: number = 90, filter: string = "all") => {
     try {
       const isSZS = moduleConfig.id === "szs";
       const cityFilters = ["sao-paulo", "salvador", "florianopolis", "outros"];
-      const paramKey = isSZS && cityFilters.includes(filter || "") ? "city" : "filter";
+      const paramKey = isSZS && cityFilters.includes(filter) ? "city" : "filter";
       const url = new URL(`${moduleConfig.apiBase}/ratios?days=${days}`);
-      if (filter && filter !== "all") url.searchParams.set(paramKey, filter);
+      if (filter !== "all") url.searchParams.set(paramKey, filter);
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setRatioData(await res.json());
@@ -553,6 +553,24 @@ export default function Dashboard() {
       fetchAcomp(activeTab, acompFilter);
     }
   }, [acompFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync ratioFilter with acompFilter for SZS city filters
+  useEffect(() => {
+    if (!hydrated) return;
+    const cityFilters: Array<typeof ratioFilter> = ["sao-paulo", "salvador", "florianopolis", "outros"];
+    if ((cityFilters as string[]).includes(acompFilter)) {
+      setRatioFilter(acompFilter as typeof ratioFilter);
+    }
+  }, [acompFilter]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fetch when ratioFilter changes
+  useEffect(() => {
+    if (!hydrated) return;
+    if (mainView === "acompanhamento") {
+      setRatioData(null);
+      fetchRatios(ratioDays, ratioFilter);
+    }
+  }, [ratioFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!hydrated) return;
