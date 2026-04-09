@@ -350,27 +350,56 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
   return { checked: batch.length, resolved }
 }
 
+type RecheckChange = {
+  id: string; name: string; vertical: string; status_before: string; status_after: string
+  sla_before: boolean | undefined; sla_after: boolean
+}
+
 // Re-avalia SLA de TODOS os leads de um dia (corrige retroativos)
-export async function recheckSla(key: string): Promise<{ total: number; fixed: number }> {
+// dry=true → apenas calcula, não grava (preview seguro)
+export async function recheckSla(
+  key: string, dry = false
+): Promise<{ total: number; fixed: number; changes: RecheckChange[] }> {
   const leads = await readLeads(key)
-  if (leads.length === 0) return { total: 0, fixed: 0 }
+  if (leads.length === 0) return { total: 0, fixed: 0, changes: [] }
 
   const slaData = await readData().catch(() => null)
-  if (!slaData) return { total: leads.length, fixed: 0 }
+  if (!slaData) return { total: leads.length, fixed: 0, changes: [] }
 
   let fixed = 0
+  const changes: RecheckChange[] = []
+
   for (const lead of leads) {
-    const wasOk = lead.sla_ok
+    const wasOk     = lead.sla_ok
+    const wasFora   = lead.status === "fora_sla"
     lead.sla_ok = checkSla(lead, slaData)
 
-    // Lead que estava ok/sem_pipedrive mas na verdade é fora_sla
-    if (lead.sla_ok === false && wasOk !== false) {
-      lead.status = "fora_sla"
-      lead.notified = true
+    // Lead classificado incorretamente como fora_sla → agora passa o SLA
+    // Reset para aguardando: runCheck vai re-verificar no Pipedrive
+    if (lead.sla_ok === true && wasFora) {
+      changes.push({ id: lead.id, name: lead.name, vertical: lead.vertical,
+        status_before: "fora_sla", status_after: "aguardando",
+        sla_before: wasOk, sla_after: true })
+      if (!dry) {
+        lead.status   = "aguardando"
+        lead.notified = false
+      }
+      fixed++
+    }
+
+    // Lead que estava ok/aguardando/sem_pipedrive mas na verdade é fora_sla
+    else if (lead.sla_ok === false && wasOk !== false && !wasFora) {
+      changes.push({ id: lead.id, name: lead.name, vertical: lead.vertical,
+        status_before: lead.status, status_after: "fora_sla",
+        sla_before: wasOk, sla_after: false })
+      if (!dry) {
+        lead.status   = "fora_sla"
+        lead.notified = true
+      }
       fixed++
     }
   }
 
-  if (fixed > 0) await writeLeads(key, leads)
-  return { total: leads.length, fixed }
+  if (!dry && fixed > 0) await writeLeads(key, leads)
+  return { total: leads.length, fixed, changes }
 }
