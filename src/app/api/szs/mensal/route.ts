@@ -45,7 +45,18 @@ export async function GET(req: NextRequest) {
     const globalStart = months[0].start;
     const globalEnd = months[months.length - 1].end;
 
-    // Fetch all daily counts from szs_daily_counts
+    // Build meta date strings (DD/MM/YYYY)
+    const metaDates = months.map((m) => {
+      const [y, mo] = m.key.split("-");
+      return `01/${mo}/${y}`;
+    });
+
+    // Fetch all daily counts + metas
+    const supabaseSR = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    );
+
     const countsPromises = TABS.map((tab) =>
       paginate((offset, ps) =>
         supabase
@@ -58,12 +69,29 @@ export async function GET(req: NextRequest) {
       ),
     );
 
-    const results = await Promise.all(countsPromises);
+    const metaPromise = supabaseSR
+      .from("nekt_meta26_metas")
+      .select("data, won_szs_meta")
+      .in("data", metaDates);
+
+    const results = await Promise.all([...countsPromises, metaPromise]);
 
     const mqlRows = results[0] as { date: string; count: number }[];
     const sqlRows = results[1] as { date: string; count: number }[];
     const oppRows = results[2] as { date: string; count: number }[];
     const wonRows = results[3] as { date: string; count: number }[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const metaRes = results[4] as any;
+
+    // Index metas by DD/MM/YYYY → YYYY-MM
+    const metaByMonth = new Map<string, number>();
+    for (const row of metaRes.data || []) {
+      const parts = (row.data as string).split("/");
+      if (parts.length === 3) {
+        const monthKey = `${parts[2]}-${parts[1]}`;
+        metaByMonth.set(monthKey, Number(row.won_szs_meta) || 0);
+      }
+    }
 
     function sumByMonth(rows: { date: string; count: number }[]): Map<string, number> {
       const map = new Map<string, number>();
@@ -85,6 +113,7 @@ export async function GET(req: NextRequest) {
       const opp = oppByMonth.get(m.key) || 0;
       const won = wonByMonth.get(m.key) || 0;
 
+      const meta = metaByMonth.get(m.key) || 0;
       return {
         month: m.key,
         monthLabel: m.label,
@@ -92,12 +121,13 @@ export async function GET(req: NextRequest) {
         sql,
         opp,
         won,
-        meta: 0,
-        pctMeta: 0,
+        meta,
+        pctMeta: pct(won, meta),
         conversions: {
           mqlToSql: pct(sql, mql),
           sqlToOpp: pct(opp, sql),
           oppToWon: pct(won, opp),
+          mqlToWon: pct(won, mql),
         },
       };
     });
