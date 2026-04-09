@@ -45,7 +45,26 @@ async function buildSummary(key: string) {
   return { key, total, pipedrive, mia, erros, byVertical: Object.fromEntries(byVertical) }
 }
 
-async function sendSlack(summary: NonNullable<Awaited<ReturnType<typeof buildSummary>>>) {
+async function checkMetaTokenExpiry(): Promise<{ daysLeft: number; expiresAt: string } | null> {
+  const token = process.env.META_ADS_TOKEN || ""
+  if (!token) return null
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v19.0/debug_token?input_token=${token}&access_token=${token}`,
+      { cache: "no-store" }
+    )
+    if (!res.ok) return null
+    const data = await res.json()
+    const expiresAt: number = data?.data?.expires_at
+    if (!expiresAt) return null
+    const daysLeft = Math.ceil((expiresAt * 1000 - Date.now()) / (1000 * 60 * 60 * 24))
+    return { daysLeft, expiresAt: new Date(expiresAt * 1000).toLocaleDateString("pt-BR") }
+  } catch {
+    return null
+  }
+}
+
+async function sendSlack(summary: NonNullable<Awaited<ReturnType<typeof buildSummary>>>, tokenExpiry: { daysLeft: number; expiresAt: string } | null) {
   if (!SLACK_WEBHOOK) return
   const { key, total, pipedrive, mia, erros, byVertical } = summary
 
@@ -62,6 +81,19 @@ async function sendSlack(summary: NonNullable<Awaited<ReturnType<typeof buildSum
     text += `  • Pipedrive: ${g.pipedrive}/${g.total} (${pct(g.pipedrive, g.total)})\n`
     text += `  • MIA: ${g.mia}/${g.total} (${pct(g.mia, g.total)})\n`
     if (g.erros > 0) text += `  • Erros: ${g.erros} ⚠️\n`
+  }
+
+  // Alerta de expiração do token Meta
+  if (tokenExpiry) {
+    const { daysLeft, expiresAt } = tokenExpiry
+    const mentions = "<@U03KA47L2Q5> <@U0625PXJC4Q> <@U0A0AFJQ3GV>"
+    if (daysLeft <= 0) {
+      text += `\n\n🚨 ${mentions} *TOKEN META EXPIRADO!* O META_ADS_TOKEN expirou em ${expiresAt}. saleszone e artefatos-growth estão sem funcionar. Renovar agora: Meta Business Manager → Usuários do sistema → Gerar novo token → atualizar no Vercel.`
+    } else if (daysLeft <= 5) {
+      text += `\n\n🚨 ${mentions} *TOKEN META EXPIRA EM ${daysLeft} DIA${daysLeft !== 1 ? "S" : ""}!* (${expiresAt}) — Renovar urgente no Meta Business Manager e atualizar em saleszone + artefatos-growth no Vercel. Ver passo a passo: saleszone.vercel.app/growth/audit-mql → aba Sobre.`
+    } else if (daysLeft <= 30) {
+      text += `\n\n⚠️ ${mentions} *Token Meta expira em ${daysLeft} dias* (${expiresAt}) — Programar renovação. Ver passo a passo: saleszone.vercel.app/growth/audit-mql → aba Sobre.`
+    }
   }
 
   await fetch(SLACK_WEBHOOK, {
@@ -111,12 +143,12 @@ export async function GET(req: NextRequest) {
 
     await runCheck(key)
 
-    const summary = await buildSummary(key)
+    const [summary, tokenExpiry] = await Promise.all([buildSummary(key), checkMetaTokenExpiry()])
     if (!summary) {
       return NextResponse.json({ message: "Sem leads para essa data", date: key })
     }
 
-    await Promise.all([sendSlack(summary), saveLog(summary)])
+    await Promise.all([sendSlack(summary, tokenExpiry), saveLog(summary)])
     return NextResponse.json({ sent: true, ...summary })
   }
 
@@ -148,11 +180,11 @@ export async function POST(req: NextRequest) {
 
   await runCheck(key)
 
-  const summary = await buildSummary(key)
+  const [summary, tokenExpiry] = await Promise.all([buildSummary(key), checkMetaTokenExpiry()])
   if (!summary) {
     return NextResponse.json({ message: "Sem leads para essa data", date: key })
   }
 
-  await Promise.all([sendSlack(summary), saveLog(summary)])
+  await Promise.all([sendSlack(summary, tokenExpiry), saveLog(summary)])
   return NextResponse.json({ sent: true, ...summary })
 }
