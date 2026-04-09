@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createSquadSupabaseAdmin } from "@/lib/squad/supabase"
+import { readLog, appendLog } from "@/lib/sla-mql-blob"
 
 export const dynamic = "force-dynamic"
 
 export async function GET() {
   try {
-    const supabase = createSquadSupabaseAdmin()
-    const { data, error } = await supabase
-      .from("sla_mql_log")
-      .select("*")
-      .order("ts", { ascending: false })
-      .limit(500)
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ entries: data || [] })
+    const entries = await readLog()
+    return NextResponse.json({ entries })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
@@ -39,10 +32,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    const supabase = createSquadSupabaseAdmin()
-    const { error } = await supabase.from("sla_mql_log").insert(body.entries)
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    const ts = new Date().toISOString()
+    await appendLog(body.entries.map(e => ({ ...e, ts })))
     return NextResponse.json({ ok: true })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
