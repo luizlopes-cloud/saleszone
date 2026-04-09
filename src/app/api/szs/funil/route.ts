@@ -81,17 +81,20 @@ export async function GET(req: NextRequest) {
     const now = new Date();
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
-
     const [yearStr, monthStr] = month.split("-");
-    const mesFim = `${yearStr}-${String(Number(monthStr) + 1).padStart(2, "0")}-01`;
+    const endDate = `${yearStr}-${String(Number(monthStr) + 1).padStart(2, "0")}-01`;
     const admin = createSquadSupabaseAdmin();
 
-    const [metaData, countsData, stageData, baserowLeadsRes, paidDealsRes] = await Promise.all([
+    const [metaData, countsData, stageData, allDealsRes, paidDealsRes, baserowLeadsRes] = await Promise.all([
       fetchAll(supabase.from("szs_meta_ads").select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month").gte("snapshot_date", startDate)),
       fetchAll(supabase.from("szs_daily_counts").select("tab, empreendimento, canal_group, count").in("tab", ["mql", "sql", "opp", "won"]).gte("date", startDate)),
       fetchAll(supabase.from("szs_daily_counts").select("tab, empreendimento, canal_group, count").in("tab", ["reserva", "contrato"])),
-      fetchAll(admin.from("baserow_szs_leads").select("cidade").gte("data_criacao_ads", startDate).lt("data_criacao_ads", mesFim)),
-      fetchAll(admin.from("szs_deals").select("empreendimento, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").not("empreendimento", "is", null).gte("add_time", startDate)),
+      // All deals for bridge cidade→canal (no canal filter for complete attribution)
+      fetchAll(admin.from("szs_deals").select("empreendimento, canal, canal_group, max_stage_order, status, lost_reason").gte("add_time", startDate)),
+      // Paid deals (canal=12, paid source) for funnel metrics
+      fetchAll(admin.from("szs_deals").select("empreendimento, canal, canal_group, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").not("empreendimento", "is", null).gte("add_time", startDate)),
+      // All form fills from baserow (leads, not qualified)
+      fetchAll(admin.from("baserow_szs_leads").select("cidade").gte("data_criacao_ads", startDate).lt("data_criacao_ads", endDate)),
     ]);
 
     // Meta Ads aggregated by cidade group
@@ -110,25 +113,40 @@ export async function GET(req: NextRequest) {
       metaMap.set(group, cur);
     }
 
-    // Baserow leads by cidade
-    const baserowLeadsMap = new Map<string, number>();
-    for (const row of baserowLeadsRes) {
-      if (!row.cidade) continue;
-      const group = getCidadeGroup(row.cidade);
-      baserowLeadsMap.set(group, (baserowLeadsMap.get(group) || 0) + 1);
-    }
-
-    // Paid deals by cidade
-    const paidCountsMap = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
-    for (const d of paidDealsRes) {
+    // Bridge: primary canal per cidade (canal with most qualified deals from that cidade)
+    const cidadeCanalCount = new Map<string, Map<string, number>>();
+    for (const d of allDealsRes) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const cidade = getCidadeGroup(d.empreendimento);
-      if (!paidCountsMap.has(cidade)) paidCountsMap.set(cidade, { mql: 0, sql: 0, opp: 0, won: 0 });
-      const cur = paidCountsMap.get(cidade)!;
-      cur.mql++;
-      if (d.max_stage_order >= 4) cur.sql++;
-      if (d.max_stage_order >= 9) cur.opp++;
-      if (d.status === "won") cur.won++;
+      if (!cidadeCanalCount.has(cidade)) cidadeCanalCount.set(cidade, new Map());
+      const canalGroup = d.canal_group || "Outros";
+      cidadeCanalCount.get(cidade)!.set(canalGroup, (cidadeCanalCount.get(cidade)!.get(canalGroup) || 0) + 1);
+    }
+    const cidadeToCanal = new Map<string, string>();
+    for (const [cidade, canalCounts] of cidadeCanalCount) {
+      let topCanal = "Outros";
+      let topCount = 0;
+      for (const [canal, count] of canalCounts) {
+        if (count > topCount) { topCount = count; topCanal = canal; }
+      }
+      cidadeToCanal.set(cidade, topCanal);
+    }
+
+    // Leads per canal from baserow (ALL form fills, not qualified)
+    const leadsPerCanal = new Map<string, number>();
+    for (const row of baserowLeadsRes) {
+      if (!row.cidade) continue;
+      const cidade = getCidadeGroup(row.cidade);
+      const canal = cidadeToCanal.get(cidade) || "Outros";
+      leadsPerCanal.set(canal, (leadsPerCanal.get(canal) || 0) + 1);
+    }
+
+    // Paid deals per canal (for paid-only filter)
+    const paidPerCanal = new Map<string, number>();
+    for (const d of paidDealsRes) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const canalGroup = d.canal_group || "Outros";
+      paidPerCanal.set(canalGroup, (paidPerCanal.get(canalGroup) || 0) + 1);
     }
 
     // Build counts by squadId|canalGroup (sub-rows are canals, not cities)
@@ -170,19 +188,20 @@ export async function GET(req: NextRequest) {
         let leads: number, mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
 
         if (paidOnly && isMarketing) {
-          // Sum all city-level baserow/paid data for this canal
-          const totalBaserow = Array.from(baserowLeadsMap.values()).reduce((a, b) => a + b, 0);
-          const totalPaid = Array.from(paidCountsMap.values()).reduce((a, p) => ({ mql: a.mql + p.mql, sql: a.sql + p.sql, opp: a.opp + p.opp, won: a.won + p.won }), { mql: 0, sql: 0, opp: 0, won: 0 });
-          leads = Math.max(totalBaserow > 0 ? Math.round(totalBaserow * mqlShare) : canalMetaLeads, Math.round(totalPaid.mql * mqlShare));
-          mql = Math.round(totalPaid.mql * mqlShare); sql = Math.round(totalPaid.sql * mqlShare);
-          opp = Math.round(totalPaid.opp * mqlShare); won = Math.round(totalPaid.won * mqlShare);
+          // Paid: use baserow leads + Meta Ads leads + paid MQLs distributed by canal share
+          const totalPaid = paidDealsRes.reduce((acc, d) => {
+            if (d.lost_reason === "Duplicado/Erro") return acc;
+            return { mql: acc.mql + 1, sql: acc.sql + (d.max_stage_order >= 4 ? 1 : 0), opp: acc.opp + (d.max_stage_order >= 9 ? 1 : 0), won: acc.won + (d.status === "won" ? 1 : 0) };
+          }, { mql: 0, sql: 0, opp: 0, won: 0 });
+          const marketingLeads = leadsPerCanal.get("Marketing") || 0;
+          leads = Math.max(marketingLeads, canalMetaLeads, Math.round(totalPaid.mql * mqlShare));
+          mql = Math.round(totalPaid.mql * mqlShare); sql = Math.round(totalPaid.sql * mqlShare); opp = Math.round(totalPaid.opp * mqlShare); won = Math.round(totalPaid.won * mqlShare);
           reserva = 0; contrato = 0;
         } else {
-          // Geral: Marketing canal gets Meta Ads leads, others just MQL
-          const baserowLeads = isMarketing ? Array.from(baserowLeadsMap.values()).reduce((a, b) => a + b, 0) : 0;
-          const metaLeads = isMarketing ? Math.round(squadMeta.leads * mqlShare) : 0;
-          const baseLeads = baserowLeads > 0 ? Math.round(baserowLeads * mqlShare) : metaLeads;
-          leads = Math.max(baseLeads, counts.mql || 0);
+          // Geral: leads from baserow per canal (all form fills), MQL from szs_daily_counts
+          // leads >= mql because baserow counts ALL fills, MQL only qualified ones
+          const canalLeads = leadsPerCanal.get(canal) || 0;
+          leads = Math.max(canalLeads, counts.mql || 0);
           mql = counts.mql || 0; sql = counts.sql || 0; opp = counts.opp || 0; won = counts.won || 0;
           reserva = counts.reserva || 0; contrato = counts.contrato || 0;
         }
