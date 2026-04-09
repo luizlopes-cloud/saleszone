@@ -381,8 +381,8 @@ export async function recheckSla(
         status_before: "fora_sla", status_after: "aguardando",
         sla_before: wasOk, sla_after: true })
       if (!dry) {
-        lead.status   = "aguardando"
-        lead.notified = false
+        lead.status = "aguardando"
+        // notified permanece true — evita re-disparar alertas Slack para leads antigos
       }
       fixed++
     }
