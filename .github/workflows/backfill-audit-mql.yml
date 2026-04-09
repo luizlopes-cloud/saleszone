@@ -1,0 +1,31 @@
+name: Backfill Audit MQL (form_values + missed leads)
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Quantos dias retroativos (default: 14)"
+        required: false
+        default: "14"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recover leads for each day
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE_URL: https://saleszone.vercel.app
+          DAYS: ${{ github.event.inputs.days }}
+        run: |
+          for i in $(seq 0 $((DAYS - 1))); do
+            DATE=$(date -d "-${i} days" +%Y-%m-%d 2>/dev/null || date -v -${i}d +%Y-%m-%d)
+            echo "Recovering $DATE..."
+            STATUS=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+              -X POST "$BASE_URL/api/growth/audit-mql/recovery" \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H "Content-Type: application/json" \
+              -d "{\"date\":\"$DATE\"}")
+            echo "  HTTP $STATUS: $(cat /tmp/resp.json)"
+            sleep 2
+          done

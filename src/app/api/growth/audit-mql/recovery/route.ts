@@ -2,10 +2,11 @@
 // POST { date: "2026-04-05" } → compara com Blob e salva o que falta
 
 import { NextRequest, NextResponse } from "next/server"
-import { LeadRecord, dateKey, readLeads, appendLeadSafe, extractVertical } from "@/lib/audit-mql"
+import { LeadRecord, dateKey, readLeads, writeLeads, appendLeadSafe, extractVertical } from "@/lib/audit-mql"
+import { runCheck } from "@/lib/audit-mql-check"
 import crypto from "crypto"
 
-export const maxDuration = 60
+export const maxDuration = 120
 export const dynamic = "force-dynamic"
 
 const META_TOKEN = process.env.META_ADS_TOKEN || ""
@@ -35,9 +36,10 @@ async function getFormsForPage(pageId: string): Promise<{ id: string; name: stri
   return forms
 }
 
-function parseLead(lead: Record<string, unknown>): Partial<LeadRecord> {
+function parseLead(lead: Record<string, unknown>): Partial<LeadRecord> & { form_values: string[] } {
+  const fieldData = (lead.field_data as { name: string; values: string[] }[]) || []
   const fields: Record<string, string> = {}
-  for (const item of (lead.field_data as { name: string; values: string[] }[]) || []) {
+  for (const item of fieldData) {
     fields[item.name] = item.values?.[0] || ""
   }
   const firstName = fields["first_name"] || ""
@@ -45,12 +47,13 @@ function parseLead(lead: Record<string, unknown>): Partial<LeadRecord> {
   const fullName  = fields["full_name"]  || `${firstName} ${lastName}`.trim()
 
   return {
-    name:    fullName,
-    email:   fields["email"] || "",
-    phone:   fields["phone_number"] || fields["phone"] || "",
-    form_id: String(lead.form_id || ""),
-    ad_id:   String(lead.ad_id   || ""),
-    page_id: String(lead.page_id || ""),
+    name:        fullName,
+    email:       fields["email"] || "",
+    phone:       fields["phone_number"] || fields["phone"] || "",
+    form_id:     String(lead.form_id || ""),
+    ad_id:       String(lead.ad_id   || ""),
+    page_id:     String(lead.page_id || ""),
+    form_values: fieldData.flatMap(f => f.values || []),
   }
 }
 
@@ -83,19 +86,21 @@ async function getLeadsForForm(
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 async function recoverDate(targetDate: string) {
-  // Converter data BRT → timestamps Unix (início e fim do dia em BRT = UTC-3)
-  const minDate = new Date(`${targetDate}T03:00:00Z`)               // 00:00 BRT = 03:00 UTC
-  const maxDate = new Date(minDate.getTime() + 24 * 60 * 60 * 1000 - 1) // 23:59:59 BRT
+  const minDate = new Date(`${targetDate}T03:00:00Z`)
+  const maxDate = new Date(minDate.getTime() + 24 * 60 * 60 * 1000 - 1)
   const minUnix = Math.floor(minDate.getTime() / 1000)
   const maxUnix = Math.floor(maxDate.getTime() / 1000)
 
-  const existing = await readLeads(targetDate)
-  const existingIds = new Set(existing.map(l => l.leadgen_id))
+  const existing   = await readLeads(targetDate)
+  const existingMap = new Map(existing.map(l => [l.leadgen_id, l]))
 
-  let recovered = 0
-  let skipped   = 0
-  let errors    = 0
+  let recovered  = 0
+  let backfilled = 0
+  let skipped    = 0
+  let errors     = 0
   const recoveredLeads: string[] = []
+  // leadgen_id → form_values a retroalimentar em leads já existentes
+  const toBackfill = new Map<string, string[]>()
 
   for (const pageId of PAGE_IDS) {
     let forms: { id: string; name: string }[] = []
@@ -106,8 +111,19 @@ async function recoverDate(targetDate: string) {
       try { metaLeads = await getLeadsForForm(form.id, minUnix, maxUnix) } catch { continue }
 
       for (const ml of metaLeads) {
-        if (existingIds.has(ml.leadgen_id)) { skipped++; continue }
+        const blobLead = existingMap.get(ml.leadgen_id)
 
+        if (blobLead) {
+          // Lead já existe — backfill de form_values se estiver vazio
+          if (!blobLead.form_values?.length && ml.parsed.form_values?.length) {
+            toBackfill.set(ml.leadgen_id, ml.parsed.form_values!)
+          } else {
+            skipped++
+          }
+          continue
+        }
+
+        // Lead ausente — salvar
         let campaign = ""
         if (ml.parsed.ad_id) {
           try {
@@ -131,13 +147,14 @@ async function recoverDate(targetDate: string) {
           vertical:      extractVertical(campaign),
           created_at:    ml.created_time || new Date().toISOString(),
           status:        "aguardando",
+          form_values:   ml.parsed.form_values,
         }
 
         try {
           const saved = await appendLeadSafe(targetDate, record)
           if (saved) {
             recovered++
-            existingIds.add(ml.leadgen_id)
+            existingMap.set(ml.leadgen_id, record)
             recoveredLeads.push(`${record.name || record.email} (${record.vertical})`)
           }
         } catch { errors++ }
@@ -145,7 +162,44 @@ async function recoverDate(targetDate: string) {
     }
   }
 
-  return { date: targetDate, recovered, skipped, errors, recoveredLeads, existingBefore: existing.length }
+  // Backfill em lote: um único read→write para todos os leads sem form_values
+  if (toBackfill.size > 0) {
+    try {
+      const allLeads = await readLeads(targetDate)
+      let changed = false
+      for (const lead of allLeads) {
+        const vals = toBackfill.get(lead.leadgen_id)
+        if (vals) { lead.form_values = vals; backfilled++; changed = true }
+      }
+      if (changed) await writeLeads(targetDate, allLeads)
+    } catch { /* não bloqueia o resto */ }
+  }
+
+  return { date: targetDate, recovered, backfilled, skipped, errors, recoveredLeads, existingBefore: existing.length }
+}
+
+function yesterdayKey() {
+  const d = new Date(Date.now() - 3 * 60 * 60 * 1000)
+  d.setDate(d.getDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+async function recoverAndCheck(targetDate: string) {
+  const result = await recoverDate(targetDate)
+  if (result.recovered > 0) await runCheck(targetDate)
+  return result
+}
+
+// GET — cron automático a cada 30min (Vercel envia CRON_SECRET como Bearer)
+export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get("authorization")
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const [r1, r2] = await Promise.all([recoverAndCheck(yesterdayKey()), recoverAndCheck(dateKey())])
+  return NextResponse.json({ yesterday: r1, today: r2 })
 }
 
 export async function POST(req: NextRequest) {
@@ -156,19 +210,12 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}))
+  const targetDate = body.date || null
 
-  if (body.date) {
-    return NextResponse.json(await recoverDate(body.date))
+  if (targetDate) {
+    return NextResponse.json(await recoverAndCheck(targetDate))
   }
 
-  // Sem date → verifica hoje e ontem
-  const today = dateKey()
-  const yesterday = (() => {
-    const d = new Date(Date.now() - 3 * 60 * 60 * 1000)
-    d.setDate(d.getDate() - 1)
-    return d.toISOString().slice(0, 10)
-  })()
-
-  const [r1, r2] = await Promise.all([recoverDate(yesterday), recoverDate(today)])
+  const [r1, r2] = await Promise.all([recoverAndCheck(yesterdayKey()), recoverAndCheck(dateKey())])
   return NextResponse.json({ yesterday: r1, today: r2 })
 }
