@@ -616,12 +616,12 @@ export default function AuditMQL() {
       {tab === "leads" && <>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 12, marginBottom: 16 }}>
           {[
-            { label: "Leads",         value: total,      color: T.fg,          status: null             as Status | null },
-            { label: "OK",            value: ok,         color: T.verde600,    status: "ok"             as Status | null },
-            { label: "Aguardando",    value: aguardando, color: T.primary,     status: "aguardando"     as Status | null },
-            { label: "Sem MIA",       value: semMia,     color: T.laranja500,  status: "sem_mia"        as Status | null },
-            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive, status: "sem_pipedrive"  as Status | null },
-            { label: "Fora SLA",      value: foraSla,    color: "#9333EA",     status: "fora_sla"       as Status | null },
+            { label: "Leads",         value: total,      color: T.fg,          status: null             as Status | null, desc: "Total de leads recebidos no dia" },
+            { label: "OK",            value: ok,         color: T.verde600,    status: "ok"             as Status | null, desc: "No Pipedrive com atendimento MIA" },
+            { label: "Aguardando",    value: aguardando, color: T.primary,     status: "aguardando"     as Status | null, desc: "Recém-chegado, aguardando verificação" },
+            { label: "Sem MIA",       value: semMia,     color: T.laranja500,  status: "sem_mia"        as Status | null, desc: "No Pipedrive mas sem link da conversa MIA" },
+            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive, status: "sem_pipedrive"  as Status | null, desc: "Não encontrado no Pipedrive após 2 min" },
+            { label: "Fora SLA",      value: foraSla,    color: "#9333EA",     status: "fora_sla"       as Status | null, desc: "Fora dos critérios SLA configurados" },
           ].map(c => {
             const active = statusFilter === c.status && c.status !== null
             return (
@@ -636,6 +636,7 @@ export default function AuditMQL() {
                   textTransform: "uppercase", letterSpacing: "0.07em" }}>{c.label}</div>
                 <div style={{ fontSize: 26, fontWeight: 700, color: c.color, marginTop: 4,
                   fontVariantNumeric: "tabular-nums" }}>{c.value}</div>
+                <div style={{ fontSize: 10, color: T.mutedFg, marginTop: 4, lineHeight: "1.3" }}>{c.desc}</div>
               </div>
             )
           })}
