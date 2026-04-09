@@ -5,6 +5,11 @@ import Link from "next/link"
 import { ShieldAlert, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, RefreshCw, AlertTriangle, ChevronDown } from "lucide-react"
 import type { LeadRecord } from "@/lib/audit-mql"
 
+type SlaRow = { id: number; vertical: string; nome: string; status: boolean; mql_intencoes: string[]; mql_faixas: string[]; mql_pagamentos: string[] }
+type SlaData = { rows: SlaRow[] }
+
+const META_TOKEN_EXPIRES = new Date("2026-05-05T19:14:42Z")
+
 const T = {
   primary:    "#0055FF",
   bg:         "#FFFFFF",
@@ -338,6 +343,9 @@ export default function AuditMQL() {
   const [log, setLog]               = useState<LogEntry[]>([])
   const [logLoading, setLogLoading] = useState(false)
   const [verticalFilter, setVerticalFilter] = useState<string | null>(null)
+  const [statusFilter, setStatusFilter]     = useState<Status | null>(null)
+  const [expandedId, setExpandedId]         = useState<string | null>(null)
+  const [slaData, setSlaData]               = useState<SlaData | null>(null)
   const [recovering, setRecovering]         = useState(false)
   const [recoveryMsg, setRecoveryMsg]       = useState<string | null>(null)
 
@@ -406,11 +414,19 @@ export default function AuditMQL() {
     return () => clearInterval(interval)
   }, [range, fetchLeads, isToday])
 
+  useEffect(() => {
+    fetch("/api/sla-mql", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.rows) setSlaData(d) })
+      .catch(() => {})
+  }, [])
+
   const total      = leads.length
   const ok         = leads.filter(l => l.status === "ok").length
   const aguardando = leads.filter(l => l.status === "aguardando").length
   const semMia     = leads.filter(l => l.status === "sem_mia").length
   const semPipe    = leads.filter(l => l.status === "sem_pipedrive").length
+  const foraSla    = leads.filter(l => l.status === "fora_sla").length
 
   const byVertical = leads.reduce((acc, l) => {
     const v = l.vertical || "—"
@@ -423,9 +439,36 @@ export default function AuditMQL() {
     return acc
   }, {} as Record<string, { total: number; pipe: number; ok: number; semPipe: number; semMia: number }>)
 
-  const visibleLeads = verticalFilter
-    ? leads.filter(l => (l.vertical || "—") === verticalFilter)
-    : leads
+  const visibleLeads = leads.filter(l => {
+    if (verticalFilter && (l.vertical || "—") !== verticalFilter) return false
+    if (statusFilter && l.status !== statusFilter) return false
+    return true
+  })
+
+  // Anota form_values de um lead fora_sla com status de aprovação por critério SLA
+  function annotateSla(formValues: string[], vertical: string): Array<{ val: string; ok: boolean | null }> {
+    if (!slaData) return formValues.map(val => ({ val, ok: null }))
+    const slaV = vertical === "Investimentos" ? "SZI" : vertical
+    const allRows = slaData.rows.filter(r => r.vertical === slaV)
+    const activeRows = allRows.filter(r => r.status)
+    if (!activeRows.length) return formValues.map(val => ({ val, ok: null }))
+
+    const allAccepted = new Set([
+      ...activeRows.flatMap(r => r.mql_intencoes),
+      ...activeRows.flatMap(r => r.mql_faixas),
+      ...activeRows.flatMap(r => r.mql_pagamentos),
+    ])
+    const allSlaValues = new Set([
+      ...allRows.flatMap(r => r.mql_intencoes),
+      ...allRows.flatMap(r => r.mql_faixas),
+      ...allRows.flatMap(r => r.mql_pagamentos),
+    ])
+
+    return formValues.map(val => {
+      if (!allSlaValues.has(val)) return { val, ok: null }   // não é critério SLA
+      return { val, ok: allAccepted.has(val) }
+    })
+  }
 
   return (
     <div style={{ fontFamily: T.font, background: T.bg, minHeight: "100vh", padding: "24px 32px", color: T.fg }}>
@@ -553,23 +596,43 @@ export default function AuditMQL() {
 
       {/* ── ABA LEADS ────────────────────────────────────────────────────────── */}
       {tab === "leads" && <>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 12, marginBottom: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 12, marginBottom: 16 }}>
           {[
-            { label: "Leads",         value: total,      color: T.fg          },
-            { label: "OK",            value: ok,         color: T.verde600    },
-            { label: "Aguardando",    value: aguardando, color: T.primary     },
-            { label: "Sem MIA",       value: semMia,     color: T.laranja500  },
-            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive },
-          ].map(c => (
-            <div key={c.label} style={{ background: T.card, border: `1px solid ${T.border}`,
-              borderRadius: 10, padding: "12px 16px", boxShadow: T.elevSm }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: T.mutedFg,
-                textTransform: "uppercase", letterSpacing: "0.07em" }}>{c.label}</div>
-              <div style={{ fontSize: 26, fontWeight: 700, color: c.color, marginTop: 4,
-                fontVariantNumeric: "tabular-nums" }}>{c.value}</div>
-            </div>
-          ))}
+            { label: "Leads",         value: total,      color: T.fg,          status: null             as Status | null },
+            { label: "OK",            value: ok,         color: T.verde600,    status: "ok"             as Status | null },
+            { label: "Aguardando",    value: aguardando, color: T.primary,     status: "aguardando"     as Status | null },
+            { label: "Sem MIA",       value: semMia,     color: T.laranja500,  status: "sem_mia"        as Status | null },
+            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive, status: "sem_pipedrive"  as Status | null },
+            { label: "Fora SLA",      value: foraSla,    color: "#9333EA",     status: "fora_sla"       as Status | null },
+          ].map(c => {
+            const active = statusFilter === c.status && c.status !== null
+            return (
+              <div key={c.label}
+                onClick={() => c.status ? setStatusFilter(active ? null : c.status) : setStatusFilter(null)}
+                style={{ background: active ? c.color + "12" : T.card,
+                  border: `1px solid ${active ? c.color : T.border}`,
+                  borderRadius: 10, padding: "12px 16px", boxShadow: T.elevSm,
+                  cursor: c.status ? "pointer" : "default",
+                  transition: "border-color 0.15s, background 0.15s" }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: T.mutedFg,
+                  textTransform: "uppercase", letterSpacing: "0.07em" }}>{c.label}</div>
+                <div style={{ fontSize: 26, fontWeight: 700, color: c.color, marginTop: 4,
+                  fontVariantNumeric: "tabular-nums" }}>{c.value}</div>
+              </div>
+            )
+          })}
         </div>
+        {statusFilter && (
+          <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12, color: T.mutedFg }}>Filtro ativo:</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: STATUS_META[statusFilter].color,
+              border: `1px solid ${STATUS_META[statusFilter].color}55`,
+              padding: "2px 8px", borderRadius: 4 }}>{STATUS_META[statusFilter].label}</span>
+            <button onClick={() => setStatusFilter(null)}
+              style={{ background: "none", border: "none", cursor: "pointer",
+                fontSize: 12, color: T.mutedFg, padding: 0 }}>× limpar</button>
+          </div>
+        )}
 
         {Object.keys(byVertical).length > 0 && (
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -643,60 +706,121 @@ export default function AuditMQL() {
               <tbody>
                 {visibleLeads.map(lead => {
                   const st = STATUS_META[lead.status]
-                  const isPending = lead.status === "aguardando"
+                  const isPending  = lead.status === "aguardando"
+                  const isForaSla  = lead.status === "fora_sla"
+                  const isExpanded = expandedId === lead.id
+                  const hasFormValues = lead.form_values && lead.form_values.length > 0
+
                   return (
-                    <tr key={lead.id} style={{ borderBottom: `1px solid ${T.border}`, background: st.bg }}>
-                      <td style={{ padding: "10px 14px", color: T.mutedFg, fontSize: 12, whiteSpace: "nowrap" }}>
-                        {(() => { const { date, time } = fmtDateTime(lead.created_at); return <><div>{date}</div><div>{time}</div></> })()}
-                      </td>
-                      <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
-                        <div style={{ fontWeight: 600 }}>{lead.name || <span style={{ color: T.mutedFg }}>—</span>}</div>
-                        <div style={{ fontSize: 11, color: T.mutedFg }}>{lead.email}</div>
-                        {lead.phone && <div style={{ fontSize: 11, color: T.mutedFg }}>{lead.phone}</div>}
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
-                        <VerticalBadge vertical={lead.vertical || "—"} />
-                      </td>
-                      <td style={{ padding: "10px 14px", fontSize: 12, color: T.mutedFg,
-                        whiteSpace: "nowrap", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {lead.campaign_name || "—"}
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
-                        <StatusDot ok={true} label="Gerado" />
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
-                        {isPending
-                          ? <StatusDot ok={false} pending label="Verificando…" />
-                          : lead.pipedrive_deal_id
-                            ? <a href={`https://seazone-fd92b9.pipedrive.com/deal/${lead.pipedrive_deal_id}`}
-                                target="_blank" rel="noreferrer"
-                                style={{ color: T.verde600, fontSize: 12, fontWeight: 600,
-                                  textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                <CheckCircle2 size={13} /> #{lead.pipedrive_deal_id}
-                              </a>
-                            : <StatusDot ok={false} label="Não encontrado" />}
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
-                        {isPending
-                          ? <StatusDot ok={false} pending label="Verificando…" />
-                          : lead.mia_link
-                            ? <a href={lead.mia_link} target="_blank" rel="noreferrer"
-                                style={{ color: T.verde600, fontSize: 12, fontWeight: 600,
-                                  textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
-                                <CheckCircle2 size={13} /> Conversa
-                              </a>
-                            : lead.status === "sem_mia"
-                              ? <StatusDot ok={false} label="Sem conversa" />
-                              : lead.status === "sem_pipedrive"
-                                ? <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>
-                                : <StatusDot ok={false} pending label="Verificando…" />}
-                      </td>
-                      <td style={{ padding: "10px 14px" }}>
-                        <span style={{ color: st.color, border: `1px solid ${st.color}55`,
-                          padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
-                          whiteSpace: "nowrap" }}>{st.label}</span>
-                      </td>
-                    </tr>
+                    <>
+                      <tr key={lead.id}
+                        onClick={() => hasFormValues ? setExpandedId(isExpanded ? null : lead.id) : undefined}
+                        style={{ borderBottom: isExpanded ? "none" : `1px solid ${T.border}`,
+                          background: st.bg, cursor: hasFormValues ? "pointer" : "default",
+                          transition: "filter 0.1s" }}>
+                        <td style={{ padding: "10px 14px", color: T.mutedFg, fontSize: 12, whiteSpace: "nowrap" }}>
+                          {(() => { const { date, time } = fmtDateTime(lead.created_at); return <><div>{date}</div><div>{time}</div></> })()}
+                        </td>
+                        <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
+                          <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                            {lead.name || <span style={{ color: T.mutedFg }}>—</span>}
+                            {hasFormValues && (
+                              <ChevronDown size={13} color={T.mutedFg}
+                                style={{ transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
+                            )}
+                          </div>
+                          <div style={{ fontSize: 11, color: T.mutedFg }}>{lead.email}</div>
+                          {lead.phone && <div style={{ fontSize: 11, color: T.mutedFg }}>{lead.phone}</div>}
+                        </td>
+                        <td style={{ padding: "10px 14px" }}>
+                          <VerticalBadge vertical={lead.vertical || "—"} />
+                        </td>
+                        <td style={{ padding: "10px 14px", fontSize: 12, color: T.mutedFg,
+                          whiteSpace: "nowrap", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {lead.campaign_name || "—"}
+                        </td>
+                        <td style={{ padding: "10px 14px" }}>
+                          <StatusDot ok={true} label="Gerado" />
+                        </td>
+                        <td style={{ padding: "10px 14px" }}>
+                          {isForaSla
+                            ? <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>
+                            : isPending
+                              ? <StatusDot ok={false} pending label="Verificando…" />
+                              : lead.pipedrive_deal_id
+                                ? <a href={`https://seazone-fd92b9.pipedrive.com/deal/${lead.pipedrive_deal_id}`}
+                                    target="_blank" rel="noreferrer"
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ color: T.verde600, fontSize: 12, fontWeight: 600,
+                                      textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                    <CheckCircle2 size={13} /> #{lead.pipedrive_deal_id}
+                                  </a>
+                                : <StatusDot ok={false} label="Não encontrado" />}
+                        </td>
+                        <td style={{ padding: "10px 14px" }}>
+                          {isForaSla
+                            ? <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>
+                            : isPending
+                              ? <StatusDot ok={false} pending label="Verificando…" />
+                              : lead.mia_link
+                                ? <a href={lead.mia_link} target="_blank" rel="noreferrer"
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ color: T.verde600, fontSize: 12, fontWeight: 600,
+                                      textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                    <CheckCircle2 size={13} /> Conversa
+                                  </a>
+                                : lead.status === "sem_mia"
+                                  ? <StatusDot ok={false} label="Sem conversa" />
+                                  : lead.status === "sem_pipedrive"
+                                    ? <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>
+                                    : <StatusDot ok={false} pending label="Verificando…" />}
+                        </td>
+                        <td style={{ padding: "10px 14px" }}>
+                          <span style={{ color: st.color, border: `1px solid ${st.color}55`,
+                            padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
+                            whiteSpace: "nowrap" }}>{st.label}</span>
+                        </td>
+                      </tr>
+
+                      {/* Detalhe expandido — respostas do formulário */}
+                      {isExpanded && hasFormValues && (
+                        <tr key={`${lead.id}-detail`} style={{ background: st.bg, borderBottom: `1px solid ${T.border}` }}>
+                          <td colSpan={8} style={{ padding: "0 14px 14px 14px" }}>
+                            <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12, marginTop: 0 }}>
+                              {isForaSla && (
+                                <div style={{ display: "inline-flex", alignItems: "center", gap: 6,
+                                  background: "#FDF4FF", border: "1px solid #9333EA55",
+                                  borderRadius: 6, padding: "5px 10px", marginBottom: 10, fontSize: 12 }}>
+                                  <span style={{ color: "#9333EA", fontWeight: 700 }}>⚠ Fora do SLA</span>
+                                  <span style={{ color: T.mutedFg }}>— respostas não se encaixam em nenhum empreendimento ativo</span>
+                                </div>
+                              )}
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.mutedFg,
+                                textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+                                Respostas do formulário
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {annotateSla(lead.form_values!, lead.vertical || "").map(({ val, ok: valOk }, i) => (
+                                  <span key={i} style={{
+                                    fontSize: 12, padding: "3px 10px", borderRadius: 4,
+                                    background: valOk === false ? "#FEF2F2"
+                                              : valOk === true  ? "#F0FDF4"
+                                              : T.muted,
+                                    border: `1px solid ${valOk === false ? T.destructive + "44"
+                                                       : valOk === true  ? T.verde600 + "44"
+                                                       : T.border}`,
+                                    color: valOk === false ? T.destructive
+                                         : valOk === true  ? T.verde600
+                                         : T.fg,
+                                    fontWeight: valOk === false ? 700 : 400,
+                                  }}>{val}</span>
+                                ))}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   )
                 })}
               </tbody>
@@ -712,10 +836,38 @@ export default function AuditMQL() {
       {/* ── ABA SOBRE ────────────────────────────────────────────────────────── */}
       {tab === "sobre" && (
         <div style={{ maxWidth: 760, display: "flex", flexDirection: "column", gap: 20 }}>
+
+          {/* Alerta token expirando — dinâmico */}
+          {(() => {
+            const daysLeft = Math.ceil((META_TOKEN_EXPIRES.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+            if (daysLeft > 30) return null
+            const critical = daysLeft <= 5
+            const expired  = daysLeft <= 0
+            const bg    = expired || critical ? "#FEF2F2" : "#FFF7ED"
+            const color = expired || critical ? T.destructive : T.laranja500
+            const icon  = expired ? "🚨" : critical ? "🚨" : "⚠️"
+            const title = expired
+              ? "Token Meta EXPIRADO — sistema parado!"
+              : critical
+                ? `Token Meta expira em ${daysLeft} dia${daysLeft !== 1 ? "s" : ""}! Ação urgente`
+                : `Token Meta expira em ${daysLeft} dias (05/05/2026)`
+            return (
+              <div style={{ background: bg, border: `1px solid ${color}55`, borderRadius: 10, padding: "14px 20px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <span style={{ fontSize: 20, flexShrink: 0 }}>{icon}</span>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color, marginBottom: 4 }}>{title}</div>
+                  <div style={{ fontSize: 12, color: T.mutedFg, lineHeight: 1.6 }}>
+                    O <strong>META_ADS_TOKEN</strong> é usado por <strong>saleszone</strong> (audit-mql, campanhas, recovery) e <strong>artefatos-growth</strong> (gestão de campanhas, criativos, alocação, pausar anúncios). Quando expira, ambos os projetos param de funcionar. Ver passo a passo de renovação abaixo.
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 700 }}>O que é o Audit MQL</h2>
             <p style={{ margin: 0, fontSize: 13, color: T.mutedFg, lineHeight: 1.7 }}>
-              Sistema de monitoramento em tempo real que rastreia cada lead gerado pelos formulários do Meta Ads (Lead Gen) da Seazone e verifica se foi processado corretamente — passando pelo CRM Pipedrive e pelo atendimento via Morada IA (MIA).
+              Sistema de monitoramento em tempo real que rastreia cada lead gerado pelos formulários do Meta Ads (Lead Gen) da Seazone e verifica se foi processado corretamente — passando pelo CRM Pipedrive e pelo atendimento via Morada IA (MIA). Inclui verificação de SLA (se o lead atende aos critérios dos empreendimentos ativos) e recovery automático de leads perdidos.
             </p>
           </div>
 
@@ -723,11 +875,13 @@ export default function AuditMQL() {
             <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Como funciona</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {[
-                { step: "1", title: "Lead gerado no Meta Ads", desc: "Quando alguém preenche um formulário de Lead Gen, o Meta envia os dados em tempo real via webhook para este sistema." },
+                { step: "1", title: "Lead gerado no Meta Ads", desc: "Quando alguém preenche um formulário Lead Gen, o Meta envia os dados em tempo real via webhook para este sistema. Páginas inscritas: Seazone, Seazone Marketplace, Seazone Investimentos, Anfitrião Seazone, Vistas de Anitá, Seazone Rentals." },
                 { step: "2", title: "Registro imediato", desc: "O lead é registrado com status \"Aguardando\" e aparece na tabela em até segundos. Atualiza automaticamente a cada 30s enquanto você está no dia de hoje." },
-                { step: "3", title: "Verificação no Pipedrive (2 min depois)", desc: "Após 2 minutos, o sistema busca a pessoa no Pipedrive pelo e-mail e telefone. Se não encontrar deal, classifica como \"Sem Pipedrive\" e envia alerta no Slack." },
-                { step: "4", title: "Verificação da Morada IA", desc: "Se o deal existe, o sistema verifica se o campo \"Link da Conversa\" foi preenchido pela Morada IA. Se vazio, classifica como \"Sem MIA\" e envia alerta." },
-                { step: "5", title: "Status final OK", desc: "Se tudo certo — deal no Pipedrive e link da conversa preenchido — o lead vira \"OK\"." },
+                { step: "3", title: "Verificação no Pipedrive (7 min depois)", desc: "Após 7 minutos (aguarda índice de busca do Pipedrive), o sistema busca a pessoa por e-mail e telefone. Se não encontrar deal, classifica como \"Sem Pipedrive\" e envia alerta no Slack." },
+                { step: "4", title: "Verificação SLA", desc: "Se o deal existe, verifica se as respostas do formulário atendem aos critérios SLA de pelo menos um empreendimento ativo. Se não atendem, classifica como \"Fora SLA\". Clique na linha para ver quais respostas causaram a reprovação." },
+                { step: "5", title: "Verificação da Morada IA", desc: "Se passou no SLA, verifica se o campo \"Link da Conversa\" foi preenchido pela Morada IA. Se vazio, classifica como \"Sem MIA\" e envia alerta. Re-verifica a cada request por até 4h desde a criação do lead." },
+                { step: "6", title: "Status final OK", desc: "Lead com deal no Pipedrive, dentro do SLA e com conversa MIA preenchida." },
+                { step: "7", title: "Recovery automático (a cada 30 min)", desc: "Um cron roda a cada 30 minutos buscando leads diretamente na Meta API. Leads que chegaram no Meta mas falharam no webhook são recuperados automaticamente e já entram na fila de verificação Pipedrive/SLA/MIA." },
               ].map(({ step, title, desc }) => (
                 <div key={step} style={{ display: "flex", gap: 14 }}>
                   <div style={{ width: 28, height: 28, borderRadius: "50%", background: T.primary,
@@ -746,10 +900,11 @@ export default function AuditMQL() {
             <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Status dos leads</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                { label: "AGUARDANDO",    color: T.primary,    desc: "Lead recém-chegado. Aguardando 2 minutos para verificação no Pipedrive." },
-                { label: "OK",            color: T.verde600,   desc: "Lead encontrado no Pipedrive com deal e atendido pela Morada IA." },
-                { label: "SEM MIA",       color: T.laranja500, desc: "Deal existe no Pipedrive, mas o campo \"Link da Conversa\" não foi preenchido. Alerta enviado no Slack." },
-                { label: "SEM PIPEDRIVE", color: T.destructive,desc: "Lead não encontrado no Pipedrive 2 minutos após o registro. Alerta enviado no Slack." },
+                { label: "AGUARDANDO",    color: T.primary,    desc: "Lead recém-chegado. Aguardando 7 minutos para verificação no Pipedrive (tempo necessário para o índice de busca do Pipedrive indexar o novo deal)." },
+                { label: "OK",            color: T.verde600,   desc: "Lead encontrado no Pipedrive, dentro do SLA e com conversa MIA preenchida." },
+                { label: "SEM MIA",       color: T.laranja500, desc: "Deal existe no Pipedrive, mas o campo \"Link da Conversa\" não foi preenchido pela Morada IA. Alerta enviado no Slack. Re-verificado por até 4h." },
+                { label: "SEM PIPEDRIVE", color: T.destructive,desc: "Lead não encontrado no Pipedrive 7 minutos após o registro. Alerta enviado no Slack." },
+                { label: "FORA SLA",      color: "#9333EA",    desc: "Lead tem deal e MIA, mas as respostas do formulário não atendem aos critérios SLA de nenhum empreendimento ativo. Clique na linha para ver as respostas destacadas." },
               ].map(({ label, color, desc }) => (
                 <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color,
@@ -762,13 +917,113 @@ export default function AuditMQL() {
           </div>
 
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 4px", fontSize: 15, fontWeight: 700 }}>Como renovar o META_ADS_TOKEN</h2>
+            <p style={{ margin: "0 0 16px", fontSize: 12, color: T.mutedFg, lineHeight: 1.6 }}>
+              Afeta <strong>saleszone</strong> e <strong>artefatos-growth</strong> — atualizar nos dois.
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {[
+                { step: "1", title: "Acesse Meta Business Manager", desc: "business.facebook.com → entre com a conta da Seazone" },
+                { step: "2", title: "Vá em Usuários do Sistema", desc: "Configurações (ícone engrenagem) → Usuários do sistema → selecione o usuário que tem o token atual" },
+                { step: "3", title: "Gere novo token", desc: "Clique em \"Gerar novo token\" → selecione o App (Meta app que recebe os webhooks) → marque as permissões: leads_retrieval, pages_manage_ads, pages_read_engagement, ads_read, ads_management → defina expiração como 60 dias → copie o token gerado" },
+                { step: "4", title: "Atualize no Vercel — saleszone", desc: "vercel.com → projeto saleszone → Settings → Environment Variables → META_ADS_TOKEN → editar valor → salvar → fazer redeploy (ou aguardar próximo push)" },
+                { step: "5", title: "Atualize no Vercel — artefatos-growth", desc: "vercel.com → projeto artefatos-growth-seazone → Settings → Environment Variables → META_ADS_TOKEN → editar valor → salvar → redeploy" },
+                { step: "6", title: "Atualize a data de expiração no código", desc: "Em saleszone/src/app/growth/audit-mql/page.tsx, linha com META_TOKEN_EXPIRES → altere para a nova data de expiração (disponível no Meta Business Manager após gerar o token)" },
+                { step: "7", title: "Verifique", desc: "Acesse saleszone.vercel.app/growth/audit-mql → aba Sobre → o alerta deve sumir. Teste também uma busca no artefatos-growth para confirmar que as campanhas carregam." },
+              ].map(({ step, title, desc }) => (
+                <div key={step} style={{ display: "flex", gap: 12 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: "50%", background: T.mutedFg,
+                    color: "#fff", fontSize: 11, fontWeight: 700, flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center" }}>{step}</div>
+                  <div style={{ paddingTop: 2 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 1 }}>{title}</div>
+                    <div style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.6 }}>{desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Credenciais e validade</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {[
+                {
+                  name: "META_ADS_TOKEN",
+                  type: "System User Token (Meta Business Manager)",
+                  expires: "05/05/2026 ⚠️",
+                  expiresColor: T.laranja500,
+                  where: "Meta Business Manager → Configurações → Usuários do sistema → Gerar novo token",
+                  update: "Vercel → saleszone → Settings → Environment Variables",
+                },
+                {
+                  name: "META_WEBHOOK_VERIFY_TOKEN",
+                  type: "String estática: \"audit_mql_seazone\"",
+                  expires: "Não expira",
+                  expiresColor: T.verde600,
+                  where: "Configurado no Meta for Developers → App → Webhooks",
+                  update: "Não precisa atualizar",
+                },
+                {
+                  name: "PIPEDRIVE_API_TOKEN",
+                  type: "API Token de conta de usuário Pipedrive",
+                  expires: "Não expira (revogado apenas se o usuário for desativado)",
+                  expiresColor: T.verde600,
+                  where: "Pipedrive → Configurações → Pessoal → API",
+                  update: "Vercel → saleszone → Settings → Environment Variables",
+                },
+                {
+                  name: "SLACK_WEBHOOK_AUDIT_MQL",
+                  type: "Incoming Webhook URL do Slack",
+                  expires: "Não expira (revogado apenas se o app Slack for deletado)",
+                  expiresColor: T.verde600,
+                  where: "Slack API → Your Apps → Incoming Webhooks",
+                  update: "Vercel → saleszone → Settings → Environment Variables",
+                },
+                {
+                  name: "CRON_SECRET",
+                  type: "String aleatória para autenticar chamadas internas de cron",
+                  expires: "Não expira (rotação manual se necessário)",
+                  expiresColor: T.verde600,
+                  where: "Gerado manualmente",
+                  update: "Vercel → saleszone → Env Variables + GitHub → seazone-socios/saleszone → Settings → Secrets",
+                },
+              ].map(({ name, type, expires, expiresColor, where, update }) => (
+                <div key={name} style={{ background: T.muted, borderRadius: 8, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <code style={{ fontSize: 12, fontWeight: 700, background: T.border, padding: "2px 6px", borderRadius: 3 }}>{name}</code>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: expiresColor }}>{expires}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.7 }}>
+                    <div><strong>Tipo:</strong> {type}</div>
+                    <div><strong>Onde renovar:</strong> {where}</div>
+                    <div><strong>Onde atualizar:</strong> {update}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Webhook Meta — configuração</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              <div><strong style={{ color: T.fg }}>URL:</strong> <code>https://saleszone.vercel.app/api/growth/audit-mql/webhook</code></div>
+              <div><strong style={{ color: T.fg }}>Verify Token:</strong> <code>audit_mql_seazone</code></div>
+              <div><strong style={{ color: T.fg }}>Evento:</strong> <code>leadgen</code></div>
+              <div><strong style={{ color: T.fg }}>Páginas inscritas (6):</strong> Seazone, Seazone Marketplace, Seazone Investimentos, Anfitrião Seazone, Vistas de Anitá, Seazone Rentals</div>
+              <div><strong style={{ color: T.fg }}>Para adicionar página:</strong> Meta for Developers → seu App → Webhooks → Leadgen → assinar a página nova</div>
+              <div><strong style={{ color: T.fg }}>Para alterar URL:</strong> Meta for Developers → seu App → Webhooks → editar endpoint (afeta todas as páginas inscritas)</div>
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
             <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Integrações</h2>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {[
-                { name: "Meta Ads (Lead Gen)",   desc: "Recebe leads via webhook. Páginas: Seazone, Seazone Marketplace, Seazone Investimentos." },
-                { name: "Pipedrive",             desc: "Busca person por e-mail e telefone, verifica deal e lê o campo da Morada IA." },
-                { name: "Morada IA",             desc: "Verifica se o campo \"Link da Conversa\" foi preenchido no deal após atendimento automático." },
-                { name: "Slack",                 desc: "Alertas individuais e resumo diário no canal #avaliação-diaria-mql." },
+                { name: "Meta Ads (Lead Gen)", desc: "Webhook em tempo real + recovery a cada 30min via Meta Graph API. 6 páginas inscritas." },
+                { name: "Pipedrive", desc: "Busca person por e-mail e telefone (com fallback sem código de país). Verifica deal e campo MIA." },
+                { name: "Morada IA", desc: "Verifica campo \"Link da Conversa\" no deal do Pipedrive. Re-verifica por até 4h se ainda vazio." },
+                { name: "Slack (#avaliação-diaria-mql)", desc: "Alertas individuais por lead problemático + resumo diário às 08h BRT." },
               ].map(({ name, desc }) => (
                 <div key={name} style={{ background: T.muted, borderRadius: 8, padding: "12px 14px" }}>
                   <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>{name}</div>
