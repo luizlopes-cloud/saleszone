@@ -1,5 +1,4 @@
 // Verificação de leads pendentes — roda via GitHub Actions a cada 15min (fallback)
-// Processa hoje E ontem (leads que chegam tarde da noite)
 
 import { NextRequest, NextResponse } from "next/server"
 import { dateKey, readLeads, writeLeads } from "@/lib/audit-mql"
@@ -16,17 +15,12 @@ export async function POST(req: NextRequest) {
   }
 
   const today = dateKey()
-  const yesterday = (() => {
-    const d = new Date(Date.now() - 3 * 60 * 60 * 1000)
-    d.setDate(d.getDate() - 1)
-    return d.toISOString().slice(0, 10)
-  })()
 
   const body = await req.json().catch(() => ({}))
 
   // POST com { dedup: true } — remove duplicatas por leadgen_id do blob
   if (body.dedup) {
-    const dates: string[] = body.dates || [today, yesterday]
+    const dates: string[] = body.dates || [today]
     const results: Record<string, { before: number; after: number; removed: number }> = {}
     for (const d of dates) {
       const leads = await readLeads(d)
@@ -53,14 +47,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ recheck_sla: results, ts: new Date().toISOString() })
   }
 
-  const [r1, r2] = await Promise.all([runCheck(yesterday), runCheck(today)])
+  const r = await runCheck(today)
 
   // recheckSla garante que leads já classificados são reavaliados quando o SLA muda
-  const [s1, s2] = await Promise.all([recheckSla(yesterday), recheckSla(today)])
+  const s = await recheckSla(today)
 
   return NextResponse.json({
-    [yesterday]: { ...r1, sla_recheck: s1 },
-    [today]:     { ...r2, sla_recheck: s2 },
+    [today]: { ...r, sla_recheck: s },
     ts: new Date().toISOString(),
   })
 }
