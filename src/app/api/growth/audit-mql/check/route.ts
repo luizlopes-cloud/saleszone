@@ -38,13 +38,15 @@ export async function POST(req: NextRequest) {
   }
 
   // POST com { recheck_sla: true } re-avalia SLA de todos os leads retroativamente
+  // Adicionar { dry: true } para preview sem gravar
   if (body.recheck_sla) {
     const dates: string[] = body.dates || [today]
-    const results: Record<string, { total: number; fixed: number }> = {}
+    const dry = body.dry === true
+    const results: Record<string, { total: number; fixed: number; changes: unknown[] }> = {}
     for (const d of dates) {
-      results[d] = await recheckSla(d)
+      results[d] = await recheckSla(d, dry)
     }
-    return NextResponse.json({ recheck_sla: results, ts: new Date().toISOString() })
+    return NextResponse.json({ recheck_sla: results, dry, ts: new Date().toISOString() })
   }
 
   const r = await runCheck(today)
