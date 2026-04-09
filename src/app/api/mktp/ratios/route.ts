@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
     const dealRows = await paginate((o, ps) => {
       const q = admin
         .from("mktp_deals")
-        .select("canal, add_time, rd_source, is_marketing, max_stage_order, status")
+        .select("canal, add_time, rd_source, is_marketing, max_stage_order, status, lost_reason")
         .not("canal", "is", null)
         .gte("add_time", startDate)
         .range(o, o + ps - 1);
@@ -88,6 +88,7 @@ export async function GET(req: NextRequest) {
 
     const empDaily: Record<string, Record<string, Record<string, number>>> = {};
     for (const d of dealRows) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
       const isMarketing = d.is_marketing || d.canal === "12";
       if (!isMarketing) continue;
       const rdLower = (d.rd_source || "").toLowerCase();

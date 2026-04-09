@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
       const tabThreshold: Record<string, number> = { mql: 2, sql: 5, opp: 9, won: 14 };
       const threshold = tabThreshold[tab] ?? 0;
       for (const d of rows) {
+        if (d.lost_reason === "Duplicado/Erro") continue;
         if (d.status === "won" && tab !== "won") continue;
         if (d.status !== "won" && (d.max_stage_order || 0) < threshold) continue;
 
