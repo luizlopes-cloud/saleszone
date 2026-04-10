@@ -302,6 +302,13 @@ async function getBaserowToken(): Promise<string | null> {
 }
 
 export async function enrichBaserow(leads: LeadRecord[]): Promise<boolean> {
+  // Limpa in_baserow de leads anteriores ao BASEROW_START (marcados false pelo sync quebrado)
+  for (const l of leads) {
+    if (l.created_at < BASEROW_START && l.in_baserow !== undefined) {
+      l.in_baserow = undefined
+    }
+  }
+
   const now = Date.now()
   const TWO_MIN = 2 * 60 * 1000
   const toCheck = leads.filter(l => {
