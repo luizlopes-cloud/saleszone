@@ -353,7 +353,7 @@ export default function AuditMQL() {
   const [log, setLog]               = useState<LogEntry[]>([])
   const [logLoading, setLogLoading] = useState(false)
   const [verticalFilter, setVerticalFilter] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter]     = useState<Status | "sem_baserow" | null>(null)
+  const [statusFilter, setStatusFilter]     = useState<Status | "sem_baserow" | "sem_nekt" | null>(null)
   const [expandedId, setExpandedId]         = useState<string | null>(null)
   const [slaData, setSlaData]               = useState<SlaData | null>(null)
   const [recovering, setRecovering]         = useState(false)
@@ -465,6 +465,7 @@ export default function AuditMQL() {
   const semPipe     = leads.filter(l => l.status === "sem_pipedrive").length
   const foraSla     = leads.filter(l => l.status === "fora_sla").length
   const semBaserow  = leads.filter(l => l.in_baserow === false).length
+  const semNekt     = leads.filter(l => l.nekt_status === "nao_encontrado").length
 
   const byVertical = leads.reduce((acc, l) => {
     const v = l.vertical || "—"
@@ -480,6 +481,7 @@ export default function AuditMQL() {
   const visibleLeads = leads.filter(l => {
     if (verticalFilter && (l.vertical || "—") !== verticalFilter) return false
     if (statusFilter === "sem_baserow") return l.in_baserow === false
+    if (statusFilter === "sem_nekt")    return l.nekt_status === "nao_encontrado"
     if (statusFilter && l.status !== statusFilter) return false
     return true
   })
@@ -635,16 +637,17 @@ export default function AuditMQL() {
 
       {/* ── ABA LEADS ────────────────────────────────────────────────────────── */}
       {tab === "leads" && <>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 10, marginBottom: 16 }}>
-          {[
-            { label: "Leads",         value: total,      color: T.fg,          status: null               as Status | "sem_baserow" | null, desc: "Total de leads no dia" },
-            { label: "OK",            value: ok,         color: T.verde600,    status: "ok"               as Status | "sem_baserow" | null, desc: "Pipedrive + MIA ok" },
-            { label: "Aguardando",    value: aguardando, color: T.primary,     status: "aguardando"       as Status | "sem_baserow" | null, desc: "Aguardando verificação" },
-            { label: "Sem MIA",       value: semMia,     color: T.laranja500,  status: "sem_mia"          as Status | "sem_baserow" | null, desc: "Sem link de conversa MIA" },
-            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive, status: "sem_pipedrive"    as Status | "sem_baserow" | null, desc: "Não encontrado no Pipe" },
-            { label: "Sem Baserow",   value: semBaserow, color: "#DC2626",     status: "sem_baserow"      as Status | "sem_baserow" | null, desc: "Não chegou no Baserow" },
-            { label: "Fora SLA",      value: foraSla,    color: "#9333EA",     status: "fora_sla"         as Status | "sem_baserow" | null, desc: "Fora dos critérios SLA" },
-          ].map(c => {
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 10, marginBottom: 16 }}>
+          {([
+            { label: "Leads",         value: total,      color: T.fg,          status: null,            desc: "Total de leads no dia" },
+            { label: "OK",            value: ok,         color: T.verde600,    status: "ok",            desc: "Pipedrive + MIA ok" },
+            { label: "Aguardando",    value: aguardando, color: T.primary,     status: "aguardando",    desc: "Aguardando verificação" },
+            { label: "Sem MIA",       value: semMia,     color: T.laranja500,  status: "sem_mia",       desc: "Sem link de conversa MIA" },
+            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive, status: "sem_pipedrive", desc: "Não encontrado no Pipe" },
+            { label: "Sem Baserow",   value: semBaserow, color: "#DC2626",     status: "sem_baserow",   desc: "Não chegou no Baserow" },
+            { label: "Sem Nekt",      value: semNekt,    color: "#B45309",     status: "sem_nekt",      desc: "Deal não encontrado na Nekt" },
+            { label: "Fora SLA",      value: foraSla,    color: "#9333EA",     status: "fora_sla",      desc: "Fora dos critérios SLA" },
+          ] as { label: string; value: number; color: string; status: Status | "sem_baserow" | "sem_nekt" | null; desc: string }[]).map(c => {
             const active = statusFilter === c.status && c.status !== null
             return (
               <div key={c.label}
@@ -666,6 +669,8 @@ export default function AuditMQL() {
         {statusFilter && (() => {
           const meta = statusFilter === "sem_baserow"
             ? { color: "#DC2626", label: "SEM BASEROW" }
+            : statusFilter === "sem_nekt"
+            ? { color: "#B45309", label: "SEM NEKT" }
             : STATUS_META[statusFilter]
           return (
             <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
