@@ -12,22 +12,34 @@ def test_create_slot(client, mock_supabase):
     mock_supabase.return_value = [{"id": "new-id", "day_of_week": 2}]
     resp = client.post("/api/slots/", json={
         "day_of_week": 2, "time": "15:00", "duration_minutes": 60,
-        "max_participants": 50, "presenter_email": "joao@seazone.com.br"
+        "max_participants": 50, "presenter_email": "joao@seazone.com.br",
+        "closer_id": "closer-uuid-123"
     })
     assert resp.status_code == 201
+
+
+def test_create_slot_missing_closer_id(client, mock_supabase):
+    resp = client.post("/api/slots/", json={
+        "day_of_week": 2, "time": "15:00", "duration_minutes": 60,
+        "max_participants": 50, "presenter_email": "joao@seazone.com.br"
+        # closer_id omitted
+    })
+    assert resp.status_code == 400
 
 
 def test_create_slot_invalid_email(client, mock_supabase):
     resp = client.post("/api/slots/", json={
         "day_of_week": 2, "time": "15:00", "duration_minutes": 60,
-        "max_participants": 50, "presenter_email": "external@gmail.com"
+        "max_participants": 50, "presenter_email": "external@gmail.com",
+        "closer_id": "closer-uuid-123"
     })
     assert resp.status_code == 400
 
 
 def test_create_slot_missing_fields(client, mock_supabase):
     resp = client.post("/api/slots/", json={
-        "day_of_week": 2, "presenter_email": "joao@seazone.com.br"
+        "day_of_week": 2, "presenter_email": "joao@seazone.com.br",
+        "closer_id": "closer-uuid-123"
     })
     assert resp.status_code == 400
 
@@ -35,7 +47,8 @@ def test_create_slot_missing_fields(client, mock_supabase):
 def test_create_slot_invalid_day_of_week(client, mock_supabase):
     resp = client.post("/api/slots/", json={
         "day_of_week": 7, "time": "15:00", "duration_minutes": 60,
-        "max_participants": 50, "presenter_email": "joao@seazone.com.br"
+        "max_participants": 50, "presenter_email": "joao@seazone.com.br",
+        "closer_id": "closer-uuid-123"
     })
     assert resp.status_code == 400
 

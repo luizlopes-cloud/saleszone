@@ -35,6 +35,26 @@ def test_list_available_sessions(client, mock_supabase):
     assert resp.status_code == 200
 
 
+def test_list_available_sessions_with_closer_slug(client, mock_supabase):
+    closer = {"id": "closer-uuid", "slug": "gabriela-lemos", "is_active": True}
+    session = {"id": "s1", "date": "2026-04-10", "status": "scheduled",
+               "slot_id": "slot1", "starts_at": "2026-04-10T14:30:00-03:00",
+               "registrations_count": 0, "closer_id": "closer-uuid"}
+    slot = {"id": "slot1", "max_participants": 50}
+    with patch("routes.sessions.db.select") as mock_select:
+        # Calls: closers, sessions, slots
+        mock_select.side_effect = [[closer], [session], [slot]]
+        resp = client.get("/api/sessions/available?date=2026-04-10&closer_slug=gabriela-lemos")
+    assert resp.status_code == 200
+
+
+def test_list_available_sessions_closer_slug_not_found(client, mock_supabase):
+    with patch("routes.sessions.db.select") as mock_select:
+        mock_select.return_value = []  # closer not found
+        resp = client.get("/api/sessions/available?date=2026-04-10&closer_slug=nonexistent")
+    assert resp.status_code == 404
+
+
 def test_list_available_sessions_no_date(client, mock_supabase):
     resp = client.get("/api/sessions/available")
     assert resp.status_code == 400

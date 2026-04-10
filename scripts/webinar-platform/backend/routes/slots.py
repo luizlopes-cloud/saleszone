@@ -61,13 +61,19 @@ def _cascade_deactivate_slot(slot_id):
 
 @bp.route("/", methods=["GET"])
 def list_slots():
-    slots = db.select("webinar_slots", order="day_of_week,time") or []
+    closer_id = request.args.get("closer_id")
+    filters = {}
+    if closer_id:
+        filters["closer_id"] = f"eq.{closer_id}"
+    slots = db.select("webinar_slots", filters=filters or None, order="day_of_week,time") or []
     return jsonify(slots), 200
 
 
 @bp.route("/", methods=["POST"])
 def create_slot():
     data = request.get_json(silent=True) or {}
+    if "closer_id" not in data:
+        return jsonify({"error": "Campo obrigatório ausente: closer_id"}), 400
     error = _validate_slot_data(data, require_all=True)
     if error:
         return jsonify({"error": error}), 400
