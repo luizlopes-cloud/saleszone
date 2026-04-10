@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
     let reset = 0
     for (const l of leads) {
       if (emails.includes(l.email)) {
-        delete (l as Record<string, unknown>).in_baserow
+        l.in_baserow = undefined
         reset++
       }
     }
