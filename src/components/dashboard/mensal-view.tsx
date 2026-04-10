@@ -16,6 +16,7 @@ interface MensalMonth {
     mqlToSql: number;
     sqlToOpp: number;
     oppToWon: number;
+    mqlToWon: number;
   };
 }
 
@@ -163,6 +164,7 @@ export function MensalView({ data, loading, lastUpdated }: Props) {
                 <th style={{ ...thStyle, textAlign: "right" }}>MQL→SQL</th>
                 <th style={{ ...thStyle, textAlign: "right" }}>SQL→OPP</th>
                 <th style={{ ...thStyle, textAlign: "right" }}>OPP→WON</th>
+                <th style={{ ...thStyle, textAlign: "right" }}>MQL→WON</th>
               </tr>
             </thead>
             <tbody>
@@ -192,6 +194,9 @@ export function MensalView({ data, loading, lastUpdated }: Props) {
                     </td>
                     <td style={{ ...tdStyle, textAlign: "right", color: convColor(m.conversions.oppToWon, avgOppToWon) }}>
                       {pct(m.conversions.oppToWon)}
+                    </td>
+                    <td style={{ ...tdStyle, textAlign: "right", color: convColor(m.conversions.mqlToWon, avgMqlToWon) }}>
+                      {pct(m.conversions.mqlToWon)}
                     </td>
                   </tr>
                 );
@@ -223,6 +228,9 @@ export function MensalView({ data, loading, lastUpdated }: Props) {
                 </td>
                 <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: T.cinza600 }}>
                   {pct(avgOppToWon)}
+                </td>
+                <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: T.cinza600 }}>
+                  {pct(avgMqlToWon)}
                 </td>
               </tr>
             </tbody>
