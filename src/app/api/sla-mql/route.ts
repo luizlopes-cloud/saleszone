@@ -14,10 +14,23 @@ export type SlaRow = {
   mql_pagamentos: string[]
 }
 
+function migrateFaixas(rows: SlaRow[]): { rows: SlaRow[]; changed: boolean } {
+  const OLD = "À vista via PIX ou boleto"
+  const NEW = "Não consigo atender a essas condições"
+  let changed = false
+  for (const r of rows) {
+    const idx = r.mql_faixas.indexOf(OLD)
+    if (idx !== -1) { r.mql_faixas[idx] = NEW; changed = true }
+  }
+  return { rows, changed }
+}
+
 export async function GET() {
   try {
     const data = await readData()
-    return NextResponse.json({ rows: data.rows, forms: data.forms })
+    const { rows, changed } = migrateFaixas(data.rows)
+    if (changed) await writeData({ ...data, rows })
+    return NextResponse.json({ rows, forms: data.forms })
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 })
   }
