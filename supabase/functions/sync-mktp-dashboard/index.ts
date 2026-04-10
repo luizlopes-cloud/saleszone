@@ -1,5 +1,46 @@
 // MKTP (Marketplace) module — auto-generated from SZI equivalent
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_REF = "cncistmevwwghtaiyaao";
+
+// params uses array of [key, value] pairs to support duplicate keys (e.g. date=gte&date=lte)
+async function restDelete(svcKey: string, table: string, params: [string, string][]): Promise<{ error: string | null }> {
+  const url = new URL(`https://${SUPABASE_REF}.supabase.co/rest/v1/${table}`);
+  for (const [k, v] of params) {
+    url.searchParams.append(k, v);
+  }
+  const res = await fetch(url.toString(), {
+    method: "DELETE",
+    headers: { "apikey": svcKey, "Authorization": `Bearer ${svcKey}` },
+  });
+  if (!res.ok) { const body = await res.text(); return { error: `${res.status} ${body}` }; }
+  return { error: null };
+}
+
+async function restInsert(svcKey: string, table: string, rows: any[]): Promise<{ error: string | null; inserted: number }> {
+  if (rows.length === 0) return { error: null, inserted: 0 };
+  const res = await fetch(`https://${SUPABASE_REF}.supabase.co/rest/v1/${table}`, {
+    method: "POST",
+    headers: { "apikey": svcKey, "Authorization": `Bearer ${svcKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify(rows),
+  });
+  if (res.status === 201) return { error: null, inserted: rows.length };
+  const body = await res.text();
+  return { error: `${res.status} ${body.substring(0, 200)}`, inserted: 0 };
+}
+
+async function restUpsert(svcKey: string, table: string, rows: any[], onConflict: string): Promise<{ error: string | null; inserted: number }> {
+  if (rows.length === 0) return { error: null, inserted: 0 };
+  const res = await fetch(`https://${SUPABASE_REF}.supabase.co/rest/v1/${table}?on_conflict=${onConflict}`, {
+    method: "POST",
+    headers: { "apikey": svcKey, "Authorization": `Bearer ${svcKey}`, "Content-Type": "application/json", "Prefer": `resolution=merge-duplicates` },
+    body: JSON.stringify(rows),
+  });
+  if (res.ok) return { error: null, inserted: rows.length };
+  const body = await res.text();
+  return { error: `${res.status} ${body.substring(0, 200)}`, inserted: 0 };
+}
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -182,7 +223,7 @@ function countDeals(
 }
 
 // ---- Write counts to DB ----
-async function writeDailyCounts(supabase: any, countsPerTab: Record<Tab, Map<string, number>>, startDate: string, endDate: string, source: string) {
+async function writeDailyCounts(svcKey: string, countsPerTab: Record<Tab, Map<string, number>>, startDate: string, endDate: string, source: string) {
   const result: Record<string, number> = {};
   for (const tab of TABS) {
     const final = countsPerTab[tab];
@@ -192,22 +233,23 @@ async function writeDailyCounts(supabase: any, countsPerTab: Record<Tab, Map<str
       return { date, tab, empreendimento, count, source, synced_at: new Date().toISOString() };
     });
 
-    // Delete only rows from THIS source (idempotent — each source replaces only itself)
-    await supabase.from("mktp_daily_counts").delete()
-      .eq("tab", tab)
-      .eq("source", source)
-      .gte("date", startDate)
-      .lte("date", endDate);
+    // Delete only rows from THIS source (idempotent)
+    const del = await restDelete(svcKey, "mktp_daily_counts", [
+      ["tab", `eq.${tab}`], ["source", `eq.${source}`], ["date", `gte.${startDate}`], ["date", `lte.${endDate}`],
+    ]);
+    if (del.error) console.error(`  ${tab}: delete error=${del.error}`);
 
+    let totalInserted = 0;
     if (rows.length > 0) {
       for (let i = 0; i < rows.length; i += 500) {
         const batch = rows.slice(i, i + 500);
-        const { error } = await supabase.from("mktp_daily_counts").insert(batch);
-        if (error) console.error(`Insert error ${tab}:`, error.message);
+        const ins = await restInsert(svcKey, "mktp_daily_counts", batch);
+        if (ins.error) console.error(`  ${tab}: insert error=${ins.error}`);
+        else totalInserted += ins.inserted;
       }
     }
     console.log(`  ${tab}: ${rows.length} rows (source=${source})`);
-    result[tab] = rows.length;
+    result[tab] = totalInserted;
   }
   return result;
 }
@@ -233,26 +275,26 @@ function countDealsByStage(
   }
 }
 
-async function writeStageCounts(supabase: any, stageCounts: Record<"reserva" | "contrato", Map<string, number>>) {
+async function writeStageCounts(svcKey: string, stageCounts: Record<"reserva" | "contrato", Map<string, number>>) {
   const today = new Date().toISOString().substring(0, 10);
   for (const tab of ["reserva", "contrato"] as const) {
     // Delete previous snapshot data for this tab
-    const { error: delErr } = await supabase.from("mktp_daily_counts").delete().eq("tab", tab);
-    if (delErr) console.error(`Delete error ${tab}:`, delErr.message);
+    const del = await restDelete(svcKey, "mktp_daily_counts", [["tab", `eq.${tab}`]]);
+    if (del.error) console.error(`  ${tab}: delete error=${del.error}`);
     const rows = Array.from(stageCounts[tab].entries()).map(([key, count]) => {
       const [date, empreendimento] = key.split("|");
       return { date, tab, empreendimento, count, synced_at: new Date().toISOString() };
     });
     if (rows.length > 0) {
-      const { error } = await supabase.from("mktp_daily_counts").insert(rows);
-      if (error) console.error(`Insert error ${tab}:`, error.message);
+      const ins = await restInsert(svcKey, "mktp_daily_counts", rows);
+      if (ins.error) console.error(`  ${tab}: insert error=${ins.error}`);
     }
     console.log(`  ${tab}: ${rows.length} rows`);
   }
 }
 
 // ---- Mode: daily-open (pipeline endpoint, replaces counts) ----
-async function syncDailyOpen(apiToken: string, supabase: any) {
+async function syncDailyOpen(apiToken: string, supabase: any, svcKey: string) {
   const { startDate, endDate } = getDateRange();
   console.log(`syncDailyOpen: fetching pipeline ${PIPELINE_ID} open deals...`);
 
@@ -279,14 +321,14 @@ async function syncDailyOpen(apiToken: string, supabase: any) {
   const contratoTotal = Array.from(stageCounts.contrato.values()).reduce((a, b) => a + b, 0);
   console.log(`  Open deals: ${total}, reserva=${reservaTotal}, contrato=${contratoTotal}`);
   // Write main counts first, then stage counts (so stage counts aren't overwritten)
-  const mainResult = await writeDailyCounts(supabase, countsPerTab, startDate, endDate, "open");
-  await writeStageCounts(supabase, stageCounts);
+  const mainResult = await writeDailyCounts(svcKey, countsPerTab, startDate, endDate, "open");
+  await writeStageCounts(svcKey, stageCounts);
   return { ...mainResult, reserva: reservaTotal, contrato: contratoTotal };
 }
 
 // ---- Mode: daily-status (uses stage_id filter, merges with existing) ----
 // For lost deals: sorts by add_time DESC and stops when deals are older than cutoff
-async function syncDailyByStatus(apiToken: string, supabase: any, status: string) {
+async function syncDailyByStatus(apiToken: string, supabase: any, svcKey: string, status: string) {
   const { startDate, endDate } = getDateRange();
   // Cutoff: stop scanning when add_time is older than 90 days (generous buffer over 35-day window)
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
@@ -339,11 +381,11 @@ async function syncDailyByStatus(apiToken: string, supabase: any, status: string
     if (stoppedEarly) skippedStages++;
   }
   console.log(`  ${status}: ${totalDeals} unique deals (${seenDealIds.size} seen), ${totalMkt} marketing, ${skippedStages} stages stopped early`);
-  return writeDailyCounts(supabase, countsPerTab, startDate, endDate, status);
+  return writeDailyCounts(svcKey, countsPerTab, startDate, endDate, status);
 }
 
 // ---- Mode: alignment ----
-async function syncAlignment(apiToken: string, supabase: any) {
+async function syncAlignment(apiToken: string, svcKey: string) {
   console.log(`syncAlignment: fetching pipeline ${PIPELINE_ID} open deals...`);
   const deals: any[] = [];
   let start = 0;
@@ -380,7 +422,7 @@ async function syncAlignment(apiToken: string, supabase: any) {
   }
 
   // Write aggregated counts
-  await supabase.from("mktp_alignment").delete().neq("empreendimento", "");
+  await restDelete(svcKey, "mktp_alignment", [["empreendimento", "not.is.null"]]);
   const rows = Array.from(counts.entries()).map(([key, count]) => {
     const [empreendimento, owner_name] = key.split("|");
     return { empreendimento, owner_name, count, synced_at: new Date().toISOString() };
@@ -388,18 +430,18 @@ async function syncAlignment(apiToken: string, supabase: any) {
   if (rows.length > 0) {
     for (let i = 0; i < rows.length; i += 500) {
       const batch = rows.slice(i, i + 500);
-      const { error } = await supabase.from("mktp_alignment").insert(batch);
-      if (error) console.error("Alignment insert error:", error.message);
+      const ins = await restInsert(svcKey, "mktp_alignment", batch);
+      if (ins.error) console.error("Alignment insert error:", ins.error);
     }
   }
 
   // Write individual deal records
-  await supabase.from("mktp_alignment_deals").delete().neq("empreendimento", "");
+  await restDelete(svcKey, "mktp_alignment_deals", [["empreendimento", "not.is.null"]]);
   if (dealRows.length > 0) {
     for (let i = 0; i < dealRows.length; i += 500) {
       const batch = dealRows.slice(i, i + 500);
-      const { error } = await supabase.from("mktp_alignment_deals").insert(batch);
-      if (error) console.error("Alignment deals insert error:", error.message);
+      const ins = await restInsert(svcKey, "mktp_alignment_deals", batch);
+      if (ins.error) console.error("Alignment deals insert error:", ins.error);
     }
   }
 
@@ -800,6 +842,7 @@ Deno.serve(async (req) => {
   const startTime = Date.now();
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const svcKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     // Auth handled by Supabase gateway (--no-verify-jwt not set)
 
@@ -821,18 +864,18 @@ Deno.serve(async (req) => {
     switch (mode) {
       case "daily-open":
         // Open deals from pipeline endpoint (replaces counts)
-        result = await syncDailyOpen(apiToken, supabase);
+        result = await syncDailyOpen(apiToken, supabase, svcKey);
         break;
       case "daily-won":
         // Won deals via stage_id filter (merges with existing)
-        result = await syncDailyByStatus(apiToken, supabase, "won");
+        result = await syncDailyByStatus(apiToken, supabase, svcKey, "won");
         break;
       case "daily-lost":
         // Lost deals via stage_id filter (merges with existing)
-        result = await syncDailyByStatus(apiToken, supabase, "lost");
+        result = await syncDailyByStatus(apiToken, supabase, svcKey, "lost");
         break;
       case "alignment":
-        result = { rows: await syncAlignment(apiToken, supabase) };
+        result = { rows: await syncAlignment(apiToken, svcKey) };
         break;
       case "metas":
         result = await syncMetas(supabase);

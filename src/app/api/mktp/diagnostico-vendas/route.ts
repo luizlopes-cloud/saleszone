@@ -65,8 +65,10 @@ export async function GET() {
     }
 
     // Filter to closers only, exclude Agendado (7) and No Show/Reagendamento (8)
+    // Use first-name match to handle partial names (e.g. "Nevine" vs "Nevine Saratt")
     const closerSet = new Set(V_COLS);
-    const closerDeals = allRows.filter((d) => closerSet.has(d.owner_name) && d.stage_order !== 7 && d.stage_order !== 8 && d.lost_reason !== "Duplicado/Erro");
+    const isCloser = (name: string) => closerSet.has(name) || V_COLS.some(c => name && name.toLowerCase().startsWith(c.toLowerCase().split(" ")[0]));
+    const closerDeals = allRows.filter((d) => isCloser(d.owner_name) && d.stage_order !== 7 && d.stage_order !== 8 && d.lost_reason !== "Duplicado/Erro");
 
     // Calculate leadtime and activity status for each deal
     const todayStr = now.toISOString().substring(0, 10);
