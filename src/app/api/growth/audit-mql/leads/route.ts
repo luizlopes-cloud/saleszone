@@ -156,7 +156,54 @@ async function checkPending(leads: LeadRecord[]): Promise<{ leads: LeadRecord[];
   return { leads: leads.map(l => pendingMap.get(l.id) || l), changed: true }
 }
 
-// ─── Route ────────────────────────────────────────────────────────────────────
+// ─── Recheck manual de um lead ───────────────────────────────────────────────
+
+async function recheckOne(lead: LeadRecord): Promise<void> {
+  lead.checked_at = new Date().toISOString()
+
+  const personId = await findPerson(lead.email, lead.phone)
+  if (!personId) {
+    lead.status = "sem_pipedrive"
+    lead.pipedrive_deal_id = undefined
+    lead.mia_link = undefined
+    return
+  }
+
+  const deal = await getLatestDeal(personId)
+  if (!deal) {
+    lead.status = "sem_pipedrive"
+    lead.pipedrive_deal_id = undefined
+    lead.mia_link = undefined
+    return
+  }
+
+  lead.pipedrive_deal_id = deal.deal_id
+  if (!deal.mia_link) {
+    lead.status = "sem_mia"
+    lead.mia_link = undefined
+  } else {
+    lead.status = "ok"
+    lead.mia_link = deal.mia_link
+  }
+}
+
+// ─── Routes ──────────────────────────────────────────────────────────────────
+
+export async function POST(req: NextRequest) {
+  const body = await req.json().catch(() => ({}))
+  const leadId: string = body.recheck
+  const date: string = body.date || dateKey()
+  if (!leadId) return NextResponse.json({ error: "missing recheck id" }, { status: 400 })
+
+  const leads = await readLeads(date)
+  const lead = leads.find(l => l.id === leadId)
+  if (!lead) return NextResponse.json({ error: "lead not found" }, { status: 404 })
+
+  await recheckOne(lead)
+  await writeLeads(date, leads)
+
+  return NextResponse.json(lead, { headers: { "Cache-Control": "no-store" } })
+}
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
