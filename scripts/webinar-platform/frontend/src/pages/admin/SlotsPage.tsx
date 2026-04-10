@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useOutletContext } from "react-router-dom";
-import type { Slot } from "../../lib/types";
+import type { Slot, Closer } from "../../lib/types";
 import { api } from "../../lib/api";
 
 interface AdminContext {
@@ -9,30 +9,36 @@ interface AdminContext {
 
 const DAY_NAMES = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
-const EMPTY_FORM: Partial<Slot> = {
+const EMPTY_FORM: Partial<Slot> & { closer_id?: string } = {
   day_of_week: 1,
   time: "10:00",
   duration_minutes: 60,
   max_participants: 100,
   presenter_email: "",
   is_active: true,
+  closer_id: "",
 };
 
 export default function SlotsPage() {
   const { token } = useOutletContext<AdminContext>();
   const [slots, setSlots] = useState<Slot[]>([]);
+  const [closers, setClosers] = useState<Closer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<Partial<Slot>>(EMPTY_FORM);
+  const [form, setForm] = useState<Partial<Slot> & { closer_id?: string }>(EMPTY_FORM);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   async function load() {
     setLoading(true);
     try {
-      const data = await api.admin.getSlots(token);
-      setSlots(data);
+      const [slotsData, closersData] = await Promise.all([
+        api.admin.getSlots(token),
+        api.admin.getClosers(),
+      ]);
+      setSlots(slotsData);
+      setClosers(closersData);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Erro ao carregar horários");
     } finally {
@@ -178,6 +184,20 @@ export default function SlotsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, max_participants: Number(e.target.value) }))}
                 required
               />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Closer</label>
+              <select
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                value={form.closer_id ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, closer_id: e.target.value }))}
+                required
+              >
+                <option value="">Selecione um closer</option>
+                {closers.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
             <div className="col-span-2">
               <label className="block text-xs font-medium text-gray-600 mb-1">Email do apresentador</label>

@@ -177,3 +177,38 @@ Lead          MIA              Pipedrive         Edge Function        Calendar
 
 > Steps 1-3 podem ser feitos em paralelo com step 4.
 > Step 5 deve ser feito antes do go-live para validar o fluxo completo.
+
+---
+
+## Source Repescagem (segundo fluxo, mesma Edge Function)
+
+### Contexto
+
+Leads de campanhas marketing que **já têm dados de formulário** mas não atingiram o SLA de MQL. A MIA tenta requalificar com uma pergunta direcionada ao gap do SLA.
+
+### Diferença na Edge Function
+
+A EF diferencia o fluxo pelo campo `[RD] Source`:
+
+| Source | Trigger `Data de Qualificação` | Trigger `Status Reunião = Confirmada` |
+|---|---|---|
+| **Click to WhatsApp** | Label MQL (só) | Convert Lead → Deal + Calendar |
+| **Repescagem** | Label MQL + **Convert Lead → Deal** | Calendar (Deal já existe) |
+
+```
+if source == "Repescagem":
+    # Convert acontece NA qualificação, não no agendamento
+    on data_qualificacao → label MQL + convert lead → deal
+    on status_reuniao == Confirmada → calendar event only
+```
+
+### Regra: PV só atende Deals
+
+- **Lead de Repescagem:** MIA resolve tudo. Sem transbordo.
+- **Deal de Repescagem (pós-convert):** Se sem resposta na agenda → transbordo para PV.
+- Lost no Lead = **definitivo** (sem nutrição futura).
+
+### Nenhuma configuração adicional no Pipedrive
+
+- Mesma label "MQL", mesmo webhook, mesma Edge Function.
+- O campo `[RD] Source` = "Repescagem" já diferencia o fluxo.

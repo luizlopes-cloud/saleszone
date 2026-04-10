@@ -12,6 +12,7 @@ def list_sessions():
     date_from = request.args.get("date_from")
     date_to = request.args.get("date_to")
     status = request.args.get("status")
+    closer_id = request.args.get("closer_id")
 
     filters = []
     if date_from:
@@ -20,6 +21,8 @@ def list_sessions():
         filters.append(("date", f"lte.{date_to}"))
     if status:
         filters.append(("status", f"eq.{status}"))
+    if closer_id:
+        filters.append(("closer_id", f"eq.{closer_id}"))
 
     sessions = db.select("webinar_sessions", filters=filters or None, order="date,starts_at") or []
     return jsonify(sessions), 200
@@ -28,15 +31,29 @@ def list_sessions():
 @bp.route("/available", methods=["GET"])
 def list_available():
     date = request.args.get("date")
+    closer_slug = request.args.get("closer_slug")
     if not date:
         return jsonify({"error": "Parâmetro 'date' obrigatório"}), 400
 
+    session_filters = [
+        ("date", f"eq.{date}"),
+        ("status", "eq.scheduled"),
+    ]
+
+    # If closer_slug provided, resolve to closer_id and filter
+    if closer_slug:
+        closers = db.select(
+            "webinar_closers",
+            filters={"slug": f"eq.{closer_slug}", "is_active": "eq.true"}
+        ) or []
+        if not closers:
+            return jsonify({"error": "Closer não encontrado"}), 404
+        closer_id = closers[0]["id"]
+        session_filters.append(("closer_id", f"eq.{closer_id}"))
+
     sessions = db.select(
         "webinar_sessions",
-        filters=[
-            ("date", f"eq.{date}"),
-            ("status", "eq.scheduled"),
-        ],
+        filters=session_filters,
         order="starts_at"
     ) or []
 
@@ -69,6 +86,7 @@ def create_session():
     if not data:
         return jsonify({"error": "Payload obrigatório"}), 400
 
+    # closer_id is optional here — may be set by generate_sessions job
     result = db.insert("webinar_sessions", data)
     created = result[0] if result else data
     return jsonify(created), 201

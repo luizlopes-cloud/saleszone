@@ -49,12 +49,14 @@ from routes.sessions import bp as sessions_bp
 from routes.registrations import bp as registrations_bp
 from routes.messages import bp as messages_bp
 from routes.admin import bp as admin_bp
+from routes.closers import bp as closers_bp
 
 app.register_blueprint(slots_bp, url_prefix="/api/slots")
 app.register_blueprint(sessions_bp, url_prefix="/api/sessions")
 app.register_blueprint(registrations_bp, url_prefix="/api/registrations")
 app.register_blueprint(messages_bp, url_prefix="/api/messages")
 app.register_blueprint(admin_bp, url_prefix="/api/admin")
+app.register_blueprint(closers_bp, url_prefix="/api/closers")
 
 @app.route("/api/health")
 def health():

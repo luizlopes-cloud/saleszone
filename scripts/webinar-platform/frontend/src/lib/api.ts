@@ -1,4 +1,4 @@
-import type { Session, Message, Slot, Registration } from "./types";
+import type { Session, Message, Slot, Registration, Closer } from "./types";
 
 const BASE = import.meta.env.VITE_API_URL || "";
 
@@ -16,8 +16,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  getAvailableSessions: (date: string) =>
-    request<Session[]>(`/api/sessions/available?date=${date}`),
+  getCloserBySlug: (slug: string) =>
+    request<Closer>(`/api/closers/${slug}`),
+  getAvailableSessions: (date: string, closerSlug: string) =>
+    request<Session[]>(`/api/sessions/available?date=${date}&closer_slug=${closerSlug}`),
   getSession: (id: string) =>
     request<Session>(`/api/sessions/${id}`),
   register: (data: { session_id: string; name: string; email: string; phone: string }) =>
@@ -43,6 +45,8 @@ export const api = {
   admin: {
     getDashboard: (token: string) =>
       request<any>("/api/admin/dashboard", { headers: { Authorization: `Bearer ${token}` } }),
+    getClosers: () =>
+      request<Closer[]>("/api/closers/"),
     getSlots: (token: string) =>
       request<Slot[]>("/api/slots/", { headers: { Authorization: `Bearer ${token}` } }),
     createSlot: (token: string, data: Partial<Slot>) =>

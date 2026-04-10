@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useOutletContext, Link } from "react-router-dom";
-import type { Session } from "../../lib/types";
+import type { Session, Closer } from "../../lib/types";
 import { api } from "../../lib/api";
 
 interface AdminContext {
@@ -34,11 +34,13 @@ function formatTime(iso: string) {
 export default function SessionsPage() {
   const { token } = useOutletContext<AdminContext>();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [closers, setClosers] = useState<Closer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterCloserId, setFilterCloserId] = useState("");
 
   async function load() {
     setLoading(true);
@@ -47,6 +49,7 @@ export default function SessionsPage() {
       if (filterStatus) params.set("status", filterStatus);
       if (filterDateFrom) params.set("date_from", filterDateFrom);
       if (filterDateTo) params.set("date_to", filterDateTo);
+      if (filterCloserId) params.set("closer_id", filterCloserId);
       const data = await api.admin.getSessions(token, params.toString());
       setSessions(data);
     } catch (e: unknown) {
@@ -55,6 +58,12 @@ export default function SessionsPage() {
       setLoading(false);
     }
   }
+
+  useEffect(() => {
+    api.admin.getClosers()
+      .then(setClosers)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (token) load();
@@ -123,6 +132,21 @@ export default function SessionsPage() {
             <option value="cancelled">Cancelada</option>
           </select>
         </div>
+        {closers.length > 0 && (
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Closer</label>
+            <select
+              className="border border-gray-200 rounded-lg px-3 py-2 text-sm"
+              value={filterCloserId}
+              onChange={(e) => setFilterCloserId(e.target.value)}
+            >
+              <option value="">Todos</option>
+              {closers.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <button
           onClick={load}
           className="bg-blue-600 text-white rounded-lg px-4 py-2 text-sm font-semibold hover:bg-blue-700 transition-colors"
