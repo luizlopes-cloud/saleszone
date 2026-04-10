@@ -85,19 +85,31 @@ export async function GET(req: NextRequest) {
     const dates = generateDates();
     const startDate = dates[dates.length - 1].date;
 
-    const [ratiosRes, countsRes] = await Promise.all([
+    const [ratiosRes] = await Promise.all([
       supabase
         .from("szs_ratios_daily")
         .select("date, squad_id, ratios, counts_90d")
         .gte("date", cutoffDate)
         .lte("date", today)
         .order("date", { ascending: false }),
-      supabase
+    ]);
+
+    // Paginate szs_daily_counts (>1000 rows possible in 28d window)
+    const countsAll: Array<{ date: string; tab: string; empreendimento: string; canal_group: string; count: number }> = [];
+    let o = 0;
+    while (true) {
+      const { data, error } = await supabase
         .from("szs_daily_counts")
         .select("date, tab, empreendimento, canal_group, count")
         .gte("date", startDate)
-        .lte("date", today),
-    ]);
+        .lte("date", today)
+        .range(o, o + 999);
+      if (error) throw new Error(`szs_daily_counts paginate: ${error.message}`);
+      if (!data || data.length === 0) break;
+      countsAll.push(...data);
+      if (data.length < 1000) break;
+      o += 1000;
+    }
 
     if (ratiosRes.error) throw new Error(`Supabase error: ${ratiosRes.error.message}`);
 
@@ -130,7 +142,7 @@ export async function GET(req: NextRequest) {
 
     // Build per-squad daily counts keyed by squad name (using canal_group → squad mapping)
     const empDaily: Record<string, Record<string, Record<string, number>>> = {};
-    for (const row of countsRes.data || []) {
+    for (const row of countsAll) {
       const tab = row.tab as string;
       if (!["mql", "sql", "opp", "won"].includes(tab)) continue;
       if (cityFilter && getCidadeGroup(row.empreendimento) !== cityFilter) continue;
