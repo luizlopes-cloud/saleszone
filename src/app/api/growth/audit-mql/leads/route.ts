@@ -130,20 +130,14 @@ async function checkPending(leads: LeadRecord[]): Promise<{ leads: LeadRecord[];
     const personId = await findPerson(lead.email, lead.phone)
     if (!personId) {
       lead.status = "sem_pipedrive"
-      await notify(lead, "sem_pipedrive")
-      lead.notified = true
     } else {
       const deal = await getLatestDeal(personId)
       if (!deal) {
         lead.status = "sem_pipedrive"
-        await notify(lead, "sem_pipedrive")
-        lead.notified = true
       } else {
         lead.pipedrive_deal_id = deal.deal_id
         if (!deal.mia_link) {
           lead.status = "sem_mia"
-          await notify(lead, "sem_mia")
-          lead.notified = true
         } else {
           lead.status   = "ok"
           lead.mia_link = deal.mia_link

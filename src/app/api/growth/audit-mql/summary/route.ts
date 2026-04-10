@@ -28,37 +28,50 @@ async function buildSummary(key: string) {
   const leads = all.filter(l => l.status !== "descartado")
   if (leads.length === 0) return null
 
-  const byVertical = new Map<string, { total: number; pipedrive: number; mia: number; erros: number }>()
+  // fora_sla não é erro — lead simplesmente não qualificou
+  // MQL = leads que passaram no SLA e foram verificados
+  // Erros = sem_pipedrive + sem_mia + não chegou no Baserow + não encontrado na Nekt
+  const byVertical = new Map<string, { total: number; mql: number; mia: number; fora_sla: number; erros: number }>()
   for (const l of leads) {
     const v = l.vertical || "Outros"
-    if (!byVertical.has(v)) byVertical.set(v, { total: 0, pipedrive: 0, mia: 0, erros: 0 })
+    if (!byVertical.has(v)) byVertical.set(v, { total: 0, mql: 0, mia: 0, fora_sla: 0, erros: 0 })
     const g = byVertical.get(v)!
     g.total++
-    if (l.status !== "sem_pipedrive") g.pipedrive++
-    if (l.status === "ok")            g.mia++
-    if (l.status !== "ok")            g.erros++
+    if (l.status === "fora_sla") {
+      g.fora_sla++
+    } else if (l.status !== "aguardando") {
+      g.mql++
+      if (l.status === "ok")            g.mia++
+      if (l.status === "sem_pipedrive") g.erros++
+      if (l.status === "sem_mia")       g.erros++
+      if (l.nekt_status === "nao_encontrado") g.erros++
+    }
+    if (l.in_baserow === false) g.erros++
   }
 
-  const total      = leads.length
-  const pipedrive  = leads.filter(l => l.status !== "sem_pipedrive").length
-  const mia        = leads.filter(l => l.status === "ok").length
-  const erros      = leads.filter(l => l.status !== "ok").length
+  const total    = leads.length
+  const foraSla  = leads.filter(l => l.status === "fora_sla").length
+  const mql      = leads.filter(l => l.status !== "fora_sla" && l.status !== "aguardando").length
+  const mia      = leads.filter(l => l.status === "ok").length
+  const baserowNao = leads.filter(l => l.in_baserow === false).length
+  const nektNao    = leads.filter(l => l.nekt_status === "nao_encontrado").length
+  const erros    = leads.filter(l => l.status === "sem_pipedrive").length
+               + leads.filter(l => l.status === "sem_mia").length
+               + baserowNao + nektNao
 
-  // Baserow — só conta leads que foram verificados (in_baserow !== undefined)
-  const baserowChecked = leads.filter(l => l.in_baserow !== undefined)
+  // Baserow — só conta leads verificados (in_baserow !== undefined)
+  const baserowChecked = leads.filter(l => l.in_baserow !== undefined).length
   const baserowOk      = leads.filter(l => l.in_baserow === true).length
-  const baserowNao     = leads.filter(l => l.in_baserow === false).length
 
-  // Nekt — só conta leads com deal no Pipedrive que foram verificados
-  const nektChecked = leads.filter(l => l.nekt_status !== undefined)
+  // Nekt — só conta leads com deal no Pipedrive verificados
+  const nektChecked = leads.filter(l => l.nekt_status !== undefined).length
   const nektOk      = leads.filter(l => l.nekt_status === "ok").length
-  const nektNao     = leads.filter(l => l.nekt_status === "nao_encontrado").length
 
   return {
-    key, total, pipedrive, mia, erros,
+    key, total, mql, mia, fora_sla: foraSla, erros,
     byVertical: Object.fromEntries(byVertical),
-    baserowChecked: baserowChecked.length, baserowOk, baserowNao,
-    nektChecked: nektChecked.length, nektOk, nektNao,
+    baserowChecked, baserowOk, baserowNao,
+    nektChecked, nektOk, nektNao,
   }
 }
 
@@ -83,14 +96,16 @@ async function checkMetaTokenExpiry(): Promise<{ daysLeft: number; expiresAt: st
 
 async function sendSlack(summary: NonNullable<Awaited<ReturnType<typeof buildSummary>>>, tokenExpiry: { daysLeft: number; expiresAt: string } | null) {
   if (!SLACK_WEBHOOK) return
-  const { key, total, pipedrive, mia, erros, byVertical,
+  const { key, total, mql, mia, fora_sla, erros, byVertical,
           baserowChecked, baserowOk, baserowNao,
           nektChecked, nektOk, nektNao } = summary
 
   let text = `📊 *Resumo Audit MQL — ${fmtDate(key)}*\n\n`
-  text += `*Total de leads:* ${total}\n`
-  text += `*Chegaram no Pipedrive:* ${pipedrive} (${pct(pipedrive, total)})\n`
-  text += `*Atendidos pela MIA:* ${mia} (${pct(mia, total)})\n`
+  text += `*Total de leads:* ${total}`
+  if (fora_sla > 0) text += ` (${fora_sla} fora do SLA)`
+  text += "\n"
+  text += `*MQL:* ${mql}\n`
+  text += `*Atendidos pela MIA:* ${mia} (${pct(mia, mql)})\n`
   text += erros > 0 ? `*Erros:* ${erros} ⚠️\n` : `*Erros:* 0 ✅\n`
 
   // Baserow
@@ -113,10 +128,15 @@ async function sendSlack(summary: NonNullable<Awaited<ReturnType<typeof buildSum
 
   const sorted = Object.entries(byVertical).sort((a, b) => b[1].total - a[1].total)
   for (const [vertical, g] of sorted) {
-    text += `\n*${vertical}* — ${g.total} lead${g.total !== 1 ? "s" : ""}\n`
-    text += `  • Pipedrive: ${g.pipedrive}/${g.total} (${pct(g.pipedrive, g.total)})\n`
-    text += `  • MIA: ${g.mia}/${g.total} (${pct(g.mia, g.total)})\n`
+    text += `\n*${vertical}* — ${g.total} lead${g.total !== 1 ? "s" : ""}`
+    if (g.fora_sla > 0) text += ` (${g.fora_sla} fora do SLA)`
+    text += "\n"
+    if (g.mql > 0) {
+      text += `  • MQL: ${g.mql}\n`
+      text += `  • MIA: ${g.mia}/${g.mql} (${pct(g.mia, g.mql)})\n`
+    }
     if (g.erros > 0) text += `  • Erros: ${g.erros} ⚠️\n`
+    else if (g.mql > 0) text += `  • Erros: 0 ✅\n`
   }
 
   // Alerta de expiração do token Meta
@@ -127,8 +147,6 @@ async function sendSlack(summary: NonNullable<Awaited<ReturnType<typeof buildSum
       text += `\n\n🚨 ${mentions} *TOKEN META EXPIRADO!* O META_ADS_TOKEN expirou em ${expiresAt}. saleszone e artefatos-growth estão sem funcionar. Renovar agora: Meta Business Manager → Usuários do sistema → Gerar novo token → atualizar no Vercel.`
     } else if (daysLeft <= 5) {
       text += `\n\n🚨 ${mentions} *TOKEN META EXPIRA EM ${daysLeft} DIA${daysLeft !== 1 ? "S" : ""}!* (${expiresAt}) — Renovar urgente no Meta Business Manager e atualizar em saleszone + artefatos-growth no Vercel. Ver passo a passo: saleszone.vercel.app/growth/audit-mql → aba Sobre.`
-    } else if (daysLeft <= 30) {
-      text += `\n\n⚠️ ${mentions} *Token Meta expira em ${daysLeft} dias* (${expiresAt}) — Programar renovação. Ver passo a passo: saleszone.vercel.app/growth/audit-mql → aba Sobre.`
     }
   }
 
