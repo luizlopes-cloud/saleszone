@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS } from "@/lib/constants";
 import { getModuleConfig } from "@/lib/modules";
 import type { PresalesData, PresellerSummary, PresalesDealRow } from "@/lib/types";
@@ -141,13 +142,23 @@ export async function GET() {
     const deals = (rows || []).filter((d) => MAIN_PVS.includes(d.preseller_name));
     const now = new Date();
 
-    // Buscar add_time dos deals
+    // Buscar add_time dos deals (de squad_deals, que tem dados atualizados)
     const dealIds = deals.map((d) => Number(d.deal_id));
-    const { data: dealsExtra } = await supabase
-      .from("nekt_pipedrive_deals_v2")
-      .select("id, add_time")
-      .in("id", dealIds);
-    const addTimeMap = new Map((dealsExtra || []).map((d) => [Number(d.id), d.add_time]));
+    const addTimeMap = new Map<number, string>();
+    // Paginar em batches de 500 (limite do .in())
+    for (let i = 0; i < dealIds.length; i += 500) {
+      const batch = dealIds.slice(i, i + 500);
+      const admin = createSquadSupabaseAdmin();
+      const { data: dealsExtra } = await admin
+        .from("squad_deals")
+        .select("deal_id, add_time")
+        .in("deal_id", batch);
+      for (const d of dealsExtra || []) {
+        if (d.add_time) addTimeMap.set(d.deal_id, d.add_time);
+      }
+    }
+
+    // last_mia_at é populado pelo sync-squad-presales (que busca notas do Pipedrive)
 
     // Calcular tempo em horário útil para cada deal
     const dealsWithBizTime = deals.map((d) => {

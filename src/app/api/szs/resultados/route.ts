@@ -16,11 +16,24 @@ const MACRO_CHANNELS: Record<string, string> = {
   "Expansão": "Expansão",
 };
 
+/* ── Canal group → macro channels (for counts aggregation) ── */
+const CANAL_PARCEIROS = new Set(["Parceiros", "Ind. Corretor", "Ind. Franquia", "Ind. Outros Parceiros"]);
+const CANAL_SPOTS = new Set(["Spots"]);
+const CANAL_EXPANSAO = new Set(["Expansão"]);
+
+function getChannelTabs(canalGroup: string): string[] {
+  if (CANAL_PARCEIROS.has(canalGroup)) return ["Geral", "Parceiros"];
+  if (CANAL_SPOTS.has(canalGroup))     return ["Geral", "Expansão"]; // Spots → Expansão (não Vendas Diretas)
+  if (CANAL_EXPANSAO.has(canalGroup))  return ["Geral", "Expansão"];
+  return ["Geral", "Vendas Diretas"];
+}
+
 /* ── Canal ID → group (for szs_deals which stores raw IDs) ── */
 const CANAL_ID_TO_GROUP: Record<string, string> = {
   "12": "Marketing",
-  "582": "Parceiros",
-  "583": "Parceiros",
+  "582": "Ind. Corretor",
+  "583": "Ind. Franquia",
+  "2876": "Ind. Outros Parceiros",
   "1748": "Expansão",
   "3189": "Spots",
   "4551": "Mônica",
@@ -56,20 +69,28 @@ const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
     Parceiros: { mql: 249, sql: 154, opp: 140, won: 73 },
     "Expansão": { mql: 1832, sql: 566, opp: 216, won: 95 },
   },
+  "2026-04": {
+    Geral: { mql: 3521, sql: 1446, opp: 780, won: 298 },
+    "Vendas Diretas": { mql: 1739, sql: 715, opp: 348, won: 104 },
+    Parceiros: { mql: 256, sql: 158, opp: 144, won: 75 },
+    "Expansão": { mql: 1967, sql: 608, opp: 232, won: 102 },
+  },
 };
 
 const CHANNEL_CLOSERS: Record<string, string[]> = {
-  Geral: ["Gabriela Lemos", "Gabriela Branco", "Giovanna de Araujo Zanchetta"],
-  "Vendas Diretas": ["Gabriela Lemos"],
+  Geral: ["Gabriela Lemos", "Gabriela Branco", "Giovanna Araujo Zanchetta", "Maria Amaral", "Samuel Barreto"],
+  "Vendas Diretas": ["Gabriela Lemos", "Maria Amaral"],
   Parceiros: ["Gabriela Branco"],
-  "Expansão": ["Giovanna de Araujo Zanchetta"],
+  "Expansão": ["Giovanna Araujo Zanchetta", "Samuel Barreto"],
 };
 
-/* ── Closer email → macro channel (for calendar events) ──── */
-const CLOSER_EMAIL_CHANNEL: Record<string, string> = {
-  "gabriela.lemos@seazone.com.br": "Vendas Diretas",
-  "gabriela.branco@seazone.com.br": "Parceiros",
-  "giovanna.araujo@seazone.com.br": "Expansão",
+/* ── Closer email → tabs (for calendar events) ──────────── */
+const CLOSER_EMAIL_CHANNEL: Record<string, string[]> = {
+  "maria.amaral@seazone.com.br":          ["Geral", "Vendas Diretas"],
+  "gabriela.lemos@seazone.com.br":        ["Geral", "Vendas Diretas"],
+  "gabriela.branco@seazone.com.br":       ["Geral", "Parceiros"],
+  "giovanna.araujo@seazone.com.br":       ["Geral", "Expansão"],
+  "samuel.barreto@seazone.com.br":        ["Geral", "Expansão"],
 };
 
 const MEETINGS_PER_DAY = 16;
@@ -133,18 +154,49 @@ export async function GET(request: NextRequest) {
     cutoff90.setDate(cutoff90.getDate() - 90);
     const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
-    const countsRows = await paginate((o, ps) =>
-      admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count").gte("date", startDate).range(o, o + ps - 1)
+    // MQL/SQL/OPP/WON direto de szs_deals (szs_daily_counts pode estar desatualizado)
+    // MQL = add_time no mês | SQL = qualificacao_date no mês | OPP = reuniao_date no mês | WON = won_time no mês
+    const currentDeals = await paginate((o, ps) =>
+      admin.from("szs_deals")
+        .select("canal, lost_reason, empreendimento, status, add_time, qualificacao_date, reuniao_date, won_time")
+        .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate},qualificacao_date.gte.${startDate},reuniao_date.gte.${startDate}`)
+        .range(o, o + ps - 1)
     );
 
     const channelCounts: Record<string, Record<string, number>> = {};
     for (const ch of CHANNEL_ORDER) channelCounts[ch] = {};
-    for (const r of countsRows) {
+
+    for (const d of currentDeals) {
+      if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
+      if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
+      const canalGroup = getCanalGroup(String(d.canal || ""));
+      const tabs = getChannelTabs(canalGroup);
+
+      if (d.add_time && d.add_time >= startDate) {
+        for (const tab of tabs) channelCounts[tab]["mql"] = (channelCounts[tab]["mql"] || 0) + 1;
+      }
+      if (d.qualificacao_date && d.qualificacao_date >= startDate) {
+        for (const tab of tabs) channelCounts[tab]["sql"] = (channelCounts[tab]["sql"] || 0) + 1;
+      }
+      if (d.reuniao_date && d.reuniao_date >= startDate) {
+        for (const tab of tabs) channelCounts[tab]["opp"] = (channelCounts[tab]["opp"] || 0) + 1;
+      }
+      if (d.status === "won" && d.won_time && d.won_time >= startDate) {
+        for (const tab of tabs) channelCounts[tab]["won"] = (channelCounts[tab]["won"] || 0) + 1;
+      }
+    }
+
+    // reserva/contrato ainda vêm de szs_daily_counts (não há campo de data equivalente em szs_deals)
+    const countsRows2 = await paginate((o, ps) =>
+      admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count")
+        .gte("date", startDate).in("tab", ["reserva", "contrato"]).range(o, o + ps - 1)
+    );
+    for (const r of countsRows2) {
       if (cityFilter && getCidadeGroup(r.empreendimento || "") !== cityFilter) continue;
-      const macro = MACRO_CHANNELS[r.canal_group] || "Vendas Diretas";
-      const key = r.tab as string;
-      channelCounts[macro][key] = (channelCounts[macro][key] || 0) + (r.count || 0);
-      channelCounts["Geral"][key] = (channelCounts["Geral"][key] || 0) + (r.count || 0);
+      const tabs = getChannelTabs(r.canal_group || "Outros");
+      for (const tab of tabs) {
+        channelCounts[tab][r.tab] = (channelCounts[tab][r.tab] || 0) + (r.count || 0);
+      }
     }
 
     // Last month WON from szs_deals (more complete than daily_counts)
@@ -157,9 +209,8 @@ export async function GET(request: NextRequest) {
       if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
       if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
       const canalGroup = getCanalGroup(String(d.canal || ""));
-      const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
-      prevWon[macro] = (prevWon[macro] || 0) + 1;
-      prevWon["Geral"] = (prevWon["Geral"] || 0) + 1;
+      const tabs = getChannelTabs(canalGroup);
+      for (const tab of tabs) prevWon[tab] = (prevWon[tab] || 0) + 1;
     }
 
     const metaRows = await paginate((o, ps) =>
@@ -188,24 +239,35 @@ export async function GET(request: NextRequest) {
       .eq("date", todayStr)
       .maybeSingle();
 
+    // Snapshots de Ag.Dados e Contrato direto de szs_deals (sempre atualizado, filtrável por cidade e canal)
+    {
+      const snapDeals = await paginate((o, ps) =>
+        admin.from("szs_deals")
+          .select("stage_id, empreendimento, canal")
+          .eq("status", "open")
+          .in("stage_id", [152, 76])
+          .range(o, o + ps - 1),
+      );
+      console.log(`[szs-resultados] snapDeals (stage 152/76): ${snapDeals.length} deals, cityFilter=${cityFilter}`);
+      for (const d of snapDeals) {
+        if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
+        const canalGroup = getCanalGroup(d.canal || "");
+        const tabs = getChannelTabs(canalGroup);
+        for (const tab of tabs) {
+          if (d.stage_id === 152) snapshots[tab].agDados++;
+          if (d.stage_id === 76)  snapshots[tab].contrato++;
+        }
+      }
+    }
+    // Total open from pipedrive_daily_snapshot or szs_open_snapshots (fallback)
     if (pdSnap) {
-      const byStage = (pdSnap.by_stage || {}) as Record<string, number>;
       snapshots.Geral.totalOpen = pdSnap.total_open || 0;
-      snapshots.Geral.agDados = byStage["152"] || 0;
-      snapshots.Geral.contrato = byStage["76"] || 0;
     } else {
-      // Fallback: szs_open_snapshots
       const todaySnap = await paginate((o, ps) =>
         admin.from("szs_open_snapshots").select("*").eq("date", todayStr).range(o, o + ps - 1)
       );
       for (const s of todaySnap) {
-        const macro = MACRO_CHANNELS[s.canal_group] || "Vendas Diretas";
-        snapshots[macro].totalOpen += s.total_open || 0;
-        snapshots[macro].agDados += s.ag_dados || 0;
-        snapshots[macro].contrato += s.contrato || 0;
         snapshots.Geral.totalOpen += s.total_open || 0;
-        snapshots.Geral.agDados += s.ag_dados || 0;
-        snapshots.Geral.contrato += s.contrato || 0;
       }
     }
 
@@ -249,7 +311,6 @@ export async function GET(request: NextRequest) {
       if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
       if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
       const canalGroup = getCanalGroup(String(d.canal || ""));
-      const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
       const mso = d.max_stage_order || d.stage_order || 0;
       const addDay = d.add_time?.substring(0, 10) || "";
       const closeDay = d.status === "won" ? d.won_time?.substring(0, 10) : d.status === "lost" ? d.lost_time?.substring(0, 10) : null;
@@ -264,7 +325,7 @@ export async function GET(request: NextRequest) {
         else if (closeDay < allHistDates[0]) continue;
       }
 
-      const targets = [macro, "Geral"];
+      const targets = getChannelTabs(canalGroup);
       for (const ch of targets) {
         if (!histDelta[ch]) continue;
         histDelta[ch]["total"][addIdx]++;
@@ -327,9 +388,11 @@ export async function GET(request: NextRequest) {
       if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
       const mso = d.max_stage_order || d.stage_order || 0;
       const canalGroup = getCanalGroup(String(d.canal || ""));
-      const macro = MACRO_CHANNELS[canalGroup] || "Vendas Diretas";
-      if (mso >= 11) { accumData[macro].agDados++; accumData["Geral"].agDados++; }
-      if (mso >= 12) { accumData[macro].contrato++; accumData["Geral"].contrato++; }
+      const tabs = getChannelTabs(canalGroup);
+      for (const tab of tabs) {
+        if (mso >= 11) accumData[tab].agDados++;
+        if (mso >= 12) accumData[tab].contrato++;
+      }
     }
 
     // Google Calendar: count meetings scheduled in next 7 days per closer
@@ -338,13 +401,12 @@ export async function GET(request: NextRequest) {
     next7.setDate(next7.getDate() + 6);
     const next7Str = next7.toISOString().substring(0, 10);
     const calendarRows = await paginate((o, ps) =>
-      admin.from("szs_calendar_events").select("closer_email").gte("dia", today).lte("dia", next7Str).eq("cancelou", false).range(o, o + ps - 1)
+      admin.from("szs_calendar_events").select("closer_email, empreendimento").gte("dia", today).lte("dia", next7Str).eq("cancelou", false).range(o, o + ps - 1)
     );
     for (const ev of calendarRows) {
-      const macro = CLOSER_EMAIL_CHANNEL[ev.closer_email];
-      if (macro) snapshots[macro].agendado++;
-      // All calendar events from SZS closers count toward Geral
-      snapshots["Geral"].agendado++;
+      if (cityFilter && getCidadeGroup(ev.empreendimento || "") !== cityFilter) continue;
+      const tabs = CLOSER_EMAIL_CHANNEL[ev.closer_email] || [];
+      for (const tab of tabs) snapshots[tab].agendado++;
     }
 
     // No-show: cancelled meetings in last 7 days vs total
@@ -352,33 +414,19 @@ export async function GET(request: NextRequest) {
     past7.setDate(past7.getDate() - 6);
     const past7Str = past7.toISOString().substring(0, 10);
     const noShowRows = await paginate((o, ps) =>
-      admin.from("szs_calendar_events").select("closer_email, cancelou").gte("dia", past7Str).lte("dia", today).range(o, o + ps - 1)
+      admin.from("szs_calendar_events").select("closer_email, cancelou, empreendimento").gte("dia", past7Str).lte("dia", today).range(o, o + ps - 1)
     );
     const noShowData: Record<string, { canceladas: number; total: number }> = {};
     for (const ch of CHANNEL_ORDER) noShowData[ch] = { canceladas: 0, total: 0 };
     for (const ev of noShowRows) {
-      const macro = CLOSER_EMAIL_CHANNEL[ev.closer_email];
-      if (macro) {
-        noShowData[macro].total++;
-        if (ev.cancelou) noShowData[macro].canceladas++;
+      if (cityFilter && getCidadeGroup(ev.empreendimento || "") !== cityFilter) continue;
+      const tabs = CLOSER_EMAIL_CHANNEL[ev.closer_email] || [];
+      for (const tab of tabs) {
+        noShowData[tab].total++;
+        if (ev.cancelou) noShowData[tab].canceladas++;
       }
-      noShowData["Geral"].total++;
-      if (ev.cancelou) noShowData["Geral"].canceladas++;
     }
 
-    // History from szs_daily_counts (for funnel metrics, not charts)
-    const historyRows = await paginate((o, ps) =>
-      admin.from("szs_daily_counts").select("date, tab, canal_group, count").gte("date", cutoffDate).range(o, o + ps - 1)
-    );
-    const histMap: Record<string, Map<string, Record<string, number>>> = {};
-    for (const ch of CHANNEL_ORDER) histMap[ch] = new Map();
-    for (const r of historyRows) {
-      const macro = MACRO_CHANNELS[r.canal_group] || "Vendas Diretas";
-      const map = histMap[macro];
-      if (!map.has(r.date)) map.set(r.date, {});
-      const entry = map.get(r.date)!;
-      entry[r.tab] = (entry[r.tab] || 0) + (r.count || 0);
-    }
 
     let metas = SZS_RESULTADOS_METAS[monthKey] || {};
     if (cityFilter) {

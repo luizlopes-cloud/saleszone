@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { V_COLS, SQUAD_V_MAP } from "@/lib/constants";
 import type { DiagVendasData, DiagVendasDealRow, DiagVendasCloserSummary, VendasSeveridade } from "@/lib/types";
 
@@ -48,7 +48,8 @@ export async function GET() {
     const PAGE_SIZE = 1000;
 
     while (true) {
-      const { data, error } = await supabase
+      const admin = createSquadSupabaseAdmin();
+      const { data, error } = await admin
         .from("squad_deals")
         .select("deal_id, title, owner_name, empreendimento, stage_order, last_activity_date, next_activity_date, add_time, lost_reason")
         .eq("status", "open")

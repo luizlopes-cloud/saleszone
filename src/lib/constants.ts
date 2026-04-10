@@ -1,3 +1,15 @@
+// Empreendimentos fora dos squads ativos mas presentes no pipeline 28 Marketing
+// NOTA: Mantenha em sincronia com supabase/functions/sync-squad-dashboard/index.ts (Deno não importa de src/)
+export const EXTRA_EMPREENDIMENTOS = [
+  "Bonito Spot",
+  "Santinho Spot",
+  "Japaratinga Spot",
+  "Imbassaí Spot",
+  "Trancoso Spot",
+  "Morro das Pedras Spot",
+  "Meireles Spot",
+] as const;
+
 // Squad definitions
 export const SQUADS = [
   {

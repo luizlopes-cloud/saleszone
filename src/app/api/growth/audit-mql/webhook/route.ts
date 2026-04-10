@@ -3,7 +3,7 @@ import crypto from "crypto"
 import { waitUntil } from "@vercel/functions"
 import { LeadRecord, dateKey, appendLeadSafe, extractVertical } from "@/lib/audit-mql"
 
-export const maxDuration = 240 // 4 min: 3min de espera + margem para o check
+export const maxDuration = 480 // 8 min: 7min de espera + margem para o check
 export const dynamic = "force-dynamic"
 
 const META_TOKEN       = process.env.META_ADS_TOKEN              || ""
@@ -30,13 +30,21 @@ async function fetchLeadData(leadgenId: string) {
   const lastName  = fields["last_name"]  || ""
   const fullName  = fields["full_name"]  || `${firstName} ${lastName}`.trim()
 
+  // Coleta todos os campos do formulário (para verificação SLA e exibição)
+  const formFields: { name: string; value: string }[] = (data.field_data || []).flatMap(
+    (f: { name: string; values: string[] }) => (f.values || []).map((v: string) => ({ name: f.name, value: v }))
+  )
+  const formValues = formFields.map(f => f.value)
+
   return {
-    name:    fullName,
-    email:   fields["email"] || "",
-    phone:   fields["phone_number"] || fields["phone"] || "",
-    ad_id:   String(data.ad_id   || ""),
-    form_id: String(data.form_id || ""),
-    page_id: String(data.page_id || ""),
+    name:        fullName,
+    email:       fields["email"] || "",
+    phone:       fields["phone_number"] || fields["phone"] || "",
+    ad_id:       String(data.ad_id   || ""),
+    form_id:     String(data.form_id || ""),
+    page_id:     String(data.page_id || ""),
+    form_values: formValues,
+    form_fields: formFields,
   }
 }
 
@@ -81,7 +89,7 @@ async function sendCapiLeadSzs(leadgenId: string, email: string, phone: string) 
 // ─── Webhook processing ───────────────────────────────────────────────────────
 
 async function delayedCheck(baseUrl: string) {
-  await new Promise(resolve => setTimeout(resolve, 3 * 60 * 1000)) // espera 3 min
+  await new Promise(resolve => setTimeout(resolve, 7 * 60 * 1000)) // espera 7 min (índice de busca do Pipedrive tem lag ~5min)
   const cronSecret = process.env.CRON_SECRET
   await fetch(`${baseUrl}/api/growth/audit-mql/check`, {
     method: "POST",
@@ -120,6 +128,8 @@ async function processPayload(body: Record<string, unknown>, baseUrl: string) {
           vertical:      extractVertical(campaign),
           created_at:    new Date().toISOString(),
           status:        "aguardando",
+          form_values:   leadData?.form_values || [],
+          form_fields:   leadData?.form_fields || [],
         }
 
         const saved = await appendLeadSafe(dateKey(), record)
