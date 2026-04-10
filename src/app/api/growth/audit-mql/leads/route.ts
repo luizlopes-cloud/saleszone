@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { LeadRecord, dateKey, readLeads, writeLeads } from "@/lib/audit-mql"
-import { checkSla, enrichBaserow } from "@/lib/audit-mql-check"
+import { checkSla, enrichBaserow, BASEROW_START } from "@/lib/audit-mql-check"
 import { readData } from "@/lib/sla-mql-blob"
 
 export const maxDuration = 60
@@ -164,10 +164,19 @@ export async function GET(req: NextRequest) {
 
   let leads = await readLeads(date)
 
+  // Limpa in_baserow de leads anteriores ao BASEROW_START (marcados false pelo sync Supabase quebrado)
+  let cleared = false
+  for (const l of leads) {
+    if (l.created_at < BASEROW_START && l.in_baserow !== undefined) {
+      l.in_baserow = undefined
+      cleared = true
+    }
+  }
+
   const { leads: updated, changed } = await checkPending(leads)
   const isToday = date === dateKey()
   const baserowChanged = isToday ? await enrichBaserow(updated) : false
-  if (changed || baserowChanged) {
+  if (changed || baserowChanged || cleared) {
     await writeLeads(date, updated)
   }
   leads = updated
