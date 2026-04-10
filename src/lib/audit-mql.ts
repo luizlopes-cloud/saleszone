@@ -21,6 +21,7 @@ export interface LeadRecord {
   form_fields?: { name: string; value: string }[]  // pares pergunta+resposta (para exibição)
   sla_ok?: boolean         // resultado da verificação SLA (undefined = não verificado)
   in_baserow?: boolean     // true = chegou no Baserow, false = não chegou, undefined = ainda não verificado
+  nekt_status?: "ok" | "nao_encontrado"  // verificação Nekt às 7h BRT do dia seguinte
 }
 
 export function extractVertical(campaignName: string): string {

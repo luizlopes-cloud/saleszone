@@ -779,7 +779,7 @@ export default function AuditMQL() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: T.muted }}>
-                  {["Data/Horário", "Lead", "Vertical", "Campanha", "Meta", "Baserow", "Pipedrive", "MIA", "Status"].map(h => (
+                  {["Data/Horário", "Lead", "Vertical", "Campanha", "Meta", "Baserow", "Nekt", "Pipedrive", "MIA", "Status"].map(h => (
                     <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
                       fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
                       letterSpacing: "0.07em", whiteSpace: "nowrap",
@@ -831,6 +831,13 @@ export default function AuditMQL() {
                             ? <StatusDot ok={true} label="Chegou" />
                             : lead.in_baserow === false
                               ? <StatusDot ok={false} label="Não chegou" />
+                              : <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>}
+                        </td>
+                        <td style={{ padding: "10px 14px" }}>
+                          {lead.nekt_status === "ok"
+                            ? <StatusDot ok={true} label="OK" />
+                            : lead.nekt_status === "nao_encontrado"
+                              ? <StatusDot ok={false} label="Não encontrado" />
                               : <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>}
                         </td>
                         <td style={{ padding: "10px 14px" }}>
@@ -890,7 +897,7 @@ export default function AuditMQL() {
                       {/* Detalhe expandido — respostas do formulário */}
                       {isExpanded && hasFormValues && (
                         <tr key={`${lead.id}-detail`} style={{ background: st.bg, borderBottom: `1px solid ${T.border}` }}>
-                          <td colSpan={8} style={{ padding: "0 14px 14px 14px" }}>
+                          <td colSpan={9} style={{ padding: "0 14px 14px 14px" }}>
                             <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12, marginTop: 0 }}>
                               {isForaSla && (
                                 <div style={{ display: "inline-flex", alignItems: "center", gap: 6,
