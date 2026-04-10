@@ -358,6 +358,7 @@ export default function AuditMQL() {
   const [slaData, setSlaData]               = useState<SlaData | null>(null)
   const [recovering, setRecovering]         = useState(false)
   const [recoveryMsg, setRecoveryMsg]       = useState<string | null>(null)
+  const [recheckingId, setRecheckingId]     = useState<string | null>(null)
 
   const isToday = range.start === todayKey() && range.end === todayKey()
 
@@ -396,6 +397,24 @@ export default function AuditMQL() {
       setLeads(filtered)
       setLastUpdate(new Date())
     } finally { if (!silent) setLoading(false) }
+  }, [])
+
+  const recheckLead = useCallback(async (leadId: string, createdAt: string) => {
+    setRecheckingId(leadId)
+    try {
+      // Calcula a data do blob baseado no created_at em BRT
+      const d = new Date(new Date(createdAt).getTime() - 3 * 60 * 60 * 1000)
+      const date = d.toISOString().slice(0, 10)
+      const res = await fetch("/api/growth/audit-mql/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recheck: leadId, date }),
+      })
+      if (res.ok) {
+        const updated: LeadRecord = await res.json()
+        setLeads(prev => prev.map(l => l.id === leadId ? updated : l))
+      }
+    } finally { setRecheckingId(null) }
   }, [])
 
   const runRecovery = useCallback(async () => {
@@ -848,9 +867,23 @@ export default function AuditMQL() {
                                     : <StatusDot ok={false} pending label="Verificando…" />}
                         </td>
                         <td style={{ padding: "10px 14px" }}>
-                          <span style={{ color: st.color, border: `1px solid ${st.color}55`,
-                            padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
-                            whiteSpace: "nowrap" }}>{st.label}</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ color: st.color, border: `1px solid ${st.color}55`,
+                              padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
+                              whiteSpace: "nowrap" }}>{st.label}</span>
+                            {!isPending && !isForaSla && lead.status !== "ok" && (
+                              <button
+                                onClick={e => { e.stopPropagation(); recheckLead(lead.id, lead.created_at) }}
+                                disabled={recheckingId === lead.id}
+                                title="Reverificar no Pipedrive"
+                                style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4,
+                                  cursor: recheckingId === lead.id ? "wait" : "pointer",
+                                  padding: "2px 5px", fontSize: 12, color: T.mutedFg,
+                                  opacity: recheckingId === lead.id ? 0.5 : 1 }}>
+                                {recheckingId === lead.id ? "…" : "↻"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
 
