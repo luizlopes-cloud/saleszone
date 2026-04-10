@@ -168,6 +168,55 @@ A MIA **NÃO precisa mais** executar estas ações diretamente:
 
 ---
 
+## Source Repescagem (segundo fluxo)
+
+### O que é
+
+Leads de campanhas marketing que **já têm dados de formulário** mas não atingiram o SLA de MQL. A MIA tenta requalificar com uma pergunta direcionada.
+
+### Diferença do CTWA
+
+| Aspecto | CTWA | Repescagem |
+|---|---|---|
+| Dados iniciais | Nenhum | Formulário completo |
+| Primeira abordagem | 3 perguntas | 1 pergunta direcionada ao gap SLA |
+| Lost | Nutrição futura | **Definitivo** |
+| Transbordo | Durante qualificação (Lead) | Só durante agenda (**Deal**) |
+
+### Lógica de-para
+
+1. MIA recebe Lead com dados do form
+2. Consulta respostas do formulário no Lead (campos já preenchidos)
+3. Compara com regras de qualificação do empreendimento
+4. Identifica **qual critério falhou** (gap SLA)
+5. Envia mensagem direcionada ao gap
+
+**Exemplos:**
+
+| Gap SLA | Mensagem MIA |
+|---|---|
+| Intenção = moradia | "Nossos imóveis são para investimento e uso esporádico. Faz sentido pra você?" |
+| Valor abaixo da faixa | "Temos opções a partir de R$ X. Esse valor funciona?" |
+| Pagamento incompatível | "Trabalhamos com PIX e boleto à vista ou parcelado. Alguma opção funciona?" |
+
+### Campos a preencher
+
+| Momento | Campo | Valor |
+|---|---|---|
+| Criação do Lead | `[RD] Source` | **"Repescagem"** (fundamental para diferenciar) |
+| Criação do Lead | Empreendimento + Q1/Q2/Q3 | Dados do formulário (já existem) |
+| Qualificou | `Data de Qualificação` | Data de hoje |
+| Não qualificou / sem resposta | `Etapa final - cadência` | "Lost" |
+| Agenda confirmada | `Status Reunião` | "Confirmada" + Data/Hora |
+| Sem resposta na agenda | `Etapa final - cadência` | "Transbordo" |
+
+### Regra: sem transbordo enquanto Lead
+
+- Lead → MIA resolve tudo. **Nunca transbordar Lead para PV.**
+- Só após Convert → Deal (quando qualifica), se sem resposta na agenda → transbordo.
+
+---
+
 ## Cronograma
 
 | Step | Responsável | O que |
