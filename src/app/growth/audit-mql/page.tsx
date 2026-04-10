@@ -752,7 +752,7 @@ export default function AuditMQL() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: T.muted }}>
-                  {["Data/Horário", "Lead", "Vertical", "Campanha", "Meta", "Pipedrive", "MIA", "Status"].map(h => (
+                  {["Data/Horário", "Lead", "Vertical", "Campanha", "Meta", "Baserow", "Pipedrive", "MIA", "Status"].map(h => (
                     <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
                       fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
                       letterSpacing: "0.07em", whiteSpace: "nowrap",
@@ -798,6 +798,13 @@ export default function AuditMQL() {
                         </td>
                         <td style={{ padding: "10px 14px" }}>
                           <StatusDot ok={true} label="Gerado" />
+                        </td>
+                        <td style={{ padding: "10px 14px" }}>
+                          {lead.in_baserow === true
+                            ? <StatusDot ok={true} label="Chegou" />
+                            : lead.in_baserow === false
+                              ? <StatusDot ok={false} label="Não chegou" />
+                              : <StatusDot ok={false} pending label="Verificando…" />}
                         </td>
                         <td style={{ padding: "10px 14px" }}>
                           {isForaSla
