@@ -163,6 +163,11 @@ export async function GET(request: NextRequest) {
         .range(o, o + ps - 1)
     );
 
+    // Diagnostic: check szs_deals completeness
+    const { count: szsDealsTotal } = await admin
+      .from("szs_deals").select("*", { count: "exact", head: true });
+    console.log(`[szs-resultados] szs_deals: fetched=${currentDeals.length}, total=${szsDealsTotal}`);
+
     const channelCounts: Record<string, Record<string, number>> = {};
     for (const ch of CHANNEL_ORDER) channelCounts[ch] = {};
 
@@ -196,6 +201,21 @@ export async function GET(request: NextRequest) {
       const tabs = getChannelTabs(r.canal_group || "Outros");
       for (const tab of tabs) {
         channelCounts[tab][r.tab] = (channelCounts[tab][r.tab] || 0) + (r.count || 0);
+      }
+    }
+
+    // Fallback for MQL/SQL/OPP from szs_daily_counts when szs_deals is suspiciously small
+    const SZ_DEALS_MIN = 15000;
+    if (szsDealsTotal && szsDealsTotal < SZ_DEALS_MIN) {
+      console.warn(`[szs-resultados] szs_deals incomplete (${szsDealsTotal} < ${SZ_DEALS_MIN}) — using szs_daily_counts fallback`);
+      const fallbackCounts = await paginate((o, ps) =>
+        admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count")
+          .gte("date", startDate).in("tab", ["mql", "sql", "opp"]).range(o, o + ps - 1)
+      );
+      for (const r of fallbackCounts) {
+        if (cityFilter && getCidadeGroup(r.empreendimento || "") !== cityFilter) continue;
+        const tabs = getChannelTabs(r.canal_group || "Outros");
+        for (const tab of tabs) channelCounts[tab][r.tab] = (channelCounts[tab][r.tab] || 0) + (r.count || 0);
       }
     }
 
