@@ -7,7 +7,7 @@ import { getCidadeGroup, getSquadMetasFromNekt } from "@/lib/szs-utils";
 const MACRO_CHANNELS: Record<string, string> = {
   Marketing: "Vendas Diretas",
   "Mônica": "Vendas Diretas",
-  Spots: "Vendas Diretas",
+  Spots: "Expansão",      // Spots vai para Expansão (não Vendas Diretas)
   Outros: "Vendas Diretas",
   Parceiros: "Parceiros",
   "Ind. Corretor": "Parceiros",
@@ -33,9 +33,9 @@ const CHANNEL_ORDER = ["Geral", "Vendas Diretas", "Parceiros", "Expansão"] as c
 
 const CHANNEL_FILTERS: Record<string, string> = {
   Geral: "Todos os canais\nExclui: Duplicado/Erro",
-  "Vendas Diretas": "Inclui: Marketing, Mônica, Spots, Ind. Colaborador, Eventos, Ind. Clientes, Outros\nExclui: Expansão, Ind. Corretor, Ind. Franquia, Duplicado/Erro",
+  "Vendas Diretas": "Inclui: Marketing, Mônica, Ind. Colaborador, Eventos, Ind. Clientes, Outros\nExclui: Expansão, Spots, Ind. Corretor, Ind. Franquia, Duplicado/Erro",
   Parceiros: "Inclui: Ind. Corretor, Ind. Franquia, Ind. Outros Parceiros\nExclui: Duplicado/Erro",
-  "Expansão": "Inclui: Expansão\nExclui: Duplicado/Erro",
+  "Expansão": "Inclui: Expansão, Spots\nExclui: Duplicado/Erro",
 };
 
 interface ChannelMetas {
