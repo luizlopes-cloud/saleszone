@@ -8,9 +8,10 @@ const corsHeaders = {
 const SUPABASE_REF = "cncistmevwwghtaiyaao";
 
 // ---- REST API helpers (replaces Supabase JS client for DB writes — silent failure bug in Deno) ----
-async function restDelete(svcKey: string, table: string, params: Record<string, string>): Promise<{ error: string | null }> {
+// params uses array of [key, value] pairs to support duplicate keys (e.g. date=gte&date=lte)
+async function restDelete(svcKey: string, table: string, params: [string, string][]): Promise<{ error: string | null }> {
   const url = new URL(`https://${SUPABASE_REF}.supabase.co/rest/v1/${table}`);
-  for (const [k, v] of Object.entries(params)) {
+  for (const [k, v] of params) {
     url.searchParams.append(k, v);
   }
   const res = await fetch(url.toString(), {
@@ -548,9 +549,9 @@ async function writeDailyCounts(svcKey: string, countsPerTab: Record<Tab, Map<st
     });
 
     // Delete only rows from THIS source (idempotent)
-    const del = await restDelete(svcKey, "szs_daily_counts", {
-      "tab": `eq.${tab}`, "source": `eq.${source}`, "date": `gte.${startDate}`, "date": `lte.${endDate}`,
-    });
+    const del = await restDelete(svcKey, "szs_daily_counts", [
+      ["tab", `eq.${tab}`], ["source", `eq.${source}`], ["date", `gte.${startDate}`], ["date", `lte.${endDate}`],
+    ]);
     if (del.error) console.error(`  ${tab}: delete error=${del.error}`);
 
     if (rows.length > 0) {
@@ -592,7 +593,7 @@ async function writeStageCounts(svcKey: string, stageCounts: Record<"reserva" | 
   const today = new Date().toISOString().substring(0, 10);
   for (const tab of ["reserva", "contrato"] as const) {
     // Delete previous snapshot data for this tab
-    const del = await restDelete(svcKey, "szs_daily_counts", { "tab": `eq.${tab}` });
+    const del = await restDelete(svcKey, "szs_daily_counts", [["tab", `eq.${tab}`]]);
     if (del.error) console.error(`  Delete error ${tab}:`, del.error);
     const rows = Array.from(stageCounts[tab].entries()).map(([key, count]) => {
       const [date, canal_group, empreendimento, bairro] = key.split("|");
@@ -735,7 +736,7 @@ async function syncAlignment(apiToken: string, svcKey: string) {
   }
 
   // Write aggregated counts
-  await restDelete(svcKey, "szs_alignment", { "empreendimento": "not.is.null" });
+  await restDelete(svcKey, "szs_alignment", [["empreendimento", "not.is.null"]]);
   const rows = Array.from(counts.entries()).map(([key, count]) => {
     const [empreendimento, owner_name] = key.split("|");
     return { empreendimento, owner_name, count, synced_at: new Date().toISOString() };
@@ -749,7 +750,7 @@ async function syncAlignment(apiToken: string, svcKey: string) {
   }
 
   // Write individual deal records
-  await restDelete(svcKey, "szs_alignment_deals", { "empreendimento": "not.is.null" });
+  await restDelete(svcKey, "szs_alignment_deals", [["empreendimento", "not.is.null"]]);
   if (dealRows.length > 0) {
     for (let i = 0; i < dealRows.length; i += 500) {
       const batch = dealRows.slice(i, i + 500);
