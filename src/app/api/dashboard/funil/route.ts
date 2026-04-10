@@ -324,10 +324,10 @@ export async function GET(req: NextRequest) {
     // Agregar eventos por stage — deals fechados no mês (mesma coorte)
     // OPP = max_stage_order >= 9, Reserva = >= 13, Contrato = >= 14, WON = status won
     // Exclui Duplicado/Erro em JS (neq no Supabase exclui NULLs, removendo WONs)
+    // Inclui deals SEM empreendimento (key = "__sem_emp__") para contar na conversão total
     const eventoMap = new Map<string, { oppEvento: number; reservaEvento: number; contratoEvento: number; wonEvento: number }>();
     for (const d of dealsRes) {
-      const emp = d.empreendimento;
-      if (!emp) continue;
+      const emp = d.empreendimento || "__sem_emp__";
       if (d.lost_reason === "Duplicado/Erro") continue;
       if (!eventoMap.has(emp)) eventoMap.set(emp, { oppEvento: 0, reservaEvento: 0, contratoEvento: 0, wonEvento: 0 });
       const cur = eventoMap.get(emp)!;
