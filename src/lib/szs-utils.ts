@@ -6,8 +6,8 @@ const mc = getModuleConfig("szs");
 
 const CANAL_GROUP_TO_SQUAD: Record<string, number> = {
   Marketing: 1,
-  Parceiros: 2, "Ind. Corretor": 2, "Ind. Franquia": 2, "Ind. Outros Parceiros": 2,
-  Mônica: 3, Expansão: 3, Spots: 3, Outros: 3,
+  "Ind. Franquia": 2, "Ind. Corretor": 2, "Ind. Outros Parceiros": 2,
+  Expansão: 3, Spots: 3, Outros: 3,
 };
 
 /** Map canal_group name (from szs_daily_counts) to new squad id */
@@ -15,13 +15,10 @@ export function getSquadIdFromCanalGroup(canalGroup: string): number {
   return CANAL_GROUP_TO_SQUAD[canalGroup] || 3;
 }
 
-/** Map numeric canal ID (from szs_deals.canal) to new squad id */
+/** Map numeric canal ID (from szs_deals.canal) to squad id */
 export function getSquadIdFromCanalId(canalId: string | number): number {
-  const id = Number(canalId);
-  for (const sq of mc.squads) {
-    if (sq.canalIds?.includes(id)) return sq.id;
-  }
-  return 3; // fallback: Expansão/Spot/Outros
+  const canalGroup = getCanalGroupFromId(String(canalId));
+  return getSquadIdFromCanalGroup(canalGroup);
 }
 
 /** Get squad name by id */
@@ -58,7 +55,7 @@ export function getCanalGroupFromId(canalId: string): string {
 }
 
 // --- Metas WON consolidadas por squad ---
-// Squad 1 = Marketing, Squad 2 = Parceiros, Squad 3 = Expansão + Spots + Outros
+// Squad 1 = Marketing, Squad 2 = Ind. Corretor/Ind. Franquia/Ind. Outros Parceiros, Squad 3 = Expansão + Spots + Outros
 
 const RAW_METAS: Record<string, Record<string, number>> = {
   "2026-01": { Marketing: 66, Parceiros: 67, Expansão: 72, Spots: 48, Outros: 27 },
@@ -79,7 +76,7 @@ export const SZS_METAS_WON_BY_SQUAD: Record<string, Record<number, number>> = {}
 for (const [month, canals] of Object.entries(RAW_METAS)) {
   SZS_METAS_WON_BY_SQUAD[month] = {
     1: canals.Marketing || 0,
-    2: canals.Parceiros || 0,
+    2: (canals["Ind. Corretor"] || 0) + (canals["Ind. Franquia"] || 0) + (canals["Ind. Outros Parceiros"] || 0),
     3: (canals["Expansão"] || 0) + (canals.Spots || 0) + (canals.Outros || 0),
   };
 }

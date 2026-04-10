@@ -246,54 +246,64 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
 
       const perf = computePerformanceRolling(rows).filter(a => a.ad_id.length >= 15)
 
-      try {
-        const ids = [...new Set(perf.map(a => a.ad_id))]
-        const metaRes = await fetch("/api/meta-ads/meta-status", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ adIds: ids }),
-        })
-        if (metaRes.ok) {
-          const metaJson = await metaRes.json()
-          const statuses = metaJson.statuses
-          const thumbs: Record<string, string> = metaJson.thumbnails || {}
-          if (statuses) {
-            for (const ad of perf) {
-              ad.effective_status = statuses[ad.ad_id] ?? "UNKNOWN"
-            }
-          }
+      // Reseta TODOS para UNKNOWN — o Nekt tem status "Ativa" em ads já pausados no Meta.
+      for (const ad of perf) ad.effective_status = "UNKNOWN"
 
-          // Retry para UNKNOWN + fallback spend_7d
-          const unknownIds = perf.filter(a => a.effective_status === "UNKNOWN").map(a => a.ad_id)
-          if (unknownIds.length > 0) {
-            try {
-              const retryRes = await fetch("/api/meta-ads/meta-status", {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ adIds: unknownIds }),
-              })
-              if (retryRes.ok) {
-                const retryJson = await retryRes.json()
-                const retryStatuses = retryJson.statuses
-                Object.assign(thumbs, retryJson.thumbnails || {})
-                if (retryStatuses) {
-                  for (const ad of perf) {
-                    if (ad.effective_status === "UNKNOWN" && retryStatuses[ad.ad_id]) {
-                      ad.effective_status = retryStatuses[ad.ad_id]
-                    }
-                  }
-                }
-              }
-            } catch { /* retry opcional */ }
-            // Fallback: UNKNOWN = Meta não retornou o ad (sem permissão ou delay).
-            // Se Meta confirmasse PAUSED, teria retornado "PAUSED". Portanto, assumir ACTIVE.
+      // Busca lista autoritativa de ads ativos direto do Meta (todas as 3 contas)
+      let metaActiveOk = false
+      try {
+        const metaRes = await fetch("/api/meta-ads/meta-active-ads")
+        if (metaRes.ok) {
+          const { ads: metaAds } = await metaRes.json() as {
+            ads: { ad_id: string; ad_name: string; campaign_name: string; adset_name: string; vertical: string; thumbnail?: string; created_time?: string }[]
+          }
+          if (metaAds && metaAds.length > 0) {
+            metaActiveOk = true
+            const activeSet = new Set(metaAds.map((a: { ad_id: string }) => a.ad_id))
+
+            // Marca ads do perf que estão ativos no Meta
             for (const ad of perf) {
-              if (ad.effective_status === "UNKNOWN") {
-                ad.effective_status = "ACTIVE"
+              ad.effective_status = activeSet.has(ad.ad_id) ? "ACTIVE" : "PAUSED"
+            }
+
+            // Ads ativos no Meta que NÃO estão no Nekt → cria entrada mínima
+            const perfIds = new Set(perf.map(a => a.ad_id))
+            const newAds: typeof perf = []
+            for (const ma of metaAds) {
+              if (!perfIds.has(ma.ad_id)) {
+                const diasAtivos = ma.created_time
+                  ? Math.max(0, Math.floor((Date.now() - new Date(ma.created_time).getTime()) / 86400000))
+                  : 0
+                newAds.push({
+                  date: "", ad_id: ma.ad_id, ad_name: ma.ad_name,
+                  first_day_ad: ma.created_time?.slice(0, 10) || "",
+                  adset_name: ma.adset_name, campaign_name: ma.campaign_name,
+                  first_day_campaign: "", vertical: ma.vertical,
+                  status: "ACTIVE", effective_status: "ACTIVE",
+                  plataforma: "facebook", dias_ativos: diasAtivos,
+                  spend: 0, lead: 0, mql: 0, sql: 0, opp: 0, won: 0, ctr: 0,
+                  adset_id: "",
+                } as typeof perf[0])
               }
             }
+            perf.push(...newAds)
+
+            // Thumbnails
+            const thumbs: Record<string, string> = {}
+            for (const ma of metaAds) {
+              if (ma.thumbnail) thumbs[ma.ad_id] = ma.thumbnail
+            }
+            if (Object.keys(thumbs).length > 0) setThumbMap(prev => ({ ...prev, ...thumbs }))
           }
-          if (Object.keys(thumbs).length > 0) setThumbMap(prev => ({ ...prev, ...thumbs }))
         }
-      } catch { /* Meta status é opcional */ }
+      } catch { /* Meta falhou inteiro — fallback abaixo */ }
+
+      // Fallback: se meta-active-ads falhou, usa spend como proxy
+      if (!metaActiveOk) {
+        for (const ad of perf) {
+          if (ad.spend > 0) ad.effective_status = "ACTIVE"
+        }
+      }
 
       setAllAds(perf)
     } catch (err) { setError(String(err)) }
