@@ -6,6 +6,7 @@ const corsHeaders = {
 };
 
 // ---- Constants ----
+const SUPABASE_REF = "cncistmevwwghtaiyaao"; // Supabase project reference (extracted from SUPABASE_URL)
 const PIPELINE_ID = 28;
 const STAGE_RESERVA = 191;
 const STAGE_CONTRATO = 192;
@@ -164,8 +165,38 @@ function countDeals(
   return mkt;
 }
 
-// ---- Write counts to DB ----
-async function writeDailyCounts(supabase: any, countsPerTab: Record<Tab, Map<string, number>>, startDate: string, endDate: string, source: string) {
+// ---- REST API helpers (replaces Supabase JS client for DB writes — JS client silently fails in Deno) ----
+async function restDelete(svcKey: string, table: string, params: Record<string, string>): Promise<{ error: string | null }> {
+  const url = new URL(`https://${SUPABASE_REF}.supabase.co/rest/v1/${table}`);
+  for (const [k, v] of Object.entries(params)) {
+    url.searchParams.append(k, v);
+  }
+  const res = await fetch(url.toString(), {
+    method: "DELETE",
+    headers: { "apikey": svcKey, "Authorization": `Bearer ${svcKey}` },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    return { error: `${res.status} ${body}` };
+  }
+  return { error: null };
+}
+
+async function restInsert(svcKey: string, table: string, rows: any[]): Promise<{ error: string | null; inserted: number }> {
+  const res = await fetch(`https://${SUPABASE_REF}.supabase.co/rest/v1/${table}`, {
+    method: "POST",
+    headers: { "apikey": svcKey, "Authorization": `Bearer ${svcKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify(rows),
+  });
+  if (res.status === 201) {
+    return { error: null, inserted: rows.length };
+  }
+  const body = await res.text();
+  return { error: `${res.status} ${body.substring(0, 200)}`, inserted: 0 };
+}
+
+// ---- Write counts to DB (REST API — Supabase JS client silently fails in Deno Edge Functions) ----
+async function writeDailyCounts(svcKey: string, countsPerTab: Record<Tab, Map<string, number>>, startDate: string, endDate: string, source: string) {
   const result: Record<string, number> = {};
   for (const tab of TABS) {
     const final = countsPerTab[tab];
@@ -175,28 +206,27 @@ async function writeDailyCounts(supabase: any, countsPerTab: Record<Tab, Map<str
       return { date, tab, empreendimento, count, source, synced_at: new Date().toISOString() };
     });
 
-    // Delete only rows from THIS source (idempotent — each source replaces only itself)
-    // ADD UPPER BOUND: delete only within the target date range (prevents wiping historical data)
-    console.log(`  ${tab}: deleting rows with tab=${tab} source=${source} date>=${startDate} date<=${endDate}`);
-    const delResult = await supabase.from("squad_daily_counts").delete()
-      .eq("tab", tab)
-      .eq("source", source)
-      .gte("date", startDate)
-      .lte("date", endDate);
-    console.log(`  ${tab}: delete error=${delResult.error?.message ?? 'none'}`);
+    // Delete only rows from THIS source (idempotent)
+    const del = await restDelete(svcKey, "squad_daily_counts", {
+      "tab": `eq.${tab}`, "source": `eq.${source}`, "date": `gte.${startDate}`, "date": `lte.${endDate}`,
+    });
+    if (del.error) {
+      console.error(`  ${tab}: delete error=${del.error}`);
+    }
 
+    let totalInserted = 0;
     if (rows.length > 0) {
-      console.log(`  ${tab}: about to insert ${rows.length} rows, first 3:`, JSON.stringify(rows.slice(0, 3)));
       for (let i = 0; i < rows.length; i += 500) {
         const batch = rows.slice(i, i + 500);
-        const { error } = await supabase.from("squad_daily_counts").insert(batch);
-        if (error) console.error(`Insert error ${tab}:`, error.message);
+        const ins = await restInsert(svcKey, "squad_daily_counts", batch);
+        if (ins.error) {
+          console.error(`  ${tab}: insert error=${ins.error}`);
+        } else {
+          totalInserted += ins.inserted;
+        }
       }
-    } else {
-      console.log(`  ${tab}: NO ROWS TO INSERT`);
     }
-    console.log(`  ${tab}: ${rows.length} rows (source=${source})`);
-    result[tab] = rows.length;
+    result[tab] = totalInserted;
   }
   return result;
 }
@@ -223,26 +253,30 @@ function countDealsByStage(
   }
 }
 
-async function writeStageCounts(supabase: any, stageCounts: Record<"reserva" | "contrato", Map<string, number>>) {
+async function writeStageCounts(svcKey: string, stageCounts: Record<"reserva" | "contrato", Map<string, number>>) {
   const today = new Date().toISOString().substring(0, 10);
   for (const tab of ["reserva", "contrato"] as const) {
-    // Delete previous snapshot data for this tab
-    const { error: delErr } = await supabase.from("squad_daily_counts").delete().eq("tab", tab);
-    if (delErr) console.error(`Delete error ${tab}:`, delErr.message);
+    // Delete previous snapshot data for this tab (no source filter — replaces all)
+    const del = await restDelete(svcKey, "squad_daily_counts", { "tab": `eq.${tab}` });
+    if (del.error) console.error(`Delete error ${tab}:`, del.error);
     const rows = Array.from(stageCounts[tab].entries()).map(([key, count]) => {
       const [date, empreendimento] = key.split("|");
       return { date, tab, empreendimento, count, synced_at: new Date().toISOString() };
     });
     if (rows.length > 0) {
-      const { error } = await supabase.from("squad_daily_counts").insert(rows);
-      if (error) console.error(`Insert error ${tab}:`, error.message);
+      const ins = await restInsert(svcKey, "squad_daily_counts", rows);
+      if (ins.error) {
+        console.error(`Insert error ${tab}: ${ins.error}`);
+      } else {
+        console.log(`  ${tab}: ${ins.inserted} rows inserted`);
+      }
     }
     console.log(`  ${tab}: ${rows.length} rows`);
   }
 }
 
 // ---- Mode: daily-open ----
-async function syncDailyOpen(nektApiKey: string, supabase: any) {
+async function syncDailyOpen(nektApiKey: string, supabase: any, svcKey: string) {
   const { startDate, endDate } = getDateRange();
   console.log(`syncDailyOpen: startDate=${startDate} endDate=${endDate}`);
   console.log(`syncDailyOpen: querying Nekt for open deals in pipeline ${PIPELINE_ID}...`);
@@ -284,13 +318,13 @@ async function syncDailyOpen(nektApiKey: string, supabase: any) {
   const contratoTotal = Array.from(stageCounts.contrato.values()).reduce((a, b) => a + b, 0);
   console.log(`  Open deals: ${deals.length}, marketing=${mkt}, reserva=${reservaTotal}, contrato=${contratoTotal}`);
 
-  const mainResult = await writeDailyCounts(supabase, countsPerTab, startDate, endDate, "open");
-  await writeStageCounts(supabase, stageCounts);
+  const mainResult = await writeDailyCounts(svcKey, countsPerTab, startDate, endDate, "open");
+  await writeStageCounts(svcKey, stageCounts);
   return { ...mainResult, reserva: reservaTotal, contrato: contratoTotal };
 }
 
 // ---- Mode: daily-won / daily-lost ----
-async function syncDailyByStatus(nektApiKey: string, supabase: any, status: string) {
+async function syncDailyByStatus(nektApiKey: string, supabase: any, svcKey: string, status: string) {
   const { startDate, endDate } = getDateRange();
   const cutoffDays = status === "lost" ? 90 : 365;
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - cutoffDays);
@@ -317,11 +351,11 @@ async function syncDailyByStatus(nektApiKey: string, supabase: any, status: stri
 
   const mkt = countDeals(deals, startDate, endDate, countsPerTab);
   console.log(`  ${status}: ${deals.length} deals, ${mkt} marketing`);
-  return writeDailyCounts(supabase, countsPerTab, startDate, endDate, status);
+  return writeDailyCounts(svcKey, countsPerTab, startDate, endDate, status);
 }
 
 // ---- Mode: alignment ----
-async function syncAlignment(nektApiKey: string, supabase: any) {
+async function syncAlignment(nektApiKey: string, svcKey: string) {
   console.log(`syncAlignment: querying Nekt for open deals + users...`);
 
   const sql = `
@@ -355,8 +389,8 @@ async function syncAlignment(nektApiKey: string, supabase: any) {
     });
   }
 
-  // Write aggregated counts
-  await supabase.from("squad_alignment").delete().neq("empreendimento", "");
+  // Write aggregated counts (REST API)
+  await restDelete(svcKey, "squad_alignment", { "empreendimento": "not.is.null" });
   const rows = Array.from(counts.entries()).map(([key, count]) => {
     const [empreendimento, owner_name] = key.split("|");
     return { empreendimento, owner_name, count, synced_at: new Date().toISOString() };
@@ -364,18 +398,18 @@ async function syncAlignment(nektApiKey: string, supabase: any) {
   if (rows.length > 0) {
     for (let i = 0; i < rows.length; i += 500) {
       const batch = rows.slice(i, i + 500);
-      const { error } = await supabase.from("squad_alignment").insert(batch);
-      if (error) console.error("Alignment insert error:", error.message);
+      const ins = await restInsert(svcKey, "squad_alignment", batch);
+      if (ins.error) console.error("Alignment insert error:", ins.error);
     }
   }
 
-  // Write individual deal records
-  await supabase.from("squad_alignment_deals").delete().neq("empreendimento", "");
+  // Write individual deal records (REST API)
+  await restDelete(svcKey, "squad_alignment_deals", { "empreendimento": "not.is.null" });
   if (dealRows.length > 0) {
     for (let i = 0; i < dealRows.length; i += 500) {
       const batch = dealRows.slice(i, i + 500);
-      const { error } = await supabase.from("squad_alignment_deals").insert(batch);
-      if (error) console.error("Alignment deals insert error:", error.message);
+      const ins = await restInsert(svcKey, "squad_alignment_deals", batch);
+      if (ins.error) console.error("Alignment deals insert error:", ins.error);
     }
   }
 
@@ -701,6 +735,7 @@ Deno.serve(async (req) => {
   const startTime = Date.now();
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+    const svcKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     // Get Nekt API key from Vault
     const { data: nektKeyData } = await supabase.rpc("vault_read_secret", { secret_name: "NEKT_API_KEY" });
@@ -720,7 +755,7 @@ Deno.serve(async (req) => {
     let result;
     switch (mode) {
       case "daily-open":
-        const openResult = await syncDailyOpen(nektApiKey, supabase);
+        const openResult = await syncDailyOpen(nektApiKey, supabase, svcKey);
         if (debugMode) {
           // Return debug info instead of writing to DB
           return new Response(JSON.stringify({ success: true, mode, debug: openResult }), {
@@ -730,13 +765,13 @@ Deno.serve(async (req) => {
         result = openResult;
         break;
       case "daily-won":
-        result = await syncDailyByStatus(nektApiKey, supabase, "won");
+        result = await syncDailyByStatus(nektApiKey, supabase, svcKey, "won");
         break;
       case "daily-lost":
-        result = await syncDailyByStatus(nektApiKey, supabase, "lost");
+        result = await syncDailyByStatus(nektApiKey, supabase, svcKey, "lost");
         break;
       case "alignment":
-        result = { rows: await syncAlignment(nektApiKey, supabase) };
+        result = { rows: await syncAlignment(nektApiKey, svcKey) };
         break;
       case "metas":
         result = await syncMetas(supabase);
@@ -756,9 +791,9 @@ Deno.serve(async (req) => {
         break;
       }
       case "all": {
-        const daily = await syncDailyOpen(nektApiKey, supabase);
-        const won = await syncDailyByStatus(nektApiKey, supabase, "won");
-        const alignment = await syncAlignment(nektApiKey, supabase);
+        const daily = await syncDailyOpen(nektApiKey, supabase, svcKey);
+        const won = await syncDailyByStatus(nektApiKey, supabase, svcKey, "won");
+        const alignment = await syncAlignment(nektApiKey, svcKey);
         const metas = await syncMetas(supabase);
         result = { daily, won, alignment, metas };
         break;
