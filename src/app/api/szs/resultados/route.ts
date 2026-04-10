@@ -3,21 +3,28 @@ import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { paginate } from "@/lib/paginate";
 import { getCidadeGroup, getSquadMetasFromNekt } from "@/lib/szs-utils";
 
-/* ── Multi-tab channel mapping ────────────────────────────────
- *   Geral          = todos os canais
- *   Vendas Diretas = tudo EXCETO parceiros, spot e expansão
- *   Expansão       = somente canal Expansão (1748)
- *   Parceiros      = somente canais de indicação parceiro
- * ──────────────────────────────────────────────────────────── */
+/* ── Macro-channel mapping ────────────────────────────────── */
+const MACRO_CHANNELS: Record<string, string> = {
+  Marketing: "Vendas Diretas",
+  "Mônica": "Vendas Diretas",
+  Spots: "Expansão",      // Spots vai para Expansão (não Vendas Diretas)
+  Outros: "Vendas Diretas",
+  Parceiros: "Parceiros",
+  "Ind. Corretor": "Parceiros",
+  "Ind. Franquia": "Parceiros",
+  "Ind. Outros Parceiros": "Parceiros",
+  "Expansão": "Expansão",
+};
+
+/* ── Canal group → macro channels (for counts aggregation) ── */
 const CANAL_PARCEIROS = new Set(["Parceiros", "Ind. Corretor", "Ind. Franquia", "Ind. Outros Parceiros"]);
 const CANAL_SPOTS = new Set(["Spots"]);
 const CANAL_EXPANSAO = new Set(["Expansão"]);
 
 function getChannelTabs(canalGroup: string): string[] {
   if (CANAL_PARCEIROS.has(canalGroup)) return ["Geral", "Parceiros"];
-  if (CANAL_SPOTS.has(canalGroup))     return ["Geral", "Expansão"]; // Spots no Geral e Expansão, não em Vendas Diretas
+  if (CANAL_SPOTS.has(canalGroup))     return ["Geral", "Expansão"]; // Spots → Expansão (não Vendas Diretas)
   if (CANAL_EXPANSAO.has(canalGroup))  return ["Geral", "Expansão"];
-  // Marketing, Mônica, Outros → somente Vendas Diretas
   return ["Geral", "Vendas Diretas"];
 }
 
@@ -39,9 +46,9 @@ const CHANNEL_ORDER = ["Geral", "Vendas Diretas", "Parceiros", "Expansão"] as c
 
 const CHANNEL_FILTERS: Record<string, string> = {
   Geral: "Todos os canais\nExclui: Duplicado/Erro",
-  "Vendas Diretas": "Exclui: Indicação Parceiro, Spot, Expansão, Duplicado/Erro",
+  "Vendas Diretas": "Inclui: Marketing, Mônica, Ind. Colaborador, Eventos, Ind. Clientes, Outros\nExclui: Expansão, Spots, Ind. Corretor, Ind. Franquia, Duplicado/Erro",
   Parceiros: "Inclui: Ind. Corretor, Ind. Franquia, Ind. Outros Parceiros\nExclui: Duplicado/Erro",
-  "Expansão": "Inclui: canal Expansão (1748)\nExclui: Duplicado/Erro",
+  "Expansão": "Inclui: Expansão, Spots\nExclui: Duplicado/Erro",
 };
 
 interface ChannelMetas {
