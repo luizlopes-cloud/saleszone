@@ -281,8 +281,15 @@ export function checkSla(lead: LeadRecord, slaData: SlaData): boolean {
 // Verifica em lote quais leads chegaram no Baserow via tabela Supabase baserow_leads
 // (campo lead_ads_id = leadgen_id do Meta). Atualiza in_baserow nos leads passados.
 // Só processa leads sem in_baserow definido ainda.
+// Leads criados antes desse momento não são verificados no Baserow
+const BASEROW_START = "2026-04-10T12:00:00.000Z" // 09:00 BRT de 10/04/2026
+
 export async function enrichBaserow(leads: LeadRecord[]): Promise<boolean> {
-  const toCheck = leads.filter(l => l.status !== "descartado" && l.in_baserow === undefined)
+  const toCheck = leads.filter(l =>
+    l.status !== "descartado" &&
+    l.in_baserow === undefined &&
+    l.created_at >= BASEROW_START
+  )
   if (!toCheck.length) return false
 
   const ids = toCheck.map(l => l.leadgen_id).filter(Boolean)
@@ -377,8 +384,9 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
   const pendingMap = new Map(batch.map(l => [l.id, l]))
   const updatedLeads = leads.map(l => pendingMap.get(l.id) || l)
 
-  // Enriquece Baserow em lote para todos os leads sem in_baserow definido
-  await enrichBaserow(updatedLeads)
+  // Enriquece Baserow só para a data de hoje — não toca em histórico
+  const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  if (key === today) await enrichBaserow(updatedLeads)
 
   await writeLeads(key, updatedLeads)
 
