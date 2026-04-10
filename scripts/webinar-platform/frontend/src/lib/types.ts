@@ -1,3 +1,13 @@
+export interface Closer {
+  id: string;
+  slug: string;
+  name: string;
+  email: string;
+  calendar_id: string;
+  avatar_url: string | null;
+  is_active: boolean;
+}
+
 export interface Slot {
   id: string;
   day_of_week: number;
