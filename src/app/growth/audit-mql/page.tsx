@@ -353,7 +353,7 @@ export default function AuditMQL() {
   const [log, setLog]               = useState<LogEntry[]>([])
   const [logLoading, setLogLoading] = useState(false)
   const [verticalFilter, setVerticalFilter] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter]     = useState<Status | null>(null)
+  const [statusFilter, setStatusFilter]     = useState<Status | "sem_baserow" | null>(null)
   const [expandedId, setExpandedId]         = useState<string | null>(null)
   const [slaData, setSlaData]               = useState<SlaData | null>(null)
   const [recovering, setRecovering]         = useState(false)
@@ -440,11 +440,12 @@ export default function AuditMQL() {
   }, [])
 
   const total      = leads.length
-  const ok         = leads.filter(l => l.status === "ok").length
-  const aguardando = leads.filter(l => l.status === "aguardando").length
-  const semMia     = leads.filter(l => l.status === "sem_mia").length
-  const semPipe    = leads.filter(l => l.status === "sem_pipedrive").length
-  const foraSla    = leads.filter(l => l.status === "fora_sla").length
+  const ok          = leads.filter(l => l.status === "ok").length
+  const aguardando  = leads.filter(l => l.status === "aguardando").length
+  const semMia      = leads.filter(l => l.status === "sem_mia").length
+  const semPipe     = leads.filter(l => l.status === "sem_pipedrive").length
+  const foraSla     = leads.filter(l => l.status === "fora_sla").length
+  const semBaserow  = leads.filter(l => l.in_baserow === false).length
 
   const byVertical = leads.reduce((acc, l) => {
     const v = l.vertical || "—"
@@ -459,6 +460,7 @@ export default function AuditMQL() {
 
   const visibleLeads = leads.filter(l => {
     if (verticalFilter && (l.vertical || "—") !== verticalFilter) return false
+    if (statusFilter === "sem_baserow") return l.in_baserow === false
     if (statusFilter && l.status !== statusFilter) return false
     return true
   })
@@ -614,14 +616,15 @@ export default function AuditMQL() {
 
       {/* ── ABA LEADS ────────────────────────────────────────────────────────── */}
       {tab === "leads" && <>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 12, marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 10, marginBottom: 16 }}>
           {[
-            { label: "Leads",         value: total,      color: T.fg,          status: null             as Status | null, desc: "Total de leads recebidos no dia" },
-            { label: "OK",            value: ok,         color: T.verde600,    status: "ok"             as Status | null, desc: "No Pipedrive com atendimento MIA" },
-            { label: "Aguardando",    value: aguardando, color: T.primary,     status: "aguardando"     as Status | null, desc: "Recém-chegado, aguardando verificação" },
-            { label: "Sem MIA",       value: semMia,     color: T.laranja500,  status: "sem_mia"        as Status | null, desc: "É um MQL mas não tem link de conversa na MIA" },
-            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive, status: "sem_pipedrive"  as Status | null, desc: "É um MQL mas não foi encontrado no Pipe" },
-            { label: "Fora SLA",      value: foraSla,    color: "#9333EA",     status: "fora_sla"       as Status | null, desc: "Não é MQL, fora dos critérios de SLA" },
+            { label: "Leads",         value: total,      color: T.fg,          status: null               as Status | "sem_baserow" | null, desc: "Total de leads no dia" },
+            { label: "OK",            value: ok,         color: T.verde600,    status: "ok"               as Status | "sem_baserow" | null, desc: "Pipedrive + MIA ok" },
+            { label: "Aguardando",    value: aguardando, color: T.primary,     status: "aguardando"       as Status | "sem_baserow" | null, desc: "Aguardando verificação" },
+            { label: "Sem MIA",       value: semMia,     color: T.laranja500,  status: "sem_mia"          as Status | "sem_baserow" | null, desc: "Sem link de conversa MIA" },
+            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive, status: "sem_pipedrive"    as Status | "sem_baserow" | null, desc: "Não encontrado no Pipe" },
+            { label: "Sem Baserow",   value: semBaserow, color: "#DC2626",     status: "sem_baserow"      as Status | "sem_baserow" | null, desc: "Não chegou no Baserow" },
+            { label: "Fora SLA",      value: foraSla,    color: "#9333EA",     status: "fora_sla"         as Status | "sem_baserow" | null, desc: "Fora dos critérios SLA" },
           ].map(c => {
             const active = statusFilter === c.status && c.status !== null
             return (
@@ -629,29 +632,34 @@ export default function AuditMQL() {
                 onClick={() => c.status ? setStatusFilter(active ? null : c.status) : setStatusFilter(null)}
                 style={{ background: active ? c.color + "12" : T.card,
                   border: `1px solid ${active ? c.color : T.border}`,
-                  borderRadius: 10, padding: "12px 16px", boxShadow: T.elevSm,
+                  borderRadius: 10, padding: "10px 12px", boxShadow: T.elevSm,
                   cursor: c.status ? "pointer" : "default",
                   transition: "border-color 0.15s, background 0.15s" }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: T.mutedFg,
+                <div style={{ fontSize: 9, fontWeight: 600, color: T.mutedFg,
                   textTransform: "uppercase", letterSpacing: "0.07em" }}>{c.label}</div>
-                <div style={{ fontSize: 26, fontWeight: 700, color: c.color, marginTop: 4,
+                <div style={{ fontSize: 22, fontWeight: 700, color: c.color, marginTop: 2,
                   fontVariantNumeric: "tabular-nums" }}>{c.value}</div>
-                <div style={{ fontSize: 10, color: T.mutedFg, marginTop: 4, lineHeight: "1.3" }}>{c.desc}</div>
+                <div style={{ fontSize: 9, color: T.mutedFg, marginTop: 2, lineHeight: "1.3" }}>{c.desc}</div>
               </div>
             )
           })}
         </div>
-        {statusFilter && (
-          <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12, color: T.mutedFg }}>Filtro ativo:</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: STATUS_META[statusFilter].color,
-              border: `1px solid ${STATUS_META[statusFilter].color}55`,
-              padding: "2px 8px", borderRadius: 4 }}>{STATUS_META[statusFilter].label}</span>
-            <button onClick={() => setStatusFilter(null)}
-              style={{ background: "none", border: "none", cursor: "pointer",
-                fontSize: 12, color: T.mutedFg, padding: 0 }}>× limpar</button>
-          </div>
-        )}
+        {statusFilter && (() => {
+          const meta = statusFilter === "sem_baserow"
+            ? { color: "#DC2626", label: "SEM BASEROW" }
+            : STATUS_META[statusFilter]
+          return (
+            <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: T.mutedFg }}>Filtro ativo:</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: meta.color,
+                border: `1px solid ${meta.color}55`,
+                padding: "2px 8px", borderRadius: 4 }}>{meta.label}</span>
+              <button onClick={() => setStatusFilter(null)}
+                style={{ background: "none", border: "none", cursor: "pointer",
+                  fontSize: 12, color: T.mutedFg, padding: 0 }}>× limpar</button>
+            </div>
+          )
+        })()}
 
         {Object.keys(byVertical).length > 0 && (
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-start" }}>
