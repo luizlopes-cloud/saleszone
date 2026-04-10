@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import Calendar from "../components/Calendar";
 import TimeSlots from "../components/TimeSlots";
 import RegistrationForm from "../components/RegistrationForm";
-import type { Session } from "../lib/types";
+import type { Session, Closer } from "../lib/types";
 import { api } from "../lib/api";
 
 const WEEKDAYS_PT = [
@@ -21,6 +22,10 @@ function getNowPill(): string {
 type Step = "calendar" | "form" | "confirmed";
 
 export default function SchedulePage() {
+  const { closerSlug } = useParams<{ closerSlug: string }>();
+  const navigate = useNavigate();
+  const [closer, setCloser] = useState<Closer | null>(null);
+  const [closerError, setCloserError] = useState(false);
   const [step, setStep] = useState<Step>("calendar");
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -30,15 +35,25 @@ export default function SchedulePage() {
   const [nowPill] = useState(getNowPill);
 
   useEffect(() => {
-    if (!selectedDate) return;
+    if (!closerSlug) {
+      navigate("/webinar/invalid");
+      return;
+    }
+    api.getCloserBySlug(closerSlug)
+      .then((data) => setCloser(data))
+      .catch(() => setCloserError(true));
+  }, [closerSlug, navigate]);
+
+  useEffect(() => {
+    if (!selectedDate || !closerSlug) return;
     setLoadingSessions(true);
     setSessions([]);
     api
-      .getAvailableSessions(selectedDate)
+      .getAvailableSessions(selectedDate, closerSlug)
       .then((data) => setSessions(data))
       .catch(() => setSessions([]))
       .finally(() => setLoadingSessions(false));
-  }, [selectedDate]);
+  }, [selectedDate, closerSlug]);
 
   function handleSelectSession(session: Session) {
     setSelectedSession(session);
@@ -55,6 +70,25 @@ export default function SchedulePage() {
     setStep("calendar");
   }
 
+  if (closerError) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl shadow p-8 text-center max-w-sm">
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Página não encontrada</h2>
+          <p className="text-gray-500 text-sm">O link que você acessou não é válido ou foi desativado.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!closer) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center">
+        <div className="w-8 h-8 border-4 border-blue-400 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 py-10 px-4">
       <div className="max-w-md mx-auto">
@@ -63,7 +97,7 @@ export default function SchedulePage() {
           <div className="inline-block bg-white border border-gray-200 rounded-full px-4 py-1.5 text-xs text-gray-500 mb-4 shadow-sm">
             {nowPill}
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Apresentação Seazone</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Agende com {closer.name}</h1>
           <p className="text-gray-500 text-sm mt-1">
             Escolha um horário disponível para participar
           </p>

@@ -15,7 +15,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/webinar" element={<SchedulePage />} />
+        <Route path="/:closerSlug" element={<SchedulePage />} />
         <Route path="/webinar/sala/:sessionId" element={<WaitingRoom />} />
         <Route path="/webinar/sala/:sessionId/live" element={<LiveRoom />} />
         <Route path="/webinar/obrigado" element={<ThankYou />} />
