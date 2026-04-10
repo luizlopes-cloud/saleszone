@@ -2,10 +2,11 @@
 // POST { date: "2026-04-05" } → compara com Blob e salva o que falta
 
 import { NextRequest, NextResponse } from "next/server"
-import { LeadRecord, dateKey, readLeads, appendLeadSafe, extractVertical } from "@/lib/audit-mql"
+import { LeadRecord, dateKey, readLeads, writeLeads, extractVertical } from "@/lib/audit-mql"
+import { runCheck } from "@/lib/audit-mql-check"
 import crypto from "crypto"
 
-export const maxDuration = 60
+export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
 const META_TOKEN = process.env.META_ADS_TOKEN || ""
@@ -21,49 +22,74 @@ async function metaFetch(url: string) {
   return res.json()
 }
 
-async function getFormsForPage(pageId: string): Promise<{ id: string; name: string }[]> {
+/** Converte o System User token em Page tokens via /me/accounts */
+async function getPageTokens(): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  let url: string | null = `https://graph.facebook.com/v19.0/me/accounts?fields=id,access_token&limit=100&access_token=${META_TOKEN}`
+  while (url) {
+    const data = await metaFetch(url)
+    if (!data?.data) {
+      console.error("[recovery] getPageTokens: resposta inválida da Meta API", data)
+      break
+    }
+    for (const p of data.data) map.set(String(p.id), String(p.access_token))
+    url = data.paging?.next || null
+  }
+  if (map.size === 0) console.error("[recovery] getPageTokens: nenhum Page token obtido — verificar META_ADS_TOKEN")
+  return map
+}
+
+async function getFormsForPage(pageId: string, pageToken: string): Promise<{ id: string; name: string }[]> {
   const forms: { id: string; name: string }[] = []
   let url = `https://graph.facebook.com/v19.0/${pageId}/leadgen_forms` +
-    `?fields=id,name,status&limit=100&access_token=${META_TOKEN}`
+    `?fields=id,name,status&limit=100&access_token=${pageToken}`
 
   while (url) {
     const data = await metaFetch(url)
     if (!data?.data) break
-    forms.push(...data.data.map((f: { id: string; name: string }) => ({ id: f.id, name: f.name })))
+    forms.push(...data.data
+      .filter((f: { id: string; name: string; status: string }) => f.status === "ACTIVE")
+      .map((f: { id: string; name: string }) => ({ id: f.id, name: f.name })))
     url = data.paging?.next || ""
   }
   return forms
 }
 
-function parseLead(lead: Record<string, unknown>): Partial<LeadRecord> {
+function parseLead(lead: Record<string, unknown>): Partial<LeadRecord> & { form_values: string[]; form_fields: { name: string; value: string }[] } {
+  const fieldData = (lead.field_data as { name: string; values: string[] }[]) || []
   const fields: Record<string, string> = {}
-  for (const item of (lead.field_data as { name: string; values: string[] }[]) || []) {
+  for (const item of fieldData) {
     fields[item.name] = item.values?.[0] || ""
   }
   const firstName = fields["first_name"] || ""
   const lastName  = fields["last_name"]  || ""
   const fullName  = fields["full_name"]  || `${firstName} ${lastName}`.trim()
 
+  const form_fields = fieldData.flatMap(f => (f.values || []).map(v => ({ name: f.name, value: v })))
+
   return {
-    name:    fullName,
-    email:   fields["email"] || "",
-    phone:   fields["phone_number"] || fields["phone"] || "",
-    form_id: String(lead.form_id || ""),
-    ad_id:   String(lead.ad_id   || ""),
-    page_id: String(lead.page_id || ""),
+    name:        fullName,
+    email:       fields["email"] || "",
+    phone:       fields["phone_number"] || fields["phone"] || "",
+    form_id:     String(lead.form_id || ""),
+    ad_id:       String(lead.ad_id   || ""),
+    page_id:     String(lead.page_id || ""),
+    form_values: form_fields.map(f => f.value),
+    form_fields,
   }
 }
 
 async function getLeadsForForm(
   formId: string,
   minTs: number,
-  maxTs: number
+  maxTs: number,
+  pageToken: string
 ): Promise<{ leadgen_id: string; created_time: string; parsed: Partial<LeadRecord> }[]> {
   const results: { leadgen_id: string; created_time: string; parsed: Partial<LeadRecord> }[] = []
   let url = `https://graph.facebook.com/v19.0/${formId}/leads` +
     `?fields=id,created_time,field_data,ad_id,form_id,page_id` +
     `&time_range%5Bmin%5D=${minTs}&time_range%5Bmax%5D=${maxTs}` +
-    `&limit=100&access_token=${META_TOKEN}`
+    `&limit=100&access_token=${pageToken}`
 
   while (url) {
     const data = await metaFetch(url)
@@ -82,70 +108,142 @@ async function getLeadsForForm(
 
 // ─── Route ────────────────────────────────────────────────────────────────────
 
-async function recoverDate(targetDate: string) {
-  // Converter data BRT → timestamps Unix (início e fim do dia em BRT = UTC-3)
-  const minDate = new Date(`${targetDate}T03:00:00Z`)               // 00:00 BRT = 03:00 UTC
-  const maxDate = new Date(minDate.getTime() + 24 * 60 * 60 * 1000 - 1) // 23:59:59 BRT
+async function recoverDate(targetDate: string, pageTokens: Map<string, string>) {
+  const minDate = new Date(`${targetDate}T03:00:00Z`)
+  const maxDate = new Date(minDate.getTime() + 24 * 60 * 60 * 1000 - 1)
   const minUnix = Math.floor(minDate.getTime() / 1000)
   const maxUnix = Math.floor(maxDate.getTime() / 1000)
 
-  const existing = await readLeads(targetDate)
-  const existingIds = new Set(existing.map(l => l.leadgen_id))
+  const existing   = await readLeads(targetDate)
+  const existingMap = new Map(existing.map(l => [l.leadgen_id, l]))
 
-  let recovered = 0
-  let skipped   = 0
-  let errors    = 0
+  let recovered  = 0
+  let backfilled = 0
+  let skipped    = 0
+  let errors     = 0
   const recoveredLeads: string[] = []
+  const newLeads: LeadRecord[] = []
+  const seenIds = new Set<string>()
+  const toBackfill = new Map<string, { form_values: string[]; form_fields: { name: string; value: string }[] }>()
+  // Cache de campaign_name por ad_id — evita chamadas duplicadas à Meta API
+  const campaignCache = new Map<string, string>()
 
   for (const pageId of PAGE_IDS) {
+    const pageToken = pageTokens.get(pageId)
+    if (!pageToken) continue
+
     let forms: { id: string; name: string }[] = []
-    try { forms = await getFormsForPage(pageId) } catch { continue }
+    try { forms = await getFormsForPage(pageId, pageToken) } catch { continue }
 
     for (const form of forms) {
       let metaLeads: Awaited<ReturnType<typeof getLeadsForForm>> = []
-      try { metaLeads = await getLeadsForForm(form.id, minUnix, maxUnix) } catch { continue }
+      try { metaLeads = await getLeadsForForm(form.id, minUnix, maxUnix, pageToken) } catch { continue }
 
       for (const ml of metaLeads) {
-        if (existingIds.has(ml.leadgen_id)) { skipped++; continue }
+        const blobLead = existingMap.get(ml.leadgen_id)
 
-        let campaign = ""
-        if (ml.parsed.ad_id) {
-          try {
-            const adData = await metaFetch(
-              `https://graph.facebook.com/v19.0/${ml.parsed.ad_id}?fields=campaign{name}&access_token=${META_TOKEN}`
-            )
-            campaign = adData?.campaign?.name || ""
-          } catch { /* sem campanha */ }
+        if (blobLead) {
+          const needsBackfill = (!blobLead.form_values?.length || !blobLead.form_fields?.length) && ml.parsed.form_values?.length
+          if (needsBackfill) {
+            toBackfill.set(ml.leadgen_id, { form_values: ml.parsed.form_values!, form_fields: ml.parsed.form_fields! })
+          } else {
+            skipped++
+          }
+          continue
         }
+
+        // Já coletado neste batch — skip
+        if (seenIds.has(ml.leadgen_id)) { skipped++; continue }
+
+        // Campaign com cache por ad_id
+        let campaign = ""
+        const adId = ml.parsed.ad_id || ""
+        if (adId) {
+          if (campaignCache.has(adId)) {
+            campaign = campaignCache.get(adId)!
+          } else {
+            try {
+              const adData = await metaFetch(
+                `https://graph.facebook.com/v19.0/${adId}?fields=campaign{name}&access_token=${META_TOKEN}`
+              )
+              campaign = adData?.campaign?.name || ""
+            } catch { /* sem campanha */ }
+            campaignCache.set(adId, campaign)
+          }
+        }
+
+        const createdAt = ml.created_time || new Date().toISOString()
+        const leadAge = Date.now() - new Date(createdAt).getTime()
+        const isOldLead = leadAge > 15 * 60 * 1000 // >15 min
 
         const record: LeadRecord = {
           id:            crypto.randomUUID(),
           leadgen_id:    ml.leadgen_id,
           form_id:       ml.parsed.form_id || form.id,
-          ad_id:         ml.parsed.ad_id   || "",
+          ad_id:         adId,
           page_id:       ml.parsed.page_id || pageId,
           name:          ml.parsed.name    || "",
           email:         ml.parsed.email   || "",
           phone:         ml.parsed.phone   || "",
           campaign_name: campaign,
           vertical:      extractVertical(campaign),
-          created_at:    ml.created_time || new Date().toISOString(),
+          created_at:    createdAt,
           status:        "aguardando",
+          form_values:   ml.parsed.form_values,
+          form_fields:   ml.parsed.form_fields,
+          // Leads antigos (>15min) já recuperados não devem disparar alerta Slack
+          ...(isOldLead ? { notified: true } : {}),
         }
 
-        try {
-          const saved = await appendLeadSafe(targetDate, record)
-          if (saved) {
-            recovered++
-            existingIds.add(ml.leadgen_id)
-            recoveredLeads.push(`${record.name || record.email} (${record.vertical})`)
-          }
-        } catch { errors++ }
+        newLeads.push(record)
+        seenIds.add(ml.leadgen_id)
+        existingMap.set(ml.leadgen_id, record)
+        recovered++
+        recoveredLeads.push(`${record.name || record.email} (${record.vertical})`)
       }
     }
   }
 
-  return { date: targetDate, recovered, skipped, errors, recoveredLeads, existingBefore: existing.length }
+  // Batch write: um único writeLeads com todos os leads existentes + novos
+  // Premissa: execução serial garantida pelo cron (1 invocação por vez)
+  if (newLeads.length > 0 || toBackfill.size > 0) {
+    const allLeads = newLeads.length > 0 ? [...existing, ...newLeads] : await readLeads(targetDate)
+
+    if (toBackfill.size > 0) {
+      for (const lead of allLeads) {
+        const bf = toBackfill.get(lead.leadgen_id)
+        if (bf) { lead.form_values = bf.form_values; lead.form_fields = bf.form_fields; backfilled++ }
+      }
+    }
+
+    try {
+      await writeLeads(targetDate, allLeads)
+    } catch (err) {
+      console.error("[recovery] writeLeads failed:", err)
+      errors++
+    }
+  }
+
+  return { date: targetDate, recovered, backfilled, skipped, errors, existingBefore: existing.length, recoveredLeads }
+}
+
+async function recoverAndCheck(targetDate: string, pageTokens: Map<string, string>) {
+  const result = await recoverDate(targetDate, pageTokens)
+  if (result.recovered > 0 || result.backfilled > 0) await runCheck(targetDate)
+  return result
+}
+
+// GET — cron automático a cada 10min (Vercel envia CRON_SECRET como Bearer)
+export async function GET(req: NextRequest) {
+  const authHeader = req.headers.get("authorization")
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
+  const pageTokens = await getPageTokens()
+  const r = await recoverAndCheck(dateKey(), pageTokens)
+  return NextResponse.json({ today: r })
 }
 
 export async function POST(req: NextRequest) {
@@ -155,20 +253,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
+  const pageTokens = await getPageTokens()
   const body = await req.json().catch(() => ({}))
+  const targetDate = body.date || null
 
-  if (body.date) {
-    return NextResponse.json(await recoverDate(body.date))
+  if (targetDate) {
+    return NextResponse.json(await recoverAndCheck(targetDate, pageTokens))
   }
 
-  // Sem date → verifica hoje e ontem
-  const today = dateKey()
-  const yesterday = (() => {
-    const d = new Date(Date.now() - 3 * 60 * 60 * 1000)
-    d.setDate(d.getDate() - 1)
-    return d.toISOString().slice(0, 10)
-  })()
-
-  const [r1, r2] = await Promise.all([recoverDate(yesterday), recoverDate(today)])
-  return NextResponse.json({ yesterday: r1, today: r2 })
+  const r = await recoverAndCheck(dateKey(), pageTokens)
+  return NextResponse.json({ today: r })
 }
