@@ -554,24 +554,6 @@ export default function Dashboard() {
     }
   }, [acompFilter]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Sync ratioFilter with acompFilter for SZS city filters
-  useEffect(() => {
-    if (!hydrated) return;
-    const cityFilters: Array<typeof ratioFilter> = ["sao-paulo", "salvador", "florianopolis", "outros"];
-    if ((cityFilters as string[]).includes(acompFilter)) {
-      setRatioFilter(acompFilter as typeof ratioFilter);
-    }
-  }, [acompFilter]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-fetch when ratioFilter changes
-  useEffect(() => {
-    if (!hydrated) return;
-    if (mainView === "acompanhamento") {
-      setRatioData(null);
-      fetchRatios(ratioDays, ratioFilter);
-    }
-  }, [ratioFilter]); // eslint-disable-line react-hooks/exhaustive-deps
-
   useEffect(() => {
     if (!hydrated) return;
     if (mainView === "acompanhamento") {
