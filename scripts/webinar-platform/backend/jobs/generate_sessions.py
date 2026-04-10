@@ -19,6 +19,10 @@ def main():
         print("[generate] No active slots")
         return
 
+    # Pre-fetch all closers to avoid N+1
+    closers_list = db.select("webinar_closers", filters={"is_active": "eq.true"}) or []
+    closers_map = {c["id"]: c for c in closers_list}
+
     created = 0
     for day_offset in range(14):
         target_date = today + timedelta(days=day_offset)
@@ -42,18 +46,24 @@ def main():
                               hour, minute, tzinfo=BRT)
             ends = starts + timedelta(minutes=slot["duration_minutes"])
 
+            # Resolve calendar_id from closer
+            closer_id = slot.get("closer_id")
+            closer = closers_map.get(closer_id) if closer_id else None
+            calendar_id = closer["calendar_id"] if closer else None
+
             try:
                 event_id, meet_link = create_session_event(
                     title="Apresentação Seazone",
                     starts_at=starts.isoformat(),
                     ends_at=ends.isoformat(),
                     presenter_email=slot["presenter_email"],
+                    calendar_id=calendar_id,
                 )
             except Exception as e:
                 print(f"[generate] Calendar error for {target_date} {time_str}: {e}")
                 event_id, meet_link = None, None
 
-            db.insert("webinar_sessions", {
+            session_data = {
                 "slot_id": slot["id"],
                 "date": target_date.isoformat(),
                 "starts_at": starts.isoformat(),
@@ -61,7 +71,11 @@ def main():
                 "google_meet_link": meet_link,
                 "calendar_event_id": event_id,
                 "status": "scheduled",
-            })
+            }
+            if closer_id:
+                session_data["closer_id"] = closer_id
+
+            db.insert("webinar_sessions", session_data)
             created += 1
             print(f"[generate] Created: {target_date} {time_str}")
 
