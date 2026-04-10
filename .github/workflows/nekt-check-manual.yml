@@ -1,0 +1,40 @@
+name: Audit MQL — Nekt Check + Summary manual
+
+on:
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Data a processar (YYYY-MM-DD)"
+        required: true
+        default: "2026-04-09"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Nekt Check
+        run: |
+          echo "Rodando nekt-check para ${{ github.event.inputs.date }}..."
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://saleszone.vercel.app/api/growth/audit-mql/nekt-check?date=${{ github.event.inputs.date }}")
+          body=$(echo "$response" | head -n -1)
+          code=$(echo "$response" | tail -1)
+          echo "Status: $code"
+          echo "Body: $body"
+          if [ "$code" != "200" ]; then exit 1; fi
+
+      - name: Aguardar 10s para garantir gravação
+        run: sleep 10
+
+      - name: 2. Summary + Slack
+        run: |
+          echo "Enviando summary para ${{ github.event.inputs.date }}..."
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://saleszone.vercel.app/api/growth/audit-mql/summary?date=${{ github.event.inputs.date }}")
+          body=$(echo "$response" | head -n -1)
+          code=$(echo "$response" | tail -1)
+          echo "Status: $code"
+          echo "Body: $body"
+          if [ "$code" != "200" ]; then exit 1; fi
