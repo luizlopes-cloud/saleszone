@@ -1,5 +1,6 @@
 import { LeadRecord, readLeads, writeLeads } from "@/lib/audit-mql"
 import { readData, SlaRow, SlaData } from "@/lib/sla-mql-blob"
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase"
 
 const PIPEDRIVE_TOKEN  = process.env.PIPEDRIVE_API_TOKEN        || ""
 const PIPEDRIVE_DOMAIN = process.env.PIPEDRIVE_COMPANY_DOMAIN   || "seazone"
@@ -276,6 +277,34 @@ export function checkSla(lead: LeadRecord, slaData: SlaData): boolean {
   })
 }
 
+// ─── Baserow enrichment ───────────────────────────────────────────────────────
+// Verifica em lote quais leads chegaram no Baserow via tabela Supabase baserow_leads
+// (campo lead_ads_id = leadgen_id do Meta). Atualiza in_baserow nos leads passados.
+// Só processa leads sem in_baserow definido ainda.
+export async function enrichBaserow(leads: LeadRecord[]): Promise<boolean> {
+  const toCheck = leads.filter(l => l.status !== "descartado" && l.in_baserow === undefined)
+  if (!toCheck.length) return false
+
+  const ids = toCheck.map(l => l.leadgen_id).filter(Boolean)
+  if (!ids.length) return false
+
+  try {
+    const admin = createSquadSupabaseAdmin()
+    const { data } = await admin
+      .from("baserow_leads")
+      .select("lead_ads_id")
+      .in("lead_ads_id", ids)
+
+    const found = new Set((data || []).map((r: { lead_ads_id: string }) => r.lead_ads_id))
+    for (const lead of toCheck) {
+      lead.in_baserow = found.has(lead.leadgen_id)
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 // ─── runCheck (usado pelo check/route.ts e summary/route.ts) ─────────────────
 
 export async function runCheck(key: string): Promise<{ checked: number; resolved: number }> {
@@ -346,7 +375,12 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
   }
 
   const pendingMap = new Map(batch.map(l => [l.id, l]))
-  await writeLeads(key, leads.map(l => pendingMap.get(l.id) || l))
+  const updatedLeads = leads.map(l => pendingMap.get(l.id) || l)
+
+  // Enriquece Baserow em lote para todos os leads sem in_baserow definido
+  await enrichBaserow(updatedLeads)
+
+  await writeLeads(key, updatedLeads)
 
   return { checked: batch.length, resolved }
 }
