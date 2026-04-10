@@ -804,7 +804,7 @@ export default function AuditMQL() {
                             ? <StatusDot ok={true} label="Chegou" />
                             : lead.in_baserow === false
                               ? <StatusDot ok={false} label="Não chegou" />
-                              : <StatusDot ok={false} pending label="Verificando…" />}
+                              : <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>}
                         </td>
                         <td style={{ padding: "10px 14px" }}>
                           {isForaSla
