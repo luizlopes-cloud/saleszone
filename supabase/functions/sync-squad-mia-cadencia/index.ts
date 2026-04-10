@@ -297,6 +297,13 @@ Deno.serve(async (req: Request) => {
     const tentativas = buildTentativas(rows);
     console.log(`[mia-cadencia] Built ${tentativas.length} deal records`);
 
+    // Guard: if Nekt returned no rows, do NOT delete existing data
+    if (rows.length === 0) {
+      return new Response(JSON.stringify({ ok: false, error: "Nekt returned 0 rows — skipping sync to preserve existing data" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Delete all existing records (full sync)
     await supabase.from("squad_mia_tentativas").delete().neq("id", 0);
 
