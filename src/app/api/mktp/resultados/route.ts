@@ -197,6 +197,18 @@ export async function GET() {
     const metaRows = await paginate((o, ps) =>
       admin.from("mktp_meta_ads").select("ad_id, spend_month").range(o, o + ps - 1)
     );
+
+    /* ── 4b. Metas do mês de mktp_metas (fallback para hardcoded se vazio) ── */
+    const { data: mktpMetasRows } = await admin
+      .from("mktp_metas").select("tab, meta").eq("month", `${monthKey}-01`);
+    // Aggregate total metas by tab (mql, sql, opp, won, reserva, contrato)
+    const totalMetasByTab: Record<string, number> = {};
+    for (const r of mktpMetasRows || []) {
+      totalMetasByTab[r.tab] = (totalMetasByTab[r.tab] || 0) + (Number(r.meta) || 0);
+    }
+    // If mktp_metas has data, use it to build metas per channel
+    const totalWonMeta = totalMetasByTab.won || 0;
+    const hasMetasData = Object.keys(totalMetasByTab).length > 0;
     const spendByAd = new Map<string, number>();
     for (const r of metaRows) {
       const adId = r.ad_id as string;
@@ -364,8 +376,40 @@ export async function GET() {
       last.total = snapshots["Funil Completo"].totalOpen;
     }
 
-    /* ── 7. Build response ─────────────────────────────────── */
-    const metas = MKTP_RESULTADOS_METAS[monthKey] || {};
+    /* ── 7. Build metas per channel ──────────────────────────── */
+    // Use mktp_metas if available, otherwise fallback to hardcoded
+    const legacyMetas = MKTP_RESULTADOS_METAS[monthKey] || {};
+    const metas: Record<string, ChannelMetas> = {};
+
+    if (hasMetasData) {
+      // Derive channel metas from total using hardcoded ratios
+      // Hardcoded won: Funil Completo=15, Vendas Diretas=9, Parcerias=6 (2026-03) → ~60%/40% split
+      const wonTotal = legacyMetas["Funil Completo"]?.won || legacyMetas["Vendas Diretas"]?.won || totalWonMeta || 15;
+      const wonRatioVD = wonTotal > 0 ? ((legacyMetas["Vendas Diretas"]?.won || 9) / wonTotal) : 0.6;
+      const wonRatioP = wonTotal > 0 ? ((legacyMetas["Parcerias"]?.won || 6) / wonTotal) : 0.4;
+
+      const mqlTotal = totalMetasByTab.mql || legacyMetas["Funil Completo"]?.mql || 1707;
+      const sqlTotal = totalMetasByTab.sql || legacyMetas["Funil Completo"]?.sql || 406;
+      const oppTotal = totalMetasByTab.opp || legacyMetas["Funil Completo"]?.opp || 128;
+      const wonFromMeta = totalMetasByTab.won || legacyMetas["Funil Completo"]?.won || 15;
+
+      metas["Funil Completo"] = {
+        mql: mqlTotal, sql: sqlTotal, opp: oppTotal, won: wonFromMeta,
+        reserva: totalMetasByTab.reserva || legacyMetas["Funil Completo"]?.reserva,
+        contrato: totalMetasByTab.contrato || legacyMetas["Funil Completo"]?.contrato,
+      };
+      metas["Vendas Diretas"] = {
+        mql: Math.round(mqlTotal * wonRatioVD), sql: Math.round(sqlTotal * wonRatioVD),
+        opp: Math.round(oppTotal * wonRatioVD), won: Math.round(wonFromMeta * wonRatioVD),
+      };
+      metas["Parcerias"] = {
+        mql: Math.round(mqlTotal * wonRatioP), sql: Math.round(sqlTotal * wonRatioP),
+        opp: Math.round(oppTotal * wonRatioP), won: Math.round(wonFromMeta * wonRatioP),
+      };
+    } else {
+      // Fallback to hardcoded table
+      Object.assign(metas, legacyMetas);
+    }
 
     const channels: ChannelResult[] = CHANNEL_ORDER.map((name) => {
       const counts = channelCounts[name] || {};
