@@ -23,7 +23,9 @@ function fmtDate(key: string) {
 function pct(n: number, d: number) { return d > 0 ? `${Math.round(n / d * 100)}%` : "—" }
 
 async function buildSummary(key: string) {
-  const leads = await readLeads(key)
+  const all = await readLeads(key)
+  // Exclui descartados — igual ao filtro da UI
+  const leads = all.filter(l => l.status !== "descartado")
   if (leads.length === 0) return null
 
   const byVertical = new Map<string, { total: number; pipedrive: number; mia: number; erros: number }>()
