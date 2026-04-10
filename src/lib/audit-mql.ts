@@ -20,6 +20,7 @@ export interface LeadRecord {
   form_values?: string[]   // todas as respostas do formulário Meta (para verificação SLA)
   form_fields?: { name: string; value: string }[]  // pares pergunta+resposta (para exibição)
   sla_ok?: boolean         // resultado da verificação SLA (undefined = não verificado)
+  in_baserow?: boolean     // true = chegou no Baserow, false = não chegou, undefined = ainda não verificado
 }
 
 export function extractVertical(campaignName: string): string {
