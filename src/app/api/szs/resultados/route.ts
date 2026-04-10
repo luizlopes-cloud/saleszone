@@ -232,11 +232,13 @@ export async function GET(request: NextRequest) {
     const snapshots: Record<string, { agDados: number; contrato: number; agendado: number; totalOpen: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { agDados: 0, contrato: 0, agendado: 0, totalOpen: 0 };
 
+    // Busca snapshot mais recente (não só de hoje — sync pode não ter rodado)
     const { data: pdSnap } = await admin
       .from("pipedrive_daily_snapshot")
-      .select("total_open, by_stage")
+      .select("date, total_open, by_stage")
       .eq("pipeline_id", 14)
-      .eq("date", todayStr)
+      .order("date", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     // Snapshots de Ag.Dados e Contrato direto de szs_deals (sempre atualizado, filtrável por cidade e canal)
@@ -259,15 +261,21 @@ export async function GET(request: NextRequest) {
         }
       }
     }
-    // Total open from pipedrive_daily_snapshot or szs_open_snapshots (fallback)
+    // Total open: pipedrive_daily_snapshot (mais confiável) > szs_open_snapshots > delta approach
     if (pdSnap) {
       snapshots.Geral.totalOpen = pdSnap.total_open || 0;
+      console.log(`[szs-resultados] Using pipedrive_daily_snapshot from ${pdSnap.date}: totalOpen=${pdSnap.total_open}`);
     } else {
-      const todaySnap = await paginate((o, ps) =>
+      const snapRows = await paginate((o, ps) =>
         admin.from("szs_open_snapshots").select("*").eq("date", todayStr).range(o, o + ps - 1)
       );
-      for (const s of todaySnap) {
-        snapshots.Geral.totalOpen += s.total_open || 0;
+      if (snapRows.length > 0) {
+        for (const s of snapRows) {
+          snapshots.Geral.totalOpen += s.total_open || 0;
+        }
+        console.log(`[szs-resultados] Using szs_open_snapshots (today): totalOpen=${snapshots.Geral.totalOpen}`);
+      } else {
+        console.warn("[szs-resultados] No pipedrive_daily_snapshot or szs_open_snapshots — chart will show delta-computed total (may be inaccurate)");
       }
     }
 
