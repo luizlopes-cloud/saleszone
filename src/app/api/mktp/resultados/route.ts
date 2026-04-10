@@ -233,11 +233,13 @@ export async function GET() {
     const snapshots: Record<string, { reserva: number; contrato: number; totalOpen: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { reserva: 0, contrato: 0, totalOpen: 0 };
 
+    // Try today's snapshot first, fallback to most recent
     const { data: pdSnap } = await admin
       .from("pipedrive_daily_snapshot")
-      .select("total_open, by_stage")
+      .select("date, total_open, by_stage")
       .eq("pipeline_id", 37)
-      .eq("date", today)
+      .order("date", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (pdSnap) {
@@ -245,7 +247,9 @@ export async function GET() {
       snapshots["Funil Completo"].totalOpen = pdSnap.total_open || 0;
       snapshots["Funil Completo"].reserva = byStage["305"] || 0;
       snapshots["Funil Completo"].contrato = byStage["271"] || 0;
+      console.log(`[mktp/resultados] Using pipedrive_daily_snapshot from ${pdSnap.date}: totalOpen=${pdSnap.total_open}`);
     } else {
+      console.warn("[mktp/resultados] No pipedrive_daily_snapshot for pipeline 37 — open deal count will be approximate");
       // Fallback: mktp_deals table
       const snapshotDeals = await paginate((o, ps) =>
         admin.from("mktp_deals").select("stage_id, canal").eq("status", "open").in("stage_id", [STAGE_RESERVA, STAGE_CONTRATO]).range(o, o + ps - 1)
