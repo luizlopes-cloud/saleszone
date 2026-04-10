@@ -278,44 +278,87 @@ export function checkSla(lead: LeadRecord, slaData: SlaData): boolean {
 }
 
 // ─── Baserow enrichment ───────────────────────────────────────────────────────
-// Verifica em lote quais leads chegaram no Baserow via tabela Supabase baserow_leads
-// (campo lead_ads_id = leadgen_id do Meta). Atualiza in_baserow nos leads passados.
-// Só processa leads sem in_baserow definido ainda.
-// Leads criados antes desse momento não são verificados no Baserow
+// Consulta a API do Baserow diretamente para verificar se leads chegaram.
+// Cada vertical tem sua tabela no Baserow com campo de Lead Ads ID.
+// Leads criados antes desse momento não são verificados no Baserow.
 const BASEROW_START = "2026-04-10T12:00:00.000Z" // 09:00 BRT de 10/04/2026
+const BASEROW_API = "https://api-baserow.seazone.com.br"
+const BASEROW_TABLES: Record<string, { tableId: number; field: string }> = {
+  Investimentos: { tableId: 1208, field: "Lead Ads ID" },
+  Marketplace:   { tableId: 1330, field: "Lead Ads Id" },
+  "Serviços":    { tableId: 1337, field: "Lead Ads ID" },
+}
+
+let _baserowToken: string | null = null
+
+async function getBaserowToken(): Promise<string | null> {
+  if (_baserowToken) return _baserowToken
+  try {
+    const admin = createSquadSupabaseAdmin()
+    const { data } = await admin.rpc("vault_read_secret", { secret_name: "BASEROW_TOKEN" })
+    if (data) _baserowToken = data
+    return data || null
+  } catch { return null }
+}
 
 export async function enrichBaserow(leads: LeadRecord[]): Promise<boolean> {
   const now = Date.now()
-  const FIVE_MIN = 5 * 60 * 1000
+  const TWO_MIN = 2 * 60 * 1000
   const THIRTY_MIN = 30 * 60 * 1000
   const toCheck = leads.filter(l => {
     if (l.status === "descartado") return false
     if (l.created_at < BASEROW_START) return false
+    if (!BASEROW_TABLES[l.vertical]) return false
     const age = now - new Date(l.created_at).getTime()
-    // Mínimo 5 min de vida — garante tempo pro Supabase sincronizar
-    if (age < FIVE_MIN) return false
+    if (age < TWO_MIN) return false
     if (l.in_baserow === undefined) return true
-    // Rechecka false por até 30min — Supabase pode ter delay de sync
     if (l.in_baserow === false && age < THIRTY_MIN) return true
     return false
   })
   if (!toCheck.length) return false
 
-  const ids = toCheck.map(l => l.leadgen_id).filter(Boolean)
-  if (!ids.length) return false
+  const token = await getBaserowToken()
+  if (!token) return false
 
   try {
-    const admin = createSquadSupabaseAdmin()
-    const { data } = await admin
-      .from("baserow_leads")
-      .select("lead_ads_id")
-      .in("lead_ads_id", ids)
-
-    const found = new Set((data || []).map((r: { lead_ads_id: string }) => r.lead_ads_id))
+    const byVertical = new Map<string, LeadRecord[]>()
     for (const lead of toCheck) {
-      lead.in_baserow = found.has(lead.leadgen_id)
+      const v = lead.vertical
+      if (!byVertical.has(v)) byVertical.set(v, [])
+      byVertical.get(v)!.push(lead)
     }
-    return true
+
+    let changed = false
+    for (const [vertical, vLeads] of byVertical) {
+      const cfg = BASEROW_TABLES[vertical]
+      if (!cfg) continue
+      const ids = vLeads.map(l => l.leadgen_id).filter(Boolean)
+      if (!ids.length) continue
+
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            const url = `${BASEROW_API}/api/database/rows/table/${cfg.tableId}/?user_field_names=true&size=1&filter__${encodeURIComponent(cfg.field)}__equal=${id}`
+            const res = await fetch(url, {
+              headers: { Authorization: `Token ${token}` },
+              cache: "no-store",
+            })
+            if (!res.ok) return { id, found: false }
+            const data = await res.json()
+            return { id, found: (data.count || 0) > 0 }
+          } catch { return { id, found: false } }
+        })
+      )
+
+      const foundSet = new Set(results.filter(r => r.found).map(r => r.id))
+      for (const lead of vLeads) {
+        if (lead.leadgen_id) {
+          lead.in_baserow = foundSet.has(lead.leadgen_id)
+          changed = true
+        }
+      }
+    }
+    return changed
   } catch {
     return false
   }
