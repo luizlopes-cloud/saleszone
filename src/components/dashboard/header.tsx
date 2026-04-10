@@ -8,7 +8,7 @@ import type { ModuleConfig } from "@/lib/modules";
 import { MODULES, MODULE_IDS } from "@/lib/modules";
 import { pillBtnStyle, pillBtnPrimaryStyle, viewBtnStyle } from "./ui";
 
-const META_ADS_VIEWS = ["campanhas", "diagnostico-mkt", "orcamento", "planejamento", "explorador", "otimizacao"] as const;
+const META_ADS_VIEWS = ["campanhas", "orcamento", "planejamento", "explorador", "otimizacao"] as const;
 const VENDAS_VIEWS = ["perf-vendas", "baseline", "diagnostico-vendas", "ociosidade", "leadtime", "avaliacoes", "losts-vendas"] as const;
 const PRE_VENDAS_VIEWS = ["presales", "perf-prevendas", "balanceamento", "squad-atividades", "losts-prevendas", "noshow"] as const;
 const RESULTADOS_VIEWS = ["geral", "resultados", "acompanhamento", "forecast", "mensal", "resultados-szs", "resultados-mktp", "resultados-decor"] as const;
@@ -203,7 +203,6 @@ export function Header({ mainView, setMainView, onRefresh, loading, syncElapsed,
             >
               {([
                 { key: "campanhas", label: "Campanhas", icon: <Megaphone size={13} /> },
-                { key: "diagnostico-mkt", label: "Diagnóstico Mkt", icon: <Activity size={13} /> },
                 { key: "orcamento", label: "Orçamento", icon: <Wallet size={13} /> },
                 { key: "planejamento", label: "Planejamento", icon: <Target size={13} /> },
                 { key: "otimizacao", label: "Otimização Diária", icon: <Timer size={13} /> },
