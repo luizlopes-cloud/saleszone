@@ -1015,8 +1015,10 @@ export default function AuditMQL() {
                 { step: "4", title: "Verificação no Pipedrive", desc: "Se passou no SLA (ou se o empreendimento não está configurado), busca a pessoa por e-mail e depois por telefone (com fallback sem código de país +55). Se não encontrar deal, classifica como \"Sem Pipedrive\" e envia alerta no Slack. Re-verifica por até 4h desde a criação." },
                 { step: "5", title: "Verificação da Morada IA", desc: "Se o deal existe, verifica o campo \"Link da Conversa\" (campo custom no Pipedrive preenchido pela Morada IA). Se vazio, classifica como \"Sem MIA\" e envia alerta no Slack. Re-verifica automaticamente a cada request por até 4h — a MIA pode ter um delay de minutos após o lead chegar." },
                 { step: "6", title: "Status OK", desc: "Lead com SLA aprovado (ou vertical sem critérios), deal encontrado no Pipedrive e campo MIA preenchido. Nenhuma ação necessária." },
-                { step: "7", title: "Recovery automático (a cada 10 min)", desc: "Um cron busca leads diretamente na Meta Graph API para todas as páginas inscritas. Leads que chegaram no Meta mas falharam no webhook (falha de rede, timeout, etc.) são recuperados e entram normalmente na fila SLA → Pipedrive → MIA. Leads recuperados com mais de 15 minutos não disparam alerta no Slack." },
-                { step: "8", title: "Fallback cron GitHub Actions (a cada 15 min)", desc: "Um workflow no GitHub Actions re-verifica leads pendentes caso o cron da Vercel falhe. Garante que nenhum lead fique preso em \"Aguardando\" por mais de 15 minutos por falha de infraestrutura." },
+                { step: "7", title: "Verificação no Baserow (em paralelo)", desc: "Para leads das verticais Investimentos, Marketplace e Serviços criados a partir de 10/04/2026, o sistema verifica se o lead chegou na tabela do Baserow da vertical. A coluna Baserow na tabela mostra ✓ (chegou), ✗ (não chegou) ou — (não verificado / vertical sem Baserow). Verificação ocorre via acesso à página e recovery cron. Um lead não encontrado no Baserow é contado como erro no resumo diário." },
+                { step: "8", title: "Verificação Nekt (dia seguinte às 7h BRT)", desc: "Um cron diário às 7h BRT busca todos os leads do dia anterior que chegaram ao Pipedrive e consulta a tabela nekt_silver.pipedrive_deals_readable via SQL na Nekt API. Se o deal ID está na tabela → Nekt OK (✓); se não → Não encontrado (✗). Deals sem Pipedrive ficam como — (não aplicável). Um deal não encontrado na Nekt é contado como erro no resumo." },
+                { step: "9", title: "Recovery automático (a cada 10 min)", desc: "Um cron busca leads diretamente na Meta Graph API para todas as páginas inscritas. Leads que chegaram no Meta mas falharam no webhook (falha de rede, timeout, etc.) são recuperados e entram normalmente na fila SLA → Pipedrive → MIA. Leads recuperados com mais de 15 minutos não disparam alerta no Slack." },
+                { step: "10", title: "Fallback cron GitHub Actions (a cada 15 min)", desc: "Um workflow no GitHub Actions re-verifica leads pendentes caso o cron da Vercel falhe. Garante que nenhum lead fique preso em \"Aguardando\" por mais de 15 minutos por falha de infraestrutura." },
               ].map(({ step, title, desc }) => (
                 <div key={step} style={{ display: "flex", gap: 14 }}>
                   <div style={{ width: 28, height: 28, borderRadius: "50%", background: T.primary,
@@ -1144,6 +1146,14 @@ export default function AuditMQL() {
                   update: "Vercel → saleszone → Settings → Environment Variables",
                 },
                 {
+                  name: "NEKT_API_KEY",
+                  type: "API Key da plataforma Nekt (api.nekt.ai)",
+                  expires: "Não expira (revogado apenas manualmente)",
+                  expiresColor: T.verde600,
+                  where: "Nekt → painel → configurações de API",
+                  update: "Vercel → saleszone → Settings → Environment Variables",
+                },
+                {
                   name: "CRON_SECRET",
                   type: "String aleatória para autenticar chamadas internas de cron",
                   expires: "Não expira (rotação manual se necessário)",
@@ -1221,6 +1231,7 @@ export default function AuditMQL() {
                   { trigger: "⚠️ Lead sem atendimento MIA", when: "Na primeira verificação onde o deal existe mas o campo \"Link da Conversa\" está vazio. Inclui nome, vertical, link do deal no Pipedrive e campanha." },
                   { trigger: "Sem alerta para Fora SLA", when: "Leads fora do SLA não disparam alerta — por design, esses leads não deveriam estar no funil e a equipe não precisa de ação." },
                   { trigger: "Sem alerta duplicado", when: "Cada lead alerta no máximo uma vez (campo notified=true após envio). Re-verificações posteriores não reenviam o alerta mesmo se o status mudar." },
+                  { trigger: "📊 Resumo diário (7h30 BRT)", when: "Enviado automaticamente todo dia. Mostra: total de leads (com quantos fora do SLA), MQL (leads que passaram no SLA), atendidos pela MIA, erros reais e breakdown por vertical. Erros = sem Pipedrive + sem MIA + não chegou no Baserow + não encontrado na Nekt. Fora SLA não conta como erro. Token Meta alerta só quando faltam 5 dias ou menos." },
                 ].map(({ trigger, when }) => (
                   <div key={trigger} style={{ display: "flex", gap: 10 }}>
                     <span style={{ fontWeight: 600, color: T.fg, flexShrink: 0, minWidth: 200 }}>{trigger}</span>
@@ -1261,7 +1272,8 @@ export default function AuditMQL() {
                 { horario: "Tempo real", fonte: "Webhook Meta", desc: "Lead chega e é salvo imediatamente com status Aguardando." },
                 { horario: "A cada 10 min", fonte: "Vercel Cron (recovery)", desc: "Busca leads diretamente na Meta API e faz recovery de perdidos. Também chama o runCheck para re-verificar pendentes." },
                 { horario: "A cada 15 min", fonte: "GitHub Actions (fallback)", desc: "Fallback do cron Vercel. Garante que leads não ficam presos em Aguardando por mais de 15 minutos." },
-                { horario: "08h BRT (diário)", fonte: "Vercel Cron (resumo)", desc: "Envia resumo diário no Slack com total de leads, status breakdown e alertas não resolvidos do dia anterior." },
+                { horario: "7h BRT (diário)", fonte: "Vercel Cron (nekt-check)", desc: "Busca todos os leads do dia anterior que têm deal no Pipedrive e verifica se os IDs existem na tabela nekt_silver.pipedrive_deals_readable via Nekt API. Atualiza a coluna Nekt de cada lead." },
+                { horario: "7h30 BRT (diário)", fonte: "Vercel Cron (resumo)", desc: "Envia resumo diário no Slack com total de leads, fora do SLA, MQL, atendidos pela MIA, erros reais (sem Pipedrive, sem MIA, sem Baserow, sem Nekt) e breakdown por vertical." },
                 { horario: "Acesso à página", fonte: "GET /api/.../leads", desc: "Cada vez que a aba Leads é aberta ou atualiza (30s), verifica leads Aguardando com 2+ minutos e Sem MIA com menos de 4h." },
               ].map(({ horario, fonte, desc }) => (
                 <div key={horario} style={{ background: T.muted, borderRadius: 8, padding: "10px 14px", display: "flex", gap: 14 }}>
@@ -1280,7 +1292,8 @@ export default function AuditMQL() {
             <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
               <p style={{ margin: 0 }}>Todos os dados são persistidos no Vercel Blob Storage (privado). Não usa banco de dados relacional.</p>
               {[
-                { path: "audit-mql/YYYY-MM-DD.json", desc: "Um arquivo por dia (fuso BRT = UTC-3). Contém array de todos os LeadRecords do dia com status, respostas do formulário, IDs Pipedrive, link MIA e histórico de verificações." },
+                { path: "audit-mql/YYYY-MM-DD.json", desc: "Um arquivo por dia (fuso BRT = UTC-3). Contém array de todos os LeadRecords do dia com status, respostas do formulário, IDs Pipedrive, link MIA, in_baserow e nekt_status." },
+                { path: "audit-mql/log.json", desc: "Histórico dos resumos diários (últimos 90 dias). Usado pela aba Log Diário. Cada entrada tem: total, mql, mia, fora_sla, erros, breakdown por vertical, Baserow e Nekt." },
                 { path: "sla-mql/data.json", desc: "Configuração atual do SLA: rows (empreendimentos com critérios por categoria) e forms (perguntas por vertical). Editado via /growth/sla-mql." },
                 { path: "sla-mql/log.json", desc: "Histórico de alterações no SLA (últimas 500 entradas). Registra quem alterou, o quê e quando." },
               ].map(({ path, desc }) => (
