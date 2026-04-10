@@ -48,7 +48,7 @@ const CONFIG: Record<string, ColDef[]> = {
         "R$ 200.001 a R$ 300.000 em até 54 meses",
         "R$ 300.001 a R$ 400.000 em até 54 meses",
         "Acima de R$ 400.000 em até 54 meses",
-        "À vista via PIX ou boleto",
+        "Não consigo atender a essas condições",
       ],
     },
     {
@@ -121,6 +121,7 @@ const SHORT: Record<string, string> = {
   "R$ 200.001 a R$ 300.000 em até 54 meses":                "200k – 300k",
   "R$ 300.001 a R$ 400.000 em até 54 meses":                "300k – 400k",
   "Acima de R$ 400.000 em até 54 meses":                    "Acima 400k",
+  "Não consigo atender a essas condições":                  "Não atende",
   "Até R$ 30.000":                                          "Até 30k",
   "R$ 30.001 a R$ 50.000":                                  "30k – 50k",
   "R$ 50.001 a R$ 80.000":                                  "50k – 80k",
@@ -179,7 +180,7 @@ const FORMS_CONFIG: Record<string, FormQuestion[]> = {
     },
     {
       pergunta: "Qual o valor total que você pretende investir dentro de 54 meses?",
-      opcoes: ["R$ 50.000 a R$ 100.000 em até 54 meses", "R$ 100.001 a R$ 200.000 em até 54 meses", "R$ 200.001 a R$ 300.000 em até 54 meses", "R$ 300.001 a R$ 400.000 em até 54 meses", "Acima de R$ 400.000 em até 54 meses", "À vista via PIX ou boleto"],
+      opcoes: ["R$ 50.000 a R$ 100.000 em até 54 meses", "R$ 100.001 a R$ 200.000 em até 54 meses", "R$ 200.001 a R$ 300.000 em até 54 meses", "R$ 300.001 a R$ 400.000 em até 54 meses", "Acima de R$ 400.000 em até 54 meses", "Não consigo atender a essas condições"],
     },
     {
       pergunta: "Qual a forma de pagamento?",
@@ -245,10 +246,25 @@ const DEFAULT_ROWS: SlaRow[] = [
     mql_pagamentos: ["Sim","Não","Não, mas estou disposto a instalar caso seja necessário"] },
 ]
 
+function migrateFaixas(rows: SlaRow[]): SlaRow[] {
+  const OLD = "À vista via PIX ou boleto"
+  const NEW = "Não consigo atender a essas condições"
+  let changed = false
+  for (const r of rows) {
+    const idx = r.mql_faixas.indexOf(OLD)
+    if (idx !== -1) { r.mql_faixas[idx] = NEW; changed = true }
+  }
+  return changed ? [...rows] : rows
+}
+
 function loadRows(): SlaRow[] {
   try {
     const s = localStorage.getItem(LS_KEY)
-    if (s) return JSON.parse(s) as SlaRow[]
+    if (s) {
+      const rows = migrateFaixas(JSON.parse(s) as SlaRow[])
+      persist(rows)
+      return rows
+    }
   } catch {}
   return DEFAULT_ROWS
 }
@@ -392,7 +408,7 @@ export default function SlaPage() {
           fetch("/api/sla-mql").then(r => r.json()),
           fetch("/api/sla-mql/log").then(r => r.json()),
         ])
-        if (dataRes.rows) { setRows(dataRes.rows); persist(dataRes.rows) }
+        if (dataRes.rows) { const migrated = migrateFaixas(dataRes.rows); setRows(migrated); persist(migrated) }
         if (dataRes.forms) { setForms(dataRes.forms); persistForms(dataRes.forms) }
         if (logRes.entries) {
           const entries = (logRes.entries as Array<{
@@ -1141,6 +1157,9 @@ export default function SlaPage() {
                       <span style={{ color: accentColor }}>{c.label}</span>
                     </th>
                   ))}
+                  <th style={{ ...thStyle(), textAlign: "center", minWidth: 60 }}>
+                    <span style={{ color: accentColor }}>% Qual.</span>
+                  </th>
                   <th style={{ ...thStyle(), minWidth: 130 }}>Ação</th>
                 </tr>
               </thead>
@@ -1271,6 +1290,32 @@ export default function SlaPage() {
                           </td>
                         )
                       })}
+
+                      {/* % Qualificação */}
+                      {(() => {
+                        const totalOpts = cols.reduce((sum, c) => sum + c.options.length, 0)
+                        const greenCount = cols.reduce((sum, c) => {
+                          const accepted = isEditing && draft ? draft[c.field].accepted : new Set(row[c.field])
+                          return sum + c.options.filter(o => accepted.has(o)).length
+                        }, 0)
+                        const pct = totalOpts > 0 ? Math.round((greenCount / totalOpts) * 100) : 0
+                        const color = pct >= 70 ? "#15803D" : pct >= 40 ? "#D97706" : "#DC2626"
+                        const bg    = pct >= 70 ? "#DCFCE7" : pct >= 40 ? "#FEF3C7" : "#FEE2E2"
+                        return (
+                          <td style={{ ...tdBase(), textAlign: "center" }}>
+                            <span style={{
+                              fontSize: 13, fontWeight: 700, color,
+                              background: bg, borderRadius: 6, padding: "3px 8px",
+                              fontFamily: T.font,
+                            }}>
+                              {pct}%
+                            </span>
+                            <div style={{ fontSize: 10, color: T.mutedFg, marginTop: 3, fontFamily: T.font }}>
+                              {greenCount}/{totalOpts}
+                            </div>
+                          </td>
+                        )
+                      })()}
 
                       {/* Ação */}
                       <td style={tdBase()}>
