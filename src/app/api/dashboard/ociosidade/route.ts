@@ -95,7 +95,7 @@ export async function GET() {
       if (evt.cancelou) {
         existing.cancelledCount += 1;
       } else {
-        existing.totalMin += evt.duracao_min || 0;
+        existing.totalMin += evt.duracao_min ?? 60; // default 60 min for events without explicit duration
         existing.count += 1;
       }
       emailMap.set(evt.dia, existing);
