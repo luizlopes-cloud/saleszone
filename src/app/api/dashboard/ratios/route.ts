@@ -70,14 +70,18 @@ export async function GET(req: NextRequest) {
       ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
       const ninetyDaysCutoff = ninetyDaysAgo.toISOString().substring(0, 10);
 
-      const dealsRes = await admin
-        .from("squad_deals")
-        .select("is_marketing, canal, rd_source, max_stage_order, status, lost_reason, add_time, won_time")
-        .gte("add_time", ninetyDaysCutoff);
-
-      if (!dealsRes.error && dealsRes.data) {
-        let mql = 0, sql = 0, opp = 0, won = 0;
-        for (const d of dealsRes.data) {
+      // Paginate squad_deals (50k+ rows possible in 90d window)
+      let mql = 0, sql = 0, opp = 0, won = 0;
+      let o = 0;
+      while (true) {
+        const { data, error } = await admin
+          .from("squad_deals")
+          .select("is_marketing, canal, rd_source, max_stage_order, status, lost_reason")
+          .gte("add_time", ninetyDaysCutoff)
+          .range(o, o + 999);
+        if (error) throw new Error(`squad_deals paginate: ${error.message}`);
+        if (!data || data.length === 0) break;
+        for (const d of data) {
           if (d.lost_reason === "Duplicado/Erro") continue;
 
           const isPaid = d.rd_source && String(d.rd_source).toLowerCase().includes("pag");
@@ -97,19 +101,21 @@ export async function GET(req: NextRequest) {
           if (stage >= 9) opp++;
           if (d.status === "won") won++;
         }
-
-        const rMqlSql = mql > 0 ? sql / mql : 0;
-        const rSqlOpp = sql > 0 ? opp / sql : 0;
-        const rOppWon = opp > 0 ? won / opp : 0;
-
-        const filteredSnapshot: RatioSnapshot = {
-          date: latestDate, squad_id: 0,
-          ratios: { mql_sql: rMqlSql, sql_opp: rSqlOpp, opp_won: rOppWon },
-          counts_90d: { mql, sql, opp, won },
-        };
-        globalCurrent.ratios = filteredSnapshot.ratios;
-        globalCurrent.counts_90d = filteredSnapshot.counts_90d;
+        if (data.length < 1000) break;
+        o += 1000;
       }
+
+      const rMqlSql = mql > 0 ? sql / mql : 0;
+      const rSqlOpp = sql > 0 ? opp / sql : 0;
+      const rOppWon = opp > 0 ? won / opp : 0;
+
+      const filteredSnapshot: RatioSnapshot = {
+        date: latestDate, squad_id: 0,
+        ratios: { mql_sql: rMqlSql, sql_opp: rSqlOpp, opp_won: rOppWon },
+        counts_90d: { mql, sql, opp, won },
+      };
+      globalCurrent.ratios = filteredSnapshot.ratios;
+      globalCurrent.counts_90d = filteredSnapshot.counts_90d;
     }
 
     const result: RatioHistoryData = {
