@@ -112,9 +112,11 @@ function isMarketingDeal(deal: NektDeal): boolean {
 }
 
 function getEmpreendimento(deal: NektDeal): string | null {
-  const emp = deal.empreendimento || null;
-  if (!emp) return null;
-  return ALL_EMPREENDIMENTOS.includes(emp) ? emp : null;
+  const empRaw = deal.empreendimento || null;
+  if (!empRaw) return null;
+  const empLower = empRaw.toLowerCase();
+  const found = ALL_EMPREENDIMENTOS.find(e => e.toLowerCase() === empLower);
+  return found || null;
 }
 
 function getDateField(deal: NektDeal, tab: Tab): string | null {
@@ -139,22 +141,26 @@ function countDeals(
   deals: NektDeal[], startDate: string, endDate: string,
   countsPerTab: Record<Tab, Map<string, number>>,
 ) {
-  let mkt = 0;
+  let mkt = 0, mktNoEmp = 0, dateFiltered = 0;
   for (const deal of deals) {
     if (!isMarketingDeal(deal)) continue;
     if (deal.motivo_da_perda === "Duplicado/Erro") continue;
     mkt++;
     const emp = getEmpreendimento(deal);
-    if (!emp) continue;
+    if (!emp) { mktNoEmp++; continue; }
+    let countForThis = 0;
     for (const tab of TABS) {
       const dateStr = getDateField(deal, tab);
       if (!dateStr) continue;
       const day = dateStr.substring(0, 10);
       if (day < startDate || day > endDate) continue;
+      countForThis++;
       const key = `${day}|${emp}`;
       countsPerTab[tab].set(key, (countsPerTab[tab].get(key) || 0) + 1);
     }
+    if (countForThis === 0) dateFiltered++;
   }
+  console.log(`  countDeals: mkt=${mkt} mkt_no_emp=${mktNoEmp} date_filtered=${dateFiltered} Map sizes: mql=${countsPerTab.mql.size} sql=${countsPerTab.sql.size} opp=${countsPerTab.opp.size} won=${countsPerTab.won.size}`);
   return mkt;
 }
 
@@ -170,18 +176,24 @@ async function writeDailyCounts(supabase: any, countsPerTab: Record<Tab, Map<str
     });
 
     // Delete only rows from THIS source (idempotent — each source replaces only itself)
-    await supabase.from("squad_daily_counts").delete()
+    // ADD UPPER BOUND: delete only within the target date range (prevents wiping historical data)
+    console.log(`  ${tab}: deleting rows with tab=${tab} source=${source} date>=${startDate} date<=${endDate}`);
+    const delResult = await supabase.from("squad_daily_counts").delete()
       .eq("tab", tab)
       .eq("source", source)
       .gte("date", startDate)
       .lte("date", endDate);
+    console.log(`  ${tab}: delete error=${delResult.error?.message ?? 'none'}`);
 
     if (rows.length > 0) {
+      console.log(`  ${tab}: about to insert ${rows.length} rows, first 3:`, JSON.stringify(rows.slice(0, 3)));
       for (let i = 0; i < rows.length; i += 500) {
         const batch = rows.slice(i, i + 500);
         const { error } = await supabase.from("squad_daily_counts").insert(batch);
         if (error) console.error(`Insert error ${tab}:`, error.message);
       }
+    } else {
+      console.log(`  ${tab}: NO ROWS TO INSERT`);
     }
     console.log(`  ${tab}: ${rows.length} rows (source=${source})`);
     result[tab] = rows.length;
@@ -232,6 +244,7 @@ async function writeStageCounts(supabase: any, stageCounts: Record<"reserva" | "
 // ---- Mode: daily-open ----
 async function syncDailyOpen(nektApiKey: string, supabase: any) {
   const { startDate, endDate } = getDateRange();
+  console.log(`syncDailyOpen: startDate=${startDate} endDate=${endDate}`);
   console.log(`syncDailyOpen: querying Nekt for open deals in pipeline ${PIPELINE_ID}...`);
 
   const sql = `
@@ -242,6 +255,11 @@ async function syncDailyOpen(nektApiKey: string, supabase: any) {
     WHERE pipeline_id = ${PIPELINE_ID} AND status = 'open'
   `;
   const deals = await queryNekt(sql, nektApiKey);
+  console.log(`syncDailyOpen: fetched ${deals.length} deals from Nekt`);
+  // Debug: show first 3 deals
+  for (let i = 0; i < Math.min(3, deals.length); i++) {
+    console.log(`  Deal ${i}: canal=${deals[i].canal} emp=${deals[i].empreendimento} mql_date=${deals[i].negocio_criado_em}`);
+  }
 
   const countsPerTab: Record<Tab, Map<string, number>> = {
     mql: new Map(), sql: new Map(), opp: new Map(), won: new Map(),
@@ -252,6 +270,15 @@ async function syncDailyOpen(nektApiKey: string, supabase: any) {
 
   const mkt = countDeals(deals, startDate, endDate, countsPerTab);
   countDealsByStage(deals, stageCounts);
+
+  // Debug: log Map entries
+  for (const tab of TABS) {
+    const entries = Array.from(countsPerTab[tab].entries());
+    console.log(`  ${tab} Map: ${entries.length} entries, sum=${entries.reduce((s,[,v])=>s+v,0)}`);
+    if (entries.length > 0 && entries.length <= 10) {
+      entries.forEach(([k, v]) => console.log(`    ${k}: ${v}`));
+    }
+  }
 
   const reservaTotal = Array.from(stageCounts.reserva.values()).reduce((a, b) => a + b, 0);
   const contratoTotal = Array.from(stageCounts.contrato.values()).reduce((a, b) => a + b, 0);
@@ -689,10 +716,18 @@ Deno.serve(async (req) => {
     } catch {}
     console.log(`sync-squad-dashboard mode=${mode}`);
 
+    const debugMode = body?.debug === true;
     let result;
     switch (mode) {
       case "daily-open":
-        result = await syncDailyOpen(nektApiKey, supabase);
+        const openResult = await syncDailyOpen(nektApiKey, supabase);
+        if (debugMode) {
+          // Return debug info instead of writing to DB
+          return new Response(JSON.stringify({ success: true, mode, debug: openResult }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        result = openResult;
         break;
       case "daily-won":
         result = await syncDailyByStatus(nektApiKey, supabase, "won");
