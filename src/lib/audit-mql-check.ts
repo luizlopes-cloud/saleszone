@@ -281,7 +281,7 @@ export function checkSla(lead: LeadRecord, slaData: SlaData): boolean {
 // Consulta a API do Baserow diretamente para verificar se leads chegaram.
 // Cada vertical tem sua tabela no Baserow com campo de Lead Ads ID.
 // Leads criados antes desse momento não são verificados no Baserow.
-const BASEROW_START = "2026-04-10T12:00:00.000Z" // 09:00 BRT de 10/04/2026
+export const BASEROW_START = "2026-04-10T12:00:00.000Z" // 09:00 BRT de 10/04/2026
 const BASEROW_API = "https://api-baserow.seazone.com.br"
 const BASEROW_TABLES: Record<string, { tableId: number; field: string }> = {
   Investimentos: { tableId: 1208, field: "Lead Ads ID" },
@@ -302,13 +302,6 @@ async function getBaserowToken(): Promise<string | null> {
 }
 
 export async function enrichBaserow(leads: LeadRecord[]): Promise<boolean> {
-  // Limpa in_baserow de leads anteriores ao BASEROW_START (marcados false pelo sync quebrado)
-  for (const l of leads) {
-    if (l.created_at < BASEROW_START && l.in_baserow !== undefined) {
-      l.in_baserow = undefined
-    }
-  }
-
   const now = Date.now()
   const TWO_MIN = 2 * 60 * 1000
   const toCheck = leads.filter(l => {
