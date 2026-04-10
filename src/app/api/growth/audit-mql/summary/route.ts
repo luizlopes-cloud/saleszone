@@ -37,12 +37,27 @@ async function buildSummary(key: string) {
     if (l.status !== "ok")            g.erros++
   }
 
-  const total     = leads.length
-  const pipedrive = leads.filter(l => l.status !== "sem_pipedrive").length
-  const mia       = leads.filter(l => l.status === "ok").length
-  const erros     = leads.filter(l => l.status !== "ok").length
+  const total      = leads.length
+  const pipedrive  = leads.filter(l => l.status !== "sem_pipedrive").length
+  const mia        = leads.filter(l => l.status === "ok").length
+  const erros      = leads.filter(l => l.status !== "ok").length
 
-  return { key, total, pipedrive, mia, erros, byVertical: Object.fromEntries(byVertical) }
+  // Baserow — só conta leads que foram verificados (in_baserow !== undefined)
+  const baserowChecked = leads.filter(l => l.in_baserow !== undefined)
+  const baserowOk      = leads.filter(l => l.in_baserow === true).length
+  const baserowNao     = leads.filter(l => l.in_baserow === false).length
+
+  // Nekt — só conta leads com deal no Pipedrive que foram verificados
+  const nektChecked = leads.filter(l => l.nekt_status !== undefined)
+  const nektOk      = leads.filter(l => l.nekt_status === "ok").length
+  const nektNao     = leads.filter(l => l.nekt_status === "nao_encontrado").length
+
+  return {
+    key, total, pipedrive, mia, erros,
+    byVertical: Object.fromEntries(byVertical),
+    baserowChecked: baserowChecked.length, baserowOk, baserowNao,
+    nektChecked: nektChecked.length, nektOk, nektNao,
+  }
 }
 
 async function checkMetaTokenExpiry(): Promise<{ daysLeft: number; expiresAt: string } | null> {
@@ -66,13 +81,32 @@ async function checkMetaTokenExpiry(): Promise<{ daysLeft: number; expiresAt: st
 
 async function sendSlack(summary: NonNullable<Awaited<ReturnType<typeof buildSummary>>>, tokenExpiry: { daysLeft: number; expiresAt: string } | null) {
   if (!SLACK_WEBHOOK) return
-  const { key, total, pipedrive, mia, erros, byVertical } = summary
+  const { key, total, pipedrive, mia, erros, byVertical,
+          baserowChecked, baserowOk, baserowNao,
+          nektChecked, nektOk, nektNao } = summary
 
   let text = `📊 *Resumo Audit MQL — ${fmtDate(key)}*\n\n`
   text += `*Total de leads:* ${total}\n`
   text += `*Chegaram no Pipedrive:* ${pipedrive} (${pct(pipedrive, total)})\n`
   text += `*Atendidos pela MIA:* ${mia} (${pct(mia, total)})\n`
   text += erros > 0 ? `*Erros:* ${erros} ⚠️\n` : `*Erros:* 0 ✅\n`
+
+  // Baserow
+  if (baserowChecked > 0) {
+    const icon = baserowNao > 0 ? "⚠️" : "✅"
+    text += `*Baserow:* ${baserowOk}/${baserowChecked} chegaram ${icon}`
+    if (baserowNao > 0) text += ` (${baserowNao} não chegou${baserowNao !== 1 ? "ram" : ""})`
+    text += "\n"
+  }
+
+  // Nekt
+  if (nektChecked > 0) {
+    const icon = nektNao > 0 ? "⚠️" : "✅"
+    text += `*Nekt:* ${nektOk}/${nektChecked} deals encontrados ${icon}`
+    if (nektNao > 0) text += ` (${nektNao} não encontrado${nektNao !== 1 ? "s" : ""})`
+    text += "\n"
+  }
+
   text += "\n*Por vertical:*\n"
 
   const sorted = Object.entries(byVertical).sort((a, b) => b[1].total - a[1].total)
