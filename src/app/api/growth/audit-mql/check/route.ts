@@ -71,6 +71,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ reset_baserow: { date, emails, reset }, ts: new Date().toISOString() })
   }
 
+  // POST com { force_fora_sla: true, date: "YYYY-MM-DD" } — converte sem_pipedrive → fora_sla
+  // Útil para corrigir leads que foram erroneamente reclassificados pelo recheckSla
+  // Adicionar { dry: true } para preview sem gravar
+  if (body.force_fora_sla) {
+    const date: string = body.date || today
+    const leads = await readLeads(date)
+    const affected: { id: string; name: string; email: string; vertical: string }[] = []
+    for (const l of leads) {
+      if (l.status === "sem_pipedrive") {
+        affected.push({ id: l.id, name: l.name, email: l.email, vertical: l.vertical })
+        if (!body.dry) {
+          l.status   = "fora_sla"
+          l.sla_ok   = false
+          l.notified = true
+        }
+      }
+    }
+    if (!body.dry && affected.length > 0) await writeLeads(date, leads)
+    return NextResponse.json({ force_fora_sla: { date, affected, total: affected.length }, dry: body.dry === true, ts: new Date().toISOString() })
+  }
+
   // POST com { recheck_sla: true } re-avalia SLA de todos os leads retroativamente
   // Adicionar { dry: true } para preview sem gravar
   if (body.recheck_sla) {
@@ -85,7 +106,8 @@ export async function POST(req: NextRequest) {
 
   const r = await runCheck(today)
 
-  // recheckSla garante que leads já classificados são reavaliados quando o SLA muda
+  // recheckSla corrige leads ok/sem_pipedrive que agora falham no SLA (mais restritivo)
+  // Não toca em leads já classificados como fora_sla (status final)
   const s = await recheckSla(today)
 
   return NextResponse.json({

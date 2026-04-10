@@ -466,25 +466,14 @@ export async function recheckSla(
 
   for (const lead of leads) {
     if (lead.status === "descartado") continue
-    const wasOk     = lead.sla_ok
-    const wasFora   = lead.status === "fora_sla"
-    lead.sla_ok = checkSla(lead, slaData)
+    // fora_sla é status final — não re-avalia quando o SLA muda para mais leniente
+    if (lead.status === "fora_sla") continue
 
-    // Lead classificado incorretamente como fora_sla → agora passa o SLA
-    // Reset para aguardando: runCheck vai re-verificar no Pipedrive
-    if (lead.sla_ok === true && wasFora) {
-      changes.push({ id: lead.id, name: lead.name, vertical: lead.vertical,
-        status_before: "fora_sla", status_after: "aguardando",
-        sla_before: wasOk, sla_after: true })
-      if (!dry) {
-        lead.status = "aguardando"
-        // notified permanece true — evita re-disparar alertas Slack para leads antigos
-      }
-      fixed++
-    }
+    const wasOk   = lead.sla_ok
+    lead.sla_ok   = checkSla(lead, slaData)
 
-    // Lead que estava ok/aguardando/sem_pipedrive mas na verdade é fora_sla
-    else if (lead.sla_ok === false && wasOk !== false && !wasFora) {
+    // Lead que estava ok/aguardando/sem_pipedrive mas agora falha no SLA (mais restritivo)
+    if (lead.sla_ok === false && wasOk !== false) {
       changes.push({ id: lead.id, name: lead.name, vertical: lead.vertical,
         status_before: lead.status, status_after: "fora_sla",
         sla_before: wasOk, sla_after: false })
