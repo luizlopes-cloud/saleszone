@@ -104,6 +104,7 @@ async function checkPending(leads: LeadRecord[]): Promise<{ leads: LeadRecord[];
     if (l.status === "descartado") return false
     if (l.status === "aguardando" && now - new Date(l.created_at).getTime() > TWO_MINUTES) return true
     if (l.status === "sem_mia" && l.checked_at && now - new Date(l.checked_at).getTime() < FOUR_HOURS) return true
+    if (l.status === "sem_pipedrive" && l.checked_at && now - new Date(l.checked_at).getTime() < FOUR_HOURS) return true
     return false
   })
   if (pending.length === 0) return { leads, changed: false }
