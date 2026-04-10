@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
 import { LeadRecord, dateKey, readLeads, writeLeads } from "@/lib/audit-mql"
-import { checkSla } from "@/lib/audit-mql-check"
+import { checkSla, enrichBaserow } from "@/lib/audit-mql-check"
 import { readData } from "@/lib/sla-mql-blob"
 
 export const maxDuration = 60
@@ -165,10 +165,11 @@ export async function GET(req: NextRequest) {
   let leads = await readLeads(date)
 
   const { leads: updated, changed } = await checkPending(leads)
-  if (changed) {
+  const baserowChanged = await enrichBaserow(updated)
+  if (changed || baserowChanged) {
     await writeLeads(date, updated)
-    leads = updated
   }
+  leads = updated
 
   leads = leads.filter(l => l.status !== "descartado")
   leads.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
