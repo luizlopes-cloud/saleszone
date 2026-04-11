@@ -487,9 +487,9 @@ export default function Dashboard() {
       const isSZS = moduleConfig.id === "szs";
       const cityFilters = ["sao-paulo", "salvador", "florianopolis", "outros"];
       const paramKey = isSZS && cityFilters.includes(filter) ? "city" : "filter";
-      const url = new URL(`${moduleConfig.apiBase}/ratios?days=${days}`);
-      if (filter !== "all") url.searchParams.set(paramKey, filter);
-      const res = await fetch(url.toString());
+      const params = new URLSearchParams({ days: String(days) });
+      if (filter !== "all") params.set(paramKey, filter);
+      const res = await fetch(`${moduleConfig.apiBase}/ratios?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setRatioData(await res.json());
     } catch (err) {
