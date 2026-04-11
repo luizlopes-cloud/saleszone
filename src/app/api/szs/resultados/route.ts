@@ -198,9 +198,17 @@ export async function GET(request: NextRequest) {
     }
 
     // Fallback for MQL/SQL/OPP from szs_daily_counts when szs_deals is suspiciously small
+    let usingFallback = false;
     const SZ_DEALS_MIN = 15000;
     if (szsDealsTotal && szsDealsTotal < SZ_DEALS_MIN) {
       console.warn(`[szs-resultados] szs_deals incomplete (${szsDealsTotal} < ${SZ_DEALS_MIN}) — using szs_daily_counts fallback`);
+      usingFallback = true;
+      // Reset MQL/SQL/OPP before fallback — szs_deals is incomplete, don't double-count
+      for (const ch of CHANNEL_ORDER) {
+        channelCounts[ch]["mql"] = 0;
+        channelCounts[ch]["sql"] = 0;
+        channelCounts[ch]["opp"] = 0;
+      }
       const fallbackCounts = await paginate((o, ps) =>
         admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count")
           .gte("date", startDate).in("tab", ["mql", "sql", "opp"]).range(o, o + ps - 1)
