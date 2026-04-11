@@ -124,6 +124,13 @@ export async function GET() {
 
     const displayDays = isWeekday(today) ? [...pastDays, todayStr, ...futureDays] : [...pastDays, ...futureDays];
 
+    // Diagnostic: check if any past 7 business days are missing from calendar sync
+    const syncedDates = new Set((events || []).map((e: any) => e.dia));
+    const missingDays = pastDays.filter((d: string) => !syncedDates.has(d));
+    if (missingDays.length > 0) {
+      console.warn(`[ociosidade] Calendar sync gap: ${missingDays.length}/7 past business days missing: ${missingDays.join(", ")}`);
+    }
+
     const dates: OciosidadeDate[] = displayDays.map((ds) => {
       const d = new Date(ds + "T12:00:00");
       const day = d.getDate();
