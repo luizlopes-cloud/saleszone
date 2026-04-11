@@ -168,7 +168,7 @@ export async function GET(req: NextRequest) {
       const ninetyCounts: Array<{ tab: string; canal_group: string; count: number }> = [];
       let o = 0;
       while (true) {
-        const { data, error } = await supabase
+        const { data, error } = await admin
           .from("szs_daily_counts")
           .select("tab, canal_group, empreendimento, count")
           .in("tab", ["mql", "sql", "opp", "won"])
