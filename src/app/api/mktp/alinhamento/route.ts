@@ -15,7 +15,10 @@ function nfd(s: string): string {
 
 function matchName(colName: string, ownerName: string): boolean {
   if (!colName || !ownerName) return false;
-  return nfd(ownerName).includes(nfd(colName));
+  const c = nfd(colName);
+  const o = nfd(ownerName);
+  // Match if either contains the other (handles "Nevine" vs "Nevine Saratt")
+  return o.includes(c) || c.includes(o);
 }
 
 export async function GET() {
@@ -84,21 +87,25 @@ export async function GET() {
         sqId: 1,
         sqName: mc.squads[0]?.name || "Marketplace",
         emp: canalName,
-        correctPV: mc.squads[0]?.preVenda || "",
-        correctV: mc.squads[0]?.venda || "",
+        correctPV: mc.presellers.join(", "),
+        correctV: mc.closers.join(", "),
         cells: { pv, v },
       });
     }
 
     let total = 0;
+    let ok = 0;
     rows.forEach((row) => {
       PV_COLS.forEach((p) => { total += row.cells.pv[p] || 0; });
       V_COLS.forEach((p) => { total += row.cells.v[p] || 0; });
     });
 
+    // All matched since MKTP has no misaligned concept here
+    const mis = 0;
+
     const result: AlinhamentoData = {
       rows,
-      stats: { total, ok: total, mis: 0 },
+      stats: { total, ok: total, mis },
     };
 
     return NextResponse.json(result);
