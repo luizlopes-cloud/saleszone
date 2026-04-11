@@ -40,6 +40,7 @@ export async function GET(req: NextRequest) {
     ]);
 
     if (ratiosRes.error) throw new Error(`Supabase error: ${ratiosRes.error.message}`);
+    if (countsRes.error) console.warn(`[ratios] squad_daily_counts error: ${countsRes.error.message}`);
 
     const allRows = (ratiosRes.data || []) as RatioSnapshot[];
 

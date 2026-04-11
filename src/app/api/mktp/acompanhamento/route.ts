@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
       const rows = await paginate((o, ps) =>
         admin
           .from("mktp_deals")
-          .select("empreendimento, canal, rd_source, is_marketing, max_stage_order, status, add_time")
+          .select("empreendimento, canal, rd_source, is_marketing, max_stage_order, status, add_time, lost_reason")
           .not("canal", "is", null)
           .gte("add_time", startDate)
           .range(o, o + ps - 1),
