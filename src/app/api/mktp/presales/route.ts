@@ -1,6 +1,6 @@
 // MKTP (Marketplace) module
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { PresalesData, PresellerSummary, PresalesDealRow } from "@/lib/types";
 
@@ -112,21 +112,23 @@ function findSquadId(name: string): number | null {
 
 export async function GET() {
   try {
-    const { data: rows, error } = await supabase
+    const admin = createSquadSupabaseAdmin();
+
+    const { data: rows, error } = await admin
       .from("mktp_presales_response")
       .select("deal_id, deal_title, preseller_name, transbordo_at, first_action_at, response_time_minutes, action_type, last_mia_at")
       .order("transbordo_at", { ascending: false });
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    // TODO: MKTP presellers — fill in when team structure is discovered
-    const MAIN_PVS = mc.presellers.length > 0 ? [...mc.presellers] : [];
-    const deals = (rows || []).filter((d) => MAIN_PVS.length === 0 || MAIN_PVS.includes(d.preseller_name));
+    // Filter to MKTP presellers
+    const PV_NAMES = mc.presellers;
+    const deals = (rows || []).filter((d) => PV_NAMES.includes(d.preseller_name));
     const now = new Date();
 
     // Buscar add_time dos deals
     const dealIds = deals.map((d) => Number(d.deal_id));
-    const { data: dealsExtra } = await supabase
+    const { data: dealsExtra } = await admin
       .from("nekt_pipedrive_deals_v2")
       .select("id, add_time")
       .in("id", dealIds);
