@@ -469,14 +469,15 @@ export default function AuditMQL() {
 
   const byVertical = leads.reduce((acc, l) => {
     const v = l.vertical || "—"
-    if (!acc[v]) acc[v] = { total: 0, pipe: 0, ok: 0, semPipe: 0, semMia: 0 }
+    if (!acc[v]) acc[v] = { total: 0, mql: 0, semPipe: 0, semMia: 0, semBaserow: 0, semNekt: 0 }
     acc[v].total++
-    if (l.status !== "sem_pipedrive") acc[v].pipe++
-    if (l.status === "ok")            acc[v].ok++
+    if (l.status === "ok")            acc[v].mql++
     if (l.status === "sem_pipedrive") acc[v].semPipe++
     if (l.status === "sem_mia")       acc[v].semMia++
+    if (l.in_baserow === false)       acc[v].semBaserow++
+    if (l.nekt_status === "nao_encontrado") acc[v].semNekt++
     return acc
-  }, {} as Record<string, { total: number; pipe: number; ok: number; semPipe: number; semMia: number }>)
+  }, {} as Record<string, { total: number; mql: number; semPipe: number; semMia: number; semBaserow: number; semNekt: number }>)
 
   const visibleLeads = leads.filter(l => {
     if (verticalFilter && (l.vertical || "—") !== verticalFilter) return false
@@ -700,10 +701,11 @@ export default function AuditMQL() {
                   <VerticalBadge vertical={v} />
                   <div style={{ marginTop: 6, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
                     <div style={{ color: T.fg, fontWeight: 600 }}>{g.total} lead{g.total !== 1 ? "s" : ""}</div>
-                    <div>Pipedrive: <strong style={{ color: T.verde600 }}>{g.pipe}</strong></div>
-                    <div>MIA: <strong style={{ color: T.verde600 }}>{g.ok}</strong></div>
-                    {g.semMia  > 0 && <div style={{ color: T.laranja500 }}>⚠ Sem MIA: {g.semMia}</div>}
-                    {g.semPipe > 0 && <div style={{ color: T.destructive }}>✕ Sem Pipe: {g.semPipe}</div>}
+                    <div>MQL: <strong style={{ color: T.verde600 }}>{g.mql}</strong></div>
+                    {g.semPipe > 0    && <div style={{ color: T.destructive }}>Sem Pipedrive: {g.semPipe}</div>}
+                    {g.semMia > 0     && <div style={{ color: T.laranja500 }}>Sem MIA: {g.semMia}</div>}
+                    {g.semBaserow > 0 && <div style={{ color: "#DC2626" }}>Sem Baserow: {g.semBaserow}</div>}
+                    {g.semNekt > 0    && <div style={{ color: "#B45309" }}>Sem Nekt: {g.semNekt}</div>}
                   </div>
                 </button>
               )
