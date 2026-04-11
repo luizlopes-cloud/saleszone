@@ -6,9 +6,9 @@ import { getMktpCanalName } from "@/lib/mktp-utils";
 import { paginate } from "@/lib/paginate";
 import type { MisalignedDeal } from "@/lib/types";
 
-const mc = getModuleConfig("mktp");
-
 export const dynamic = "force-dynamic";
+
+const mc = getModuleConfig("mktp");
 
 const PIPEDRIVE_DOMAIN = "seazone-fd92b9.pipedrive.com";
 

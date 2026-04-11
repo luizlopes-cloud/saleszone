@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS, PV_COLS, V_COLS, SQUAD_V_MAP } from "@/lib/constants";
 import { paginate } from "@/lib/paginate";
 import type { MisalignedDeal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
-
-// squad_deals lives in the squad project, NOT the main saleszone project
-const SQUAD_SUPABASE_URL = "https://cncistmevwwghtaiyaao.supabase.co";
 
 const PIPEDRIVE_DOMAIN = "seazone-fd92b9.pipedrive.com";
 
@@ -27,18 +24,17 @@ const SZI_STAGE_IDS = new Set([392, 184, 186, 338, 346, 339, 187, 340, 208, 312,
 
 export async function GET() {
   try {
-    const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!srvKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY not configured");
-    const admin = createClient(SQUAD_SUPABASE_URL, srvKey);
+    const admin = createSquadSupabaseAdmin();
 
     // Read all open deals from squad_deals for SZI pipeline
+    // Note: lost_reason is NOT filtered in the Supabase query because .not("eq", "X")
+    // excludes rows where lost_reason IS NULL — and most deals have NULL. Filter in JS instead.
     const deals = await paginate((o, ps) =>
       admin
         .from("squad_deals")
-        .select("deal_id, title, owner_name, stage_id, stage_order, empreendimento")
+        .select("deal_id, title, owner_name, stage_id, stage_order, empreendimento, lost_reason")
         .eq("status", "open")
         .in("stage_id", [...SZI_STAGE_IDS])
-        .not("lost_reason", "eq", "Duplicado/Erro")
         .range(o, o + ps - 1),
     );
 
@@ -55,6 +51,7 @@ export async function GET() {
     const byPerson = new Map<string, { role: "pv" | "v"; deals: MisalignedDeal[] }>();
 
     for (const deal of deals) {
+      if (deal.lost_reason === "Duplicado/Erro") continue;
       if (!deal.empreendimento) continue;
       const info = squadMap.get(deal.empreendimento);
       if (!info) continue; // skip unknown empreendimentos
