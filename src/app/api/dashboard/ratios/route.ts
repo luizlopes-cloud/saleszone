@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { generateDates } from "@/lib/dates";
 import type { RatioHistoryData, RatioSnapshot } from "@/lib/types";
@@ -25,14 +24,16 @@ export async function GET(req: NextRequest) {
     const dates = generateDates();
     const startDate = dates[dates.length - 1].date;
 
+    const admin = createSquadSupabaseAdmin();
+
     const [ratiosRes, countsRes] = await Promise.all([
-      supabase
+      admin
         .from("squad_ratios_daily")
         .select("date, squad_id, ratios, counts_90d")
         .gte("date", cutoffDate)
         .lte("date", today)
         .order("date", { ascending: false }),
-      supabase
+      admin
         .from("squad_daily_counts")
         .select("date, tab, empreendimento, count")
         .gte("date", startDate)
@@ -66,7 +67,6 @@ export async function GET(req: NextRequest) {
 
     // Apply filter: compute filtered ratios from squad_deals when filter is active
     if (paidOnly || marketingOnly || ctwaOnly) {
-      const admin = createSquadSupabaseAdmin();
       const ninetyDaysAgo = new Date(now);
       ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
       const ninetyDaysCutoff = ninetyDaysAgo.toISOString().substring(0, 10);
