@@ -61,8 +61,18 @@ async function getLatestDeal(personId: number): Promise<{ deal_id: number; mia_l
 
 // ─── Notificação Slack ────────────────────────────────────────────────────────
 
-async function notify(lead: LeadRecord, problem: "sem_pipedrive" | "sem_mia") {
+async function notify(lead: LeadRecord, key: string, problem: "sem_pipedrive" | "sem_mia") {
   if (!SLACK_WEBHOOK || lead.notified) return
+
+  // Re-read blob and mark notified BEFORE sending Slack.
+  // Guards against concurrent runCheck() processes (recovery cron + GH Actions + webhook)
+  // that read the same blob snapshot and both try to notify.
+  const fresh = await readLeads(key).catch(() => [])
+  const target = fresh.find(l => l.id === lead.id)
+  if (!target || target.notified) return
+  target.notified = true
+  await writeLeads(key, fresh).catch(() => {})
+
   const time = new Date(lead.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })
   const dealLink = lead.pipedrive_deal_id
     ? `<https://seazone-fd92b9.pipedrive.com/deal/${lead.pipedrive_deal_id}|#${lead.pipedrive_deal_id}>`
@@ -409,19 +419,19 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
     const personId = await findPerson(lead.email, lead.phone)
     if (!personId) {
       lead.status = "sem_pipedrive"
-      await notify(lead, "sem_pipedrive")
+      await notify(lead, key, "sem_pipedrive")
       lead.notified = true
     } else {
       const deal = await getLatestDeal(personId)
       if (!deal) {
         lead.status = "sem_pipedrive"
-        await notify(lead, "sem_pipedrive")
+        await notify(lead, key, "sem_pipedrive")
         lead.notified = true
       } else {
         lead.pipedrive_deal_id = deal.deal_id
         if (!deal.mia_link) {
           lead.status = "sem_mia"
-          await notify(lead, "sem_mia")
+          await notify(lead, key, "sem_mia")
           lead.notified = true
         } else {
           lead.mia_link = deal.mia_link
