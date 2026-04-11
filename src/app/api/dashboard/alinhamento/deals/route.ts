@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
-import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
+import { createClient } from "@supabase/supabase-js";
 import { SQUADS, PV_COLS, V_COLS, SQUAD_V_MAP } from "@/lib/constants";
 import { paginate } from "@/lib/paginate";
 import type { MisalignedDeal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+// squad_deals lives in the squad project, NOT the main saleszone project
+const SQUAD_SUPABASE_URL = "https://cncistmevwwghtaiyaao.supabase.co";
 
 const PIPEDRIVE_DOMAIN = "seazone-fd92b9.pipedrive.com";
 
@@ -24,7 +27,9 @@ const SZI_STAGE_IDS = new Set([392, 184, 186, 338, 346, 339, 187, 340, 208, 312,
 
 export async function GET() {
   try {
-    const admin = createSquadSupabaseAdmin();
+    const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!srvKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY not configured");
+    const admin = createClient(SQUAD_SUPABASE_URL, srvKey);
 
     // Read all open deals from squad_deals for SZI pipeline
     const deals = await paginate((o, ps) =>
