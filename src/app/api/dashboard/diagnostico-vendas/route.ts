@@ -5,21 +5,24 @@ import type { DiagVendasData, DiagVendasDealRow, DiagVendasCloserSummary, Vendas
 
 export const dynamic = "force-dynamic";
 
+// SZI Pipeline 28 stage_ids (from nekt_pipedrive_stages)
+const SZI_STAGE_IDS = new Set([392, 184, 186, 338, 346, 339, 187, 340, 208, 312, 313, 311, 191, 192]);
+
 const STAGE_NAMES: Record<number, string> = {
-  1: "FUP Parceiro",
-  2: "Lead in",
-  3: "Contatados",
-  4: "Qualificação",
-  5: "Qualificado",
-  6: "Aguardando data",
-  7: "Agendado",
-  8: "No Show/Reagendamento",
-  9: "Reunião/OPP",
-  10: "FUP",
-  11: "Negociação",
-  12: "Fila de espera",
-  13: "Reservas",
-  14: "Contrato",
+  392: "FUP Parceiro",
+  184: "Lead in",
+  186: "Contatados",
+  338: "Qualificação",
+  346: "Qualificado",
+  339: "Aguardando data",
+  187: "Agendado",
+  340: "No Show/Reagendamento",
+  208: "Reunião Realizada/OPP",
+  312: "FUP",
+  313: "Negociação",
+  311: "Fila de espera",
+  191: "Reservas",
+  192: "Contrato",
 };
 
 function getSeveridade(hours: number): VendasSeveridade {
@@ -51,8 +54,9 @@ export async function GET() {
       const admin = createSquadSupabaseAdmin();
       const { data, error } = await admin
         .from("squad_deals")
-        .select("deal_id, title, owner_name, empreendimento, stage_order, last_activity_date, next_activity_date, add_time, lost_reason")
+        .select("deal_id, title, owner_name, stage_id, stage_order, empreendimento, last_activity_date, next_activity_date, add_time, lost_reason")
         .eq("status", "open")
+        .in("stage_id", [...SZI_STAGE_IDS])
         .range(offset, offset + PAGE_SIZE - 1);
 
       if (error) throw new Error(`Supabase error: ${error.message}`);
@@ -62,9 +66,9 @@ export async function GET() {
       offset += PAGE_SIZE;
     }
 
-    // Filter to closers only, exclude Agendado (7) and No Show/Reagendamento (8)
+    // Filter to closers only, exclude Agendado (stage_id 187) and No Show (stage_id 340)
     const closerSet = new Set(V_COLS);
-    const closerDeals = allRows.filter((d) => closerSet.has(d.owner_name) && d.stage_order !== 7 && d.stage_order !== 8 && d.lost_reason !== "Duplicado/Erro");
+    const closerDeals = allRows.filter((d) => closerSet.has(d.owner_name) && d.stage_id !== 187 && d.stage_id !== 340 && d.lost_reason !== "Duplicado/Erro");
 
     // Calculate leadtime and activity status for each deal
     const todayStr = now.toISOString().substring(0, 10);
@@ -89,7 +93,7 @@ export async function GET() {
         owner_name: d.owner_name,
         empreendimento: d.empreendimento,
         stage_order: d.stage_order,
-        stage_name: STAGE_NAMES[d.stage_order] || `Stage ${d.stage_order}`,
+        stage_name: STAGE_NAMES[d.stage_id] || `Stage ${d.stage_id}`,
         last_activity_date: d.last_activity_date,
         next_activity_date: d.next_activity_date,
         leadtime_hours: Math.round(leadtimeHours),
