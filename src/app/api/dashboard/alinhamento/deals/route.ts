@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS, PV_COLS, V_COLS, SQUAD_V_MAP } from "@/lib/constants";
+import { paginate } from "@/lib/paginate";
+import type { MisalignedDeal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+// SZI Pipeline 28 stage_ids (from nekt_pipedrive_stages)
+const SZI_STAGE_IDS = new Set([392, 184, 186, 338, 346, 339, 187, 340, 208, 312, 313, 311, 191, 192]);
 
 const PIPEDRIVE_DOMAIN = "seazone-fd92b9.pipedrive.com";
 
@@ -26,13 +31,6 @@ function buildSquadMap() {
   return map;
 }
 
-interface MisalignedDeal {
-  deal_id: number;
-  title: string;
-  empreendimento: string;
-  owner_name: string;
-  link: string;
-}
 
 export async function GET() {
   try {
