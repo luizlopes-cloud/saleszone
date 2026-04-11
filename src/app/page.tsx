@@ -838,7 +838,7 @@ export default function Dashboard() {
             lastUpdated={lastUpdated}
           />
         )}
-        {mainView === "squad-atividades" && <SquadAtividadesView pipelineSlug={moduleConfig.id} dateFrom="" dateTo="" />}
+        {mainView === "squad-atividades" && <SquadAtividadesView pipelineSlug={moduleConfig.pipelineSlug} dateFrom="" dateTo="" />}
         {mainView === "venda" && (
           <div style={{ textAlign: "center", padding: "60px 20px", color: "#94a3b8" }}>
             <p style={{ fontSize: "16px" }}>Aba Venda — em construção</p>

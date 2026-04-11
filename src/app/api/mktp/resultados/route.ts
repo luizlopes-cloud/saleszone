@@ -227,39 +227,30 @@ export async function GET() {
     let totalSpend = 0;
     for (const v of spendByAd.values()) totalSpend += v;
 
-    /* ── 5. Snapshots from pipedrive_daily_snapshot (pipeline 37) ── */
+    /* ── 5. Count open deals directly from mktp_deals ── */
+    // Uses same filters as alinhamento: status=open, canal IS NOT NULL, lost_reason ≠ 'Duplicado/Erro'
     const today = now.toISOString().substring(0, 10);
 
     const snapshots: Record<string, { reserva: number; contrato: number; totalOpen: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { reserva: 0, contrato: 0, totalOpen: 0 };
 
-    // Try today's snapshot first, fallback to most recent
-    const { data: pdSnap } = await admin
-      .from("pipedrive_daily_snapshot")
-      .select("date, total_open, by_stage")
-      .eq("pipeline_id", 37)
-      .order("date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (pdSnap) {
-      const byStage = (pdSnap.by_stage || {}) as Record<string, number>;
-      snapshots["Funil Completo"].totalOpen = pdSnap.total_open || 0;
-      snapshots["Funil Completo"].reserva = byStage["305"] || 0;
-      snapshots["Funil Completo"].contrato = byStage["271"] || 0;
-      console.log(`[mktp/resultados] Using pipedrive_daily_snapshot from ${pdSnap.date}: totalOpen=${pdSnap.total_open}`);
-    } else {
-      console.warn("[mktp/resultados] No pipedrive_daily_snapshot for pipeline 37 — open deal count will be approximate");
-      // Fallback: mktp_deals table
-      const snapshotDeals = await paginate((o, ps) =>
-        admin.from("mktp_deals").select("stage_id, canal").eq("status", "open").in("stage_id", [STAGE_RESERVA, STAGE_CONTRATO]).range(o, o + ps - 1)
-      );
-      for (const d of snapshotDeals) {
-        const group = getCanalGroup(String(d.canal || ""));
-        if (d.stage_id === STAGE_RESERVA) { snapshots[group].reserva++; snapshots["Funil Completo"].reserva++; }
-        if (d.stage_id === STAGE_CONTRATO) { snapshots[group].contrato++; snapshots["Funil Completo"].contrato++; }
-      }
+    const openDeals = await paginate((o, ps) =>
+      admin.from("mktp_deals").select("stage_id, canal, lost_reason").eq("status", "open").not("canal", "is", null).range(o, o + ps - 1)
+    );
+    let totalOpen = 0;
+    let totalReserva = 0;
+    let totalContrato = 0;
+    for (const d of openDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      totalOpen++;
+      if (d.stage_id === STAGE_RESERVA) totalReserva++;
+      if (d.stage_id === STAGE_CONTRATO) totalContrato++;
     }
+
+    snapshots["Funil Completo"].totalOpen = totalOpen;
+    snapshots["Funil Completo"].reserva = totalReserva;
+    snapshots["Funil Completo"].contrato = totalContrato;
+    console.log(`[mktp/resultados] Open deals from mktp_deals: total=${totalOpen}, reserva=${totalReserva}, contrato=${totalContrato}`);
 
     /* ── 5b. Ocupação agenda (mktp_calendar_events, próximos 7 dias) ── */
     const next7 = new Date(now);
@@ -383,8 +374,8 @@ export async function GET() {
       cumulativeHist[ch] = arr;
     }
 
-    // Override Funil Completo's last chart data point with snapshot total_open
-    if (pdSnap && cumulativeHist["Funil Completo"].length > 0) {
+    // Override Funil Completo's last chart data point with the live totalOpen count
+    if (cumulativeHist["Funil Completo"].length > 0) {
       const last = cumulativeHist["Funil Completo"][cumulativeHist["Funil Completo"].length - 1];
       last.total = snapshots["Funil Completo"].totalOpen;
     }

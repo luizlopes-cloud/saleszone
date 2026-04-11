@@ -12,7 +12,8 @@ export interface SquadDef {
 }
 
 export interface ModuleConfig {
-  id: string;                    // "szi" | "mktp" | "szs"
+  id: string;                    // "szi" | "mktp" | "szs" — used for routing/UI
+  pipelineSlug: string;           // slug for getPipeline() lookup — defaults to id
   label: string;                 // "Investimentos" | "Marketplace" | "Serviços"
   shortLabel: string;            // "SZI" | "MKTP" | "SZS"
   pipelineId: number;            // Pipedrive pipeline ID
@@ -49,6 +50,7 @@ const SZI_SQUADS: readonly SquadDef[] = [
 
 const SZI_CONFIG: ModuleConfig = {
   id: "szi",
+  pipelineSlug: "szi",
   label: "Investimentos",
   shortLabel: "SZI",
   pipelineId: 28,
@@ -80,6 +82,7 @@ const MKTP_SQUADS: readonly SquadDef[] = [
 
 const MKTP_CONFIG: ModuleConfig = {
   id: "mktp",
+  pipelineSlug: "marketplace",
   label: "Marketplace",
   shortLabel: "MKTP",
   pipelineId: 37,
@@ -129,6 +132,7 @@ const SZS_SQUADS: readonly SquadDef[] = [
 
 const SZS_CONFIG: ModuleConfig = {
   id: "szs",
+  pipelineSlug: "szs",
   label: "Serviços",
   shortLabel: "SZS",
   pipelineId: 14,
