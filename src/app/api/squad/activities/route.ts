@@ -88,10 +88,11 @@ async function fetchUserActivities(
 // Resolve API token: env var ou Vault
 async function getPipedriveToken(): Promise<string> {
   if (process.env.PIPEDRIVE_API_TOKEN) return process.env.PIPEDRIVE_API_TOKEN
-  // Fallback: ler do Vault via service role
   const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  // Use the squad Supabase project (cncistmevwwghtaiyaao) where the vault secret lives
+  const supabaseUrl = process.env.SUPABASE_SQUAD_URL || 'https://cncistmevwwghtaiyaao.supabase.co'
   if (srvKey) {
-    const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, srvKey)
+    const client = createClient(supabaseUrl, srvKey)
     const { data } = await client.rpc('vault_read_secret', { secret_name: 'PIPEDRIVE_API_TOKEN' })
     if (data) return data as string
   }

@@ -6,6 +6,10 @@ export async function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith("/api/growth/audit-mql/")) {
     return NextResponse.next();
   }
+  // Squad API routes são públicas (acesso via dashboard principal)
+  if (request.nextUrl.pathname.startsWith("/api/squad/")) {
+    return NextResponse.next();
+  }
   return await updateSession(request);
 }
 
