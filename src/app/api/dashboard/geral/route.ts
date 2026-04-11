@@ -1,27 +1,26 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
+import { createSquadSupabaseAdmin, hasServiceRole } from "@/lib/squad/supabase";
+import { createAuthenticatedSupabaseAdmin } from "@/lib/supabase/server";
 import { paginate } from "@/lib/paginate";
 import type { GeralData, GeralChannelResult, GeralMetricPair } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-// Canal value → macro channel
-// squad_deals.canal has mixed values: names ("Marketing") and IDs ("582")
-const CANAL_MAP: Record<string, string> = {
-  // By name
-  "Marketing": "Vendas Diretas",
-  // By ID and name — Parceiros
-  "582": "Parceiros",
-  "583": "Parceiros",
-  "2876": "Parceiros",
-  "Indicação de Corretor": "Parceiros",
-  "Indicaçao de Franquia": "Parceiros",  // note: typo in data (no ~)
-  "Indicação de outros Parceiros (exceto corretor e franquia)": "Parceiros",
-};
-function getMacroChannel(canal: string | null): string {
-  if (!canal) return "Outros";
-  return CANAL_MAP[canal] || "Outros";
+// SZI channel classification
+// Vendas Diretas = tudo que NÃO é indicação de parceiros, Expansão ou Spot
+// canal in squad_deals has mixed values: names ("Marketing") and IDs ("582", "1748", etc.)
+const CANAL_IDS_PARCEIROS = new Set(["582", "583", "2876"]);
+const CANAL_IDS_EXPANSAO = new Set(["1748"]);
+const CANAL_IDS_SPOT = new Set(["3189"]);
+
+function getMacroChannel(canal: string | null): "Vendas Diretas" | "Parceiros" | "Expansao" | "Spot" {
+  if (!canal) return "Vendas Diretas"; // null canal → sem canal → Vendas Diretas
+  const lower = canal.toLowerCase();
+  if (CANAL_IDS_PARCEIROS.has(canal) || lower.includes("indica")) return "Parceiros";
+  if (CANAL_IDS_EXPANSAO.has(canal) || lower.includes("expans")) return "Expansao";
+  if (CANAL_IDS_SPOT.has(canal) || lower.includes("spot")) return "Spot";
+  return "Vendas Diretas"; // Marketing, Mônica, e qualquer outro canal = Vendas Diretas
 }
 
 const CHANNEL_ORDER = ["Geral", "Vendas Diretas", "Parceiros"] as const;
@@ -51,15 +50,27 @@ const METAS_BY_MONTH: Record<string, Record<string, ChannelMetas>> = {
     Parceiros: { mql: 1348, sql: 524, opp: 260, won: 55 },
     Geral: { mql: 4187, sql: 1445, opp: 488, reserva: 217, contrato: 125, won: 95 },
   },
+  "2026-04": {
+    "Vendas Diretas": { leads: 4726, mql: 3953, sql: 966, opp: 236, won: 26 },
+    Parceiros: { mql: 896, sql: 154, opp: 126, won: 38 },
+    Geral: { mql: 4849, sql: 1120, opp: 362, won: 64 },
+  },
 };
 
 function pair(real: number, meta: number): GeralMetricPair {
   return { real, meta };
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const admin = createSquadSupabaseAdmin();
+    // Use authenticated client so that auth.jwt() is populated in RLS policies.
+    // Falls back to createSquadSupabaseAdmin() if cookies aren't available (e.g. internal calls).
+    let admin = createSquadSupabaseAdmin();
+    try {
+      admin = await createAuthenticatedSupabaseAdmin(req);
+    } catch {
+      // Fall through to fallback
+    }
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
@@ -75,25 +86,88 @@ export async function GET() {
     cutoff90.setDate(cutoff90.getDate() - 90);
     const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
-    // ── 1. Funnel counts from squad_daily_counts (TOTAL — no canal split) ──
-    // This is the authoritative source for MQL/SQL/OPP/WON in SZI
-    const countsRows = await paginate((o, ps) =>
-      supabase
-        .from("squad_daily_counts")
-        .select("date, tab, count")
-        .in("tab", ["mql", "sql", "opp", "won", "reserva", "contrato"])
-        .gte("date", startDate)
-        .range(o, o + ps - 1),
-    );
+    // ── 1. Funnel counts Geral from squad_deals (cada etapa pela data correta, sem indicação) ──
+    const [geralMqlDeals, geralSqlDeals, geralOppDeals, geralWonDeals] = await Promise.all([
+      // MQL: por add_time
+      paginate((o, ps) =>
+        admin
+          .from("squad_deals")
+          .select("canal, lost_reason")
+          .gte("add_time", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // SQL: por qualificacao_date
+      paginate((o, ps) =>
+        admin
+          .from("squad_deals")
+          .select("canal, lost_reason")
+          .gte("qualificacao_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // OPP: por reuniao_date
+      paginate((o, ps) =>
+        admin
+          .from("squad_deals")
+          .select("canal, lost_reason")
+          .gte("reuniao_date", startDate)
+          .range(o, o + ps - 1),
+      ),
+      // WON: por won_time
+      paginate((o, ps) =>
+        admin
+          .from("squad_deals")
+          .select("canal, lost_reason")
+          .eq("status", "won")
+          .gte("won_time", startDate)
+          .range(o, o + ps - 1),
+      ),
+    ]);
 
-    const totalCounts: Record<string, number> = {};
-    for (const r of countsRows) {
-      totalCounts[r.tab] = (totalCounts[r.tab] || 0) + (r.count || 0);
+    function countExcludeIndica(deals: { canal: string; lost_reason: string }[]): number {
+      let count = 0;
+      for (const d of deals) {
+        if (d.lost_reason === "Duplicado/Erro") continue;
+        if ((d.canal || "").toLowerCase().includes("indica")) continue;
+        count++;
+      }
+      return count;
     }
-    console.log(`[geral] squad_daily_counts total: mql=${totalCounts.mql || 0}, sql=${totalCounts.sql || 0}, opp=${totalCounts.opp || 0}, won=${totalCounts.won || 0}`);
+
+    // Leads = todos os canais, sem Duplicado/Erro
+    let totalLeadsAll = 0;
+    for (const d of geralMqlDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      totalLeadsAll++;
+    }
+
+    let totalCounts: Record<string, number>;
+    if (hasServiceRole() && geralMqlDeals.length > 0) {
+      // WON Geral = todos os canais, não exclui indicação (Geral = independente do canal)
+      let wonAll = 0;
+      for (const d of geralWonDeals) {
+        if (d.lost_reason === "Duplicado/Erro") continue;
+        wonAll++;
+      }
+      totalCounts = {
+        mql: countExcludeIndica(geralMqlDeals),
+        sql: countExcludeIndica(geralSqlDeals),
+        opp: countExcludeIndica(geralOppDeals),
+        won: wonAll,
+      };
+    } else {
+      // Fallback: squad_daily_counts (anon key)
+      console.warn("[geral] Fallback to squad_daily_counts (no service role or empty squad_deals)");
+      const countsRows = await paginate((o, ps) =>
+        supabase.from("squad_daily_counts").select("tab, count").in("tab", ["mql", "sql", "opp", "won"]).gte("date", startDate).range(o, o + ps - 1),
+      );
+      totalCounts = { mql: 0, sql: 0, opp: 0, won: 0 };
+      for (const r of countsRows) totalCounts[r.tab] = (totalCounts[r.tab] || 0) + (r.count || 0);
+      totalLeadsAll = totalCounts.mql;
+    }
+    console.log(`[geral] Geral: mql=${totalCounts.mql}, sql=${totalCounts.sql}, opp=${totalCounts.opp}, won=${totalCounts.won}`);
 
     // ── 2. Canal split from squad_deals (MQL/SQL/OPP/WON by canal) ──
-    // squad_deals has `canal` field for per-channel breakdown
+    // Vendas Diretas = tudo exceto Parceiros (indicação), Expansão e Spot
     const deals = await paginate((o, ps) =>
       admin
         .from("squad_deals")
@@ -103,13 +177,6 @@ export async function GET() {
         .range(o, o + ps - 1),
     );
     console.log(`[geral] squad_deals returned ${deals.length} deals`);
-    // Debug: check canal values
-    const canalDistrib: Record<string, number> = {};
-    for (const d of deals.slice(0, 500)) {
-      const key = String(d.canal ?? "NULL");
-      canalDistrib[key] = (canalDistrib[key] || 0) + 1;
-    }
-    console.log(`[geral] canal distribution (first 500):`, JSON.stringify(canalDistrib));
 
     // Count by macro channel
     const channelCounts: Record<string, Record<string, number>> = {};
@@ -117,18 +184,29 @@ export async function GET() {
 
     for (const d of deals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const macro = getMacroChannel(d.canal);
       const mso = d.max_stage_order ?? d.stage_order ?? 0;
+      const macro = getMacroChannel(d.canal);
 
-      // Vendas Diretas and Parceiros get their own counts
-      if (macro === "Vendas Diretas" || macro === "Parceiros") {
-        if (mso >= TH_MQL) channelCounts[macro].mql++;
-        if (mso >= TH_SQL) channelCounts[macro].sql++;
-        if (mso >= TH_OPP) channelCounts[macro].opp++;
-        if (mso >= TH_RESERVA) channelCounts[macro].reserva++;
-        if (mso >= TH_CONTRATO) channelCounts[macro].contrato++;
-        if (d.status === "won") channelCounts[macro].won++;
+      // Parceiros = indicações de parceiros
+      if (macro === "Parceiros") {
+        if (mso >= TH_MQL) channelCounts.Parceiros.mql++;
+        if (mso >= TH_SQL) channelCounts.Parceiros.sql++;
+        if (mso >= TH_OPP) channelCounts.Parceiros.opp++;
+        if (mso >= TH_RESERVA) channelCounts.Parceiros.reserva++;
+        if (mso >= TH_CONTRATO) channelCounts.Parceiros.contrato++;
+        if (d.status === "won") channelCounts.Parceiros.won++;
       }
+
+      // Vendas Diretas = tudo que NÃO é Parceiros, Expansão ou Spot
+      if (macro === "Vendas Diretas") {
+        if (mso >= TH_MQL) channelCounts["Vendas Diretas"].mql++;
+        if (mso >= TH_SQL) channelCounts["Vendas Diretas"].sql++;
+        if (mso >= TH_OPP) channelCounts["Vendas Diretas"].opp++;
+        if (mso >= TH_RESERVA) channelCounts["Vendas Diretas"].reserva++;
+        if (mso >= TH_CONTRATO) channelCounts["Vendas Diretas"].contrato++;
+        if (d.status === "won") channelCounts["Vendas Diretas"].won++;
+      }
+      // Expansão e Spot só contam no Geral (não aparecem em VD nem Parceiros)
     }
     console.log(`[geral] channelCounts VD: mql=${channelCounts["Vendas Diretas"].mql}, won=${channelCounts["Vendas Diretas"].won}`);
     console.log(`[geral] channelCounts Parceiros: mql=${channelCounts.Parceiros.mql}, won=${channelCounts.Parceiros.won}`);
@@ -245,9 +323,9 @@ export async function GET() {
     const histDeals = await paginate((o, ps) =>
       admin
         .from("squad_deals")
-        .select("canal, max_stage_order, stage_order, status, lost_reason, add_time, won_time, lost_time, update_time")
+        .select("canal, max_stage_order, stage_order, status, lost_reason, add_time, won_time, lost_time, update_time, qualificacao_date, reuniao_date")
         .not("empreendimento", "is", null)
-        .or(`status.eq.open,won_time.gte.${cutoff30Str},lost_time.gte.${cutoff30Str}`)
+        .or(`status.eq.open,won_time.gte.${cutoff30Str},lost_time.gte.${cutoff30Str},qualificacao_date.gte.${cutoff30Str},reuniao_date.gte.${cutoff30Str}`)
         .range(o, o + ps - 1),
     );
 
@@ -262,89 +340,105 @@ export async function GET() {
     for (let i = 0; i < allHistDates.length; i++) dateIndex.set(allHistDates[i], i);
     const N = allHistDates.length;
 
-    // Delta arrays per channel and stage
-    const HIST_STAGES = ["mql", "sql", "opp"] as const;
-    const HIST_STAGE_MIN: Record<string, number> = { mql: TH_MQL, sql: TH_SQL, opp: TH_OPP };
     const HIST_CHANNELS = ["Geral", "Vendas Diretas", "Parceiros"] as const;
 
-    // delta[channel][stage][dateIdx] — +1 at add, -1 at close
-    const delta: Record<string, Record<string, number[]>> = {};
+    // delta[channel][dateIdx] — for total open deals (AreaChart)
+    const delta: Record<string, number[]> = {};
+    for (const ch of HIST_CHANNELS) delta[ch] = new Array(N + 1).fill(0);
+
+    // dailyEvents[channel][stage][dateIdx] — event count per day per stage (MultiLineChart)
+    // MQL uses add_time, SQL uses qualificacao_date, OPP uses reuniao_date
+    const dailyEvents: Record<string, Record<string, number[]>> = {};
     for (const ch of HIST_CHANNELS) {
-      delta[ch] = {};
-      for (const s of HIST_STAGES) delta[ch][s] = new Array(N + 1).fill(0);
-      delta[ch]["total"] = new Array(N + 1).fill(0);
+      dailyEvents[ch] = {
+        mql: new Array(N).fill(0),
+        sql: new Array(N).fill(0),
+        opp: new Array(N).fill(0),
+      };
     }
 
     for (const d of histDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
+      const canal = (d.canal || "").toLowerCase();
       const macro = getMacroChannel(d.canal);
-      const mso = d.max_stage_order ?? d.stage_order ?? 0;
       const addDay = d.add_time?.substring(0, 10) || "";
-      // Close day: won_time for won, lost_time (or update_time fallback) for lost
       const closeDay = d.status === "won" ? d.won_time?.substring(0, 10)
         : d.status === "lost" ? (d.lost_time || d.update_time || d.add_time)?.substring(0, 10)
         : null;
 
-      // Determine addIdx: clamp to 0 if before window
-      let addIdx = dateIndex.get(addDay) ?? (addDay < allHistDates[0] ? 0 : -1);
-      if (addIdx < 0) continue; // add_time after last date — skip
+      // Clamp addIdx to 0 if deal was created before the window
+      const addIdx = dateIndex.get(addDay) ?? (addDay < allHistDates[0] ? 0 : -1);
+      if (addIdx < 0) continue;
 
-      // Determine closeIdx: null if still open or close after last date
       let closeIdx: number | null = null;
       if (closeDay) {
         const ci = dateIndex.get(closeDay);
         if (ci !== undefined) closeIdx = ci;
-        else if (closeDay < allHistDates[0]) continue; // closed before window — skip entirely
-        // else: closed after window — treat as still open within window
+        else if (closeDay < allHistDates[0]) continue; // closed before window — skip
       }
 
       const targets = (macro === "Vendas Diretas" || macro === "Parceiros") ? [macro, "Geral"] : ["Geral"];
 
+      // Total open deals delta (for AreaChart)
       for (const ch of targets) {
-        delta[ch]["total"][addIdx]++;
-        if (closeIdx !== null) delta[ch]["total"][closeIdx]--;
+        delta[ch][addIdx]++;
+        if (closeIdx !== null) delta[ch][closeIdx]--;
+      }
 
-        for (const s of HIST_STAGES) {
-          if (mso >= HIST_STAGE_MIN[s]) {
-            delta[ch][s][addIdx]++;
-            if (closeIdx !== null) delta[ch][s][closeIdx]--;
-          }
+      // Daily events per stage using stage-specific dates
+      // MQL: add_time (exclude indicação for Vendas Diretas)
+      const mqlIdx = dateIndex.get(addDay);
+      if (mqlIdx !== undefined) {
+        for (const ch of targets) dailyEvents[ch]["mql"][mqlIdx]++;
+      }
+
+      // SQL: qualificacao_date
+      const sqlDay = (d as any).qualificacao_date?.substring(0, 10);
+      if (sqlDay) {
+        const sqlIdx = dateIndex.get(sqlDay);
+        if (sqlIdx !== undefined) {
+          for (const ch of targets) dailyEvents[ch]["sql"][sqlIdx]++;
+        }
+      }
+
+      // OPP: reuniao_date
+      const oppDay = (d as any).reuniao_date?.substring(0, 10);
+      if (oppDay) {
+        const oppIdx = dateIndex.get(oppDay);
+        if (oppIdx !== undefined) {
+          for (const ch of targets) dailyEvents[ch]["opp"][oppIdx]++;
         }
       }
     }
 
-    // Build cumulative per channel
+    // Build channelHistory: cumulative total (stock) + daily events per stage (flow)
     const channelHistory: Record<string, { date: string; total: number; openTotal: number; byStage: Record<string, number> }[]> = {};
     for (const ch of HIST_CHANNELS) {
       const arr: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[] = [];
-      const cum: Record<string, number> = { total: 0 };
-      for (const s of HIST_STAGES) cum[s] = 0;
+      let cumTotal = 0;
       for (let i = 0; i < N; i++) {
-        cum["total"] += delta[ch]["total"][i];
-        const byStage: Record<string, number> = {};
-        for (const s of HIST_STAGES) {
-          cum[s] += delta[ch][s][i];
-          byStage[s] = cum[s];
-        }
-        arr.push({ date: allHistDates[i], total: cum["total"], openTotal: cum["total"], byStage });
+        cumTotal += delta[ch][i];
+        arr.push({
+          date: allHistDates[i],
+          total: cumTotal,
+          openTotal: cumTotal,
+          byStage: {
+            mql: dailyEvents[ch]["mql"][i],
+            sql: dailyEvents[ch]["sql"][i],
+            opp: dailyEvents[ch]["opp"][i],
+          },
+        });
       }
       channelHistory[ch] = arr;
     }
 
-    // Override Geral's last data point with daily snapshot (accurate total from Pipedrive)
+    // Override Geral's last data point total with daily snapshot (accurate open count from Pipedrive)
+    // byStage is NOT overridden — it shows today's daily events from squad_deals
     if (pdTotalOpen > 0) {
-      const PD_STAGE_ORDER: Record<number, number> = {
-        392:1, 184:2, 186:3, 338:4, 346:5, 339:6, 187:7, 340:8, 208:9, 312:10, 313:11, 311:12, 191:13, 192:14,
-      };
       const geralArr = channelHistory["Geral"];
       if (geralArr && geralArr.length > 0) {
-        const byStage: Record<string, number> = {};
-        for (const s of HIST_STAGES) byStage[s] = 0;
-        for (const [stageId, count] of Object.entries(pdByStage)) {
-          const so = PD_STAGE_ORDER[Number(stageId)] || 0;
-          for (const s of HIST_STAGES) if (so >= HIST_STAGE_MIN[s]) byStage[s] += count;
-        }
-        geralArr[geralArr.length - 1] = { date: geralArr[geralArr.length - 1].date, total: pdTotalOpen, openTotal: pdTotalOpen, byStage };
+        const last = geralArr[geralArr.length - 1];
+        geralArr[geralArr.length - 1] = { ...last, total: pdTotalOpen, openTotal: pdTotalOpen };
       }
     }
 
@@ -354,6 +448,11 @@ export async function GET() {
     const CLOSER_EMAILS = (closerRules || []).map((r: { email: string }) => r.email);
     const MEETINGS_PER_DAY = 8;
     const WORK_DAYS = 5;
+
+    // Vendas Diretas: closers de V_COLS, 14 slots/dia
+    const { data: vdCloserRules } = await admin.from("squad_closer_rules").select("email").in("prefixo", ["Apresentação"]).eq("setor", "SZI");
+    const VD_CLOSER_EMAILS = (vdCloserRules || []).map((r: { email: string }) => r.email);
+    const VD_SLOTS_PER_DAY = 14;
     const next7 = new Date(now); next7.setDate(next7.getDate() + 6);
     const next7Str = next7.toISOString().substring(0, 10);
     const past7 = new Date(now); past7.setDate(past7.getDate() - 6);
@@ -371,6 +470,11 @@ export async function GET() {
     const agendadas = agendaRows.filter((e: any) => CLOSER_EMAILS.includes(e.closer_email)).length;
     const capacidade = CLOSER_EMAILS.length * MEETINGS_PER_DAY * WORK_DAYS;
     const agendaPct = capacidade > 0 ? Math.round((agendadas / capacidade) * 1000) / 10 : 0;
+
+    // Vendas Diretas ocupação
+    const vdAgendadas = agendaRows.filter((e: any) => VD_CLOSER_EMAILS.includes(e.closer_email)).length;
+    const vdCapacidade = VD_CLOSER_EMAILS.length * VD_SLOTS_PER_DAY * WORK_DAYS;
+    const vdAgendaPct = vdCapacidade > 0 ? Math.round((vdAgendadas / vdCapacidade) * 1000) / 10 : 0;
     const noShowTotal = noShowRows.length;
     const noShowCanceladas = noShowRows.filter((e: any) => e.cancelou).length;
     const noShowPct = noShowTotal > 0 ? Math.round((noShowCanceladas / noShowTotal) * 1000) / 10 : 0;
@@ -393,7 +497,7 @@ export async function GET() {
       // Vendas Diretas: add orcamento + leads
       if (name === "Vendas Diretas") {
         metrics.orcamento = pair(Math.round(totalSpend), orcamentoMeta || meta.orcamento || 0);
-        metrics.leads = pair(totalLeads, meta.leads || 0);
+        metrics.leads = pair(totalLeadsAll, meta.leads || 0);
       }
 
       // Geral: add reserva + contrato bars
@@ -413,11 +517,14 @@ export async function GET() {
         dealsHistory: channelHistory[name] || [],
       };
 
-      // All channels get snapshots; only Geral gets agenda + noshow
+      // All channels get snapshots
       result.snapshots = snap;
       if (name === "Geral") {
         result.ocupacaoAgenda = { agendadas, capacidade, percent: agendaPct };
         result.noShow = { canceladas: noShowCanceladas, total: noShowTotal, percent: noShowPct };
+      }
+      if (name === "Vendas Diretas") {
+        result.ocupacaoAgenda = { agendadas: vdAgendadas, capacidade: vdCapacidade, percent: vdAgendaPct };
       }
 
       // Geral: reservaHistory (latest accumulated values)

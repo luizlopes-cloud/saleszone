@@ -1,6 +1,6 @@
 // MKTP (Marketplace) module
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { ForecastData, ForecastStageSnapshot, ForecastCloserRow, ForecastSquadRow } from "@/lib/types";
 import { paginate } from "@/lib/paginate";
@@ -10,13 +10,24 @@ const V_COLS = mc.closers;
 
 export const dynamic = "force-dynamic";
 
+// MKTP Pipeline 37 stages (from nekt_pipedrive_stages)
 const STAGE_NAMES: Record<number, string> = {
-  1: "FUP Parceiro", 2: "Lead in", 3: "Contatados", 4: "Qualificação", 5: "Qualificado",
-  6: "Aguardando data", 7: "Agendado", 8: "No Show/Reagendamento", 9: "Reunião/OPP",
-  10: "FUP", 11: "Negociação", 12: "Fila de espera", 13: "Reservas", 14: "Contrato",
+  1: "Lead In",
+  2: "Contatados",
+  3: "Qualificação",
+  4: "Qualificado",
+  5: "Aguardando data",
+  6: "Reunião Agendada",
+  7: "No show",
+  8: "Reunião Realizada",
+  9: "FUP",
+  10: "Negociação",
+  11: "Proposta Aprovada",
+  12: "Reserva",
+  13: "Contrato",
 };
 
-const ALL_STAGES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+const ALL_STAGES = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 
 function getSquadId(closerName: string): number {
   for (const [sqId, indices] of Object.entries(mc.squadCloserMap)) {
@@ -29,6 +40,7 @@ function getSquadId(closerName: string): number {
 
 export async function GET() {
   try {
+    const admin = createSquadSupabaseAdmin();
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
@@ -46,7 +58,7 @@ export async function GET() {
     // --- Queries paralelas ---
     const [openDeals, hist90d, won90d, wonThisMonth, metasRows] = await Promise.all([
       paginate((o, ps) =>
-        supabase
+        admin
           .from("mktp_deals")
           .select("deal_id, stage_order, owner_name, empreendimento")
           .eq("status", "open")
@@ -55,7 +67,7 @@ export async function GET() {
           .range(o, o + ps - 1),
       ),
       paginate((o, ps) =>
-        supabase
+        admin
           .from("mktp_deals")
           .select("deal_id, status, stage_order, max_stage_order, lost_reason, add_time, won_time")
           .eq("is_marketing", true)
@@ -65,7 +77,7 @@ export async function GET() {
           .range(o, o + ps - 1),
       ),
       paginate((o, ps) =>
-        supabase
+        admin
           .from("mktp_deals")
           .select("deal_id, add_time, won_time, max_stage_order")
           .eq("status", "won")
@@ -75,7 +87,7 @@ export async function GET() {
           .range(o, o + ps - 1),
       ),
       paginate((o, ps) =>
-        supabase
+        admin
           .from("mktp_deals")
           .select("deal_id, owner_name, empreendimento")
           .eq("status", "won")
@@ -84,7 +96,7 @@ export async function GET() {
           .lt("won_time", mesFim)
           .range(o, o + ps - 1),
       ),
-      supabase
+      admin
         .from("mktp_metas")
         .select("squad_id, meta")
         .eq("month", mesInicio)
@@ -124,10 +136,10 @@ export async function GET() {
       if (!d.add_time || !d.won_time) continue;
       const cycleDays = (new Date(d.won_time).getTime() - new Date(d.add_time).getTime()) / (1000 * 60 * 60 * 24);
       if (cycleDays <= 0) continue;
-      const maxSO = d.max_stage_order || 14;
+      const maxSO = d.max_stage_order || 13;
       for (const so of ALL_STAGES) {
         if (maxSO >= so) {
-          const remainingDays = cycleDays * (14 - so) / 13;
+          const remainingDays = cycleDays * (13 - so) / 12;
           leadtimeSums[so] += Math.max(0, remainingDays);
           leadtimeCounts[so]++;
         }

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { LeadRecord, dateKey, readLeads, writeLeads } from "@/lib/audit-mql"
+import { checkSla } from "@/lib/audit-mql-check"
+import { readData } from "@/lib/sla-mql-blob"
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
@@ -72,7 +74,7 @@ async function getLatestDeal(personId: number): Promise<{ deal_id: number; mia_l
 
 async function notify(lead: LeadRecord, problem: "sem_pipedrive" | "sem_mia") {
   if (!SLACK_WEBHOOK || lead.notified) return
-  const time = new Date(lead.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  const time = new Date(lead.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })
   const dealLink = lead.pipedrive_deal_id
     ? `<https://seazone-fd92b9.pipedrive.com/deal/${lead.pipedrive_deal_id}|#${lead.pipedrive_deal_id}>`
     : null
@@ -99,14 +101,31 @@ async function notify(lead: LeadRecord, problem: "sem_pipedrive" | "sem_mia") {
 async function checkPending(leads: LeadRecord[]): Promise<{ leads: LeadRecord[]; changed: boolean }> {
   const now = Date.now()
   const pending = leads.filter(l => {
+    if (l.status === "descartado") return false
     if (l.status === "aguardando" && now - new Date(l.created_at).getTime() > TWO_MINUTES) return true
     if (l.status === "sem_mia" && l.checked_at && now - new Date(l.checked_at).getTime() < FOUR_HOURS) return true
     return false
   })
   if (pending.length === 0) return { leads, changed: false }
+  // Mais recentes primeiro, limite de segurança para evitar timeout
+  pending.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  const batch = pending.slice(0, 20)
 
-  for (const lead of pending) {
+  const slaData = await readData().catch(() => null)
+
+  for (const lead of batch) {
     lead.checked_at = new Date().toISOString()
+
+    // SLA antes do Pipedrive — lead fora do SLA não deveria estar no Pipe
+    if (slaData) {
+      lead.sla_ok = checkSla(lead, slaData)
+    }
+    if (lead.sla_ok === false) {
+      lead.status = "fora_sla"
+      lead.notified = true
+      continue
+    }
+
     const personId = await findPerson(lead.email, lead.phone)
     if (!personId) {
       lead.status = "sem_pipedrive"
@@ -133,7 +152,7 @@ async function checkPending(leads: LeadRecord[]): Promise<{ leads: LeadRecord[];
     }
   }
 
-  const pendingMap = new Map(pending.map(l => [l.id, l]))
+  const pendingMap = new Map(batch.map(l => [l.id, l]))
   return { leads: leads.map(l => pendingMap.get(l.id) || l), changed: true }
 }
 
@@ -151,6 +170,7 @@ export async function GET(req: NextRequest) {
     leads = updated
   }
 
+  leads = leads.filter(l => l.status !== "descartado")
   leads.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   return NextResponse.json(leads, { headers: { "Cache-Control": "no-store" } })
 }

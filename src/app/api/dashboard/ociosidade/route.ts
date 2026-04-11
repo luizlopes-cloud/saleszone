@@ -95,7 +95,7 @@ export async function GET() {
       if (evt.cancelou) {
         existing.cancelledCount += 1;
       } else {
-        existing.totalMin += evt.duracao_min || 0;
+        existing.totalMin += evt.duracao_min ?? 60; // default 60 min for events without explicit duration
         existing.count += 1;
       }
       emailMap.set(evt.dia, existing);
@@ -123,6 +123,13 @@ export async function GET() {
     }
 
     const displayDays = isWeekday(today) ? [...pastDays, todayStr, ...futureDays] : [...pastDays, ...futureDays];
+
+    // Diagnostic: check if any past 7 business days are missing from calendar sync
+    const syncedDates = new Set((events || []).map((e: any) => e.dia));
+    const missingDays = pastDays.filter((d: string) => !syncedDates.has(d));
+    if (missingDays.length > 0) {
+      console.warn(`[ociosidade] Calendar sync gap: ${missingDays.length}/7 past business days missing: ${missingDays.join(", ")}`);
+    }
 
     const dates: OciosidadeDate[] = displayDays.map((ds) => {
       const d = new Date(ds + "T12:00:00");

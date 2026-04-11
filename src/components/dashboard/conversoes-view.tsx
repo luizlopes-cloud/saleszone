@@ -36,14 +36,16 @@ const SQUAD_OPTIONS = [
 
 const SZS_SQUAD_OPTIONS = [
   { id: 0, label: "Global" },
-  { id: 1, label: "Squad 1" },
-  { id: 2, label: "Squad 2" },
-  { id: 3, label: "Squad 3" },
+  { id: 1, label: "Marketing" },
+  { id: 2, label: "Parceiros" },
+  { id: 3, label: "Expansão" },
 ];
 
 const SZS_SQUAD_COLORS: Record<number, string> = {
   1: T.azul600, 2: T.roxo600, 3: T.teal600,
 };
+
+type RatioFilter = "all" | "marketing" | "paid" | "ctwa" | "sao-paulo" | "salvador" | "florianopolis" | "outros";
 
 interface Props {
   data: RatioHistoryData | null;
@@ -51,6 +53,8 @@ interface Props {
   daysBack: number;
   onDaysChange: (days: number) => void;
   moduleId?: string;
+  filter?: RatioFilter;
+  onFilterChange?: (f: RatioFilter) => void;
 }
 
 function ratioToConvPct(ratio: number): number {
@@ -429,7 +433,7 @@ function RatioHeatmap({ squads, getSnapshot, history }: {
 }
 
 // Daily conversion heatmap — same format as acompanhamento heatmap
-function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSnapshot, squadDefs, squadColors, empLabel }: {
+function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSnapshot, squadDefs, squadColors, empLabel, isSZSFiltered }: {
   empDaily: Record<string, Record<string, Record<string, number>>>;
   dates: string[];
   selectedRatio: RatioKey;
@@ -438,6 +442,7 @@ function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSn
   squadDefs: Array<{ id: number; name: string; empreendimentos: readonly string[] }>;
   squadColors: Record<number, string>;
   empLabel: string;
+  isSZSFiltered?: boolean;
 }) {
   const defaultExpanded: Record<number, boolean> = {};
   for (const sq of squadDefs) defaultExpanded[sq.id] = true;
@@ -501,7 +506,9 @@ function DailyConversionHeatmap({ empDaily, dates, selectedRatio, history, getSn
 
   // Squad-level daily conversion from squad_ratios_daily
   function getSquadDailyConv(sqId: number): number[] {
-    const sqHistory = history.filter(r => r.squad_id === sqId);
+    // When SZS filter is active, all squads resolve to Marketing (squad 1)
+    const effectiveSqId = isSZSFiltered ? 1 : sqId;
+    const sqHistory = history.filter(r => r.squad_id === effectiveSqId);
     const byDate = new Map<string, number>();
     for (const r of sqHistory) {
       byDate.set(r.date, ratioToConvPct(getRatio(r, selectedRatio)));
@@ -729,11 +736,12 @@ function MiniTrend({ diff, direction, label }: { diff: number; direction: "bette
   );
 }
 
-export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId }: Props) {
+export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId, filter = "all", onFilterChange }: Props) {
   const [expanded, setExpanded] = useState(true);
   const [selectedRatio, setSelectedRatio] = useState<RatioKey>("opp_won");
   const isSZS = moduleId === "szs";
   const isMKTP = moduleId === "mktp";
+  const isSZSFiltered = isSZS && filter !== "all";
 
   if (loading && !data) return null;
   if (!data) return null;
@@ -741,28 +749,43 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
   const { current, history } = data;
 
   // Module-specific config
-  const groupOptions = isSZS ? SZS_SQUAD_OPTIONS : SQUAD_OPTIONS.slice(0, isMKTP ? 1 : undefined);
+  const allGroupOptions = isSZS ? SZS_SQUAD_OPTIONS : SQUAD_OPTIONS.slice(0, isMKTP ? 1 : undefined);
+  // When SZS filter is active (Marketing/Mídia Paga), show only Marketing squad
+  const groupOptions = isSZSFiltered
+    ? allGroupOptions.filter(o => o.id === 1)
+    : allGroupOptions;
   const groupColors = isSZS ? SZS_SQUAD_COLORS : SQUAD_COLORS;
   const groupLabel = "Squad";
   const empLabel = isSZS ? "Cidade" : "Empreendimento";
 
   // Build squad defs from empDaily keys grouped by canal/squad
   const squadDefs = isSZS
-    ? SZS_SQUAD_OPTIONS.filter(o => o.id !== 0).map(o => ({
-        id: o.id,
-        name: o.label,
-        empreendimentos: Object.keys(data.empDaily || {}).filter(emp => {
-          // For SZS, empDaily is keyed by canal_group name
-          return emp === o.label;
-        }),
-      }))
+    ? (isSZSFiltered
+        // Filter active: only Marketing canal
+        ? SZS_SQUAD_OPTIONS.filter(o => o.id === 1).map(o => ({
+            id: o.id,
+            name: o.label,
+            empreendimentos: Object.keys(data.empDaily || {}).filter(emp => emp === o.label),
+          }))
+        // No filter: all canais
+        : SZS_SQUAD_OPTIONS.filter(o => o.id !== 0).map(o => ({
+            id: o.id,
+            name: o.label,
+            empreendimentos: Object.keys(data.empDaily || {}).filter(emp => emp === o.label),
+          })))
     : isMKTP
     ? [{ id: 0, name: "Global", empreendimentos: Object.keys(data.empDaily || {}) }]
     : SQUADS.map(sq => ({ id: sq.id, name: sq.name, empreendimentos: [...sq.empreendimentos] }));
 
   // Get snapshot for each squad/canal
+  // When SZS filter is active, squad_id 0 → Marketing (squad 1), squad_id 1 → Marketing (squad 1)
   const getSnapshot = (sqId: number): RatioSnapshot => {
     if (sqId === 0) return current.global;
+    // For SZS filtered view, all ids resolve to Marketing (squad 1)
+    if (isSZSFiltered) {
+      const sq = current.squads.find(s => s.squad_id === 1);
+      return sq || { date: "", squad_id: 1, ratios: { mql_sql: 0, sql_opp: 0, opp_won: 0 }, counts_90d: { mql: 0, sql: 0, opp: 0, won: 0 } };
+    }
     const sq = current.squads.find(s => s.squad_id === sqId);
     return sq || { date: "", squad_id: sqId, ratios: { mql_sql: 0, sql_opp: 0, opp_won: 0 }, counts_90d: { mql: 0, sql: 0, opp: 0, won: 0 } };
   };
@@ -793,7 +816,7 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
           {/* Daily conversion heatmap with ratio selector */}
           {data.empDaily && data.dates && (
             <>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
                 <div style={{ display: "flex", gap: "3px", backgroundColor: T.bg, borderRadius: "8px", padding: "2px", border: `1px solid ${T.border}` }}>
                   {RATIO_KEYS.map(key => (
                     <button
@@ -814,6 +837,47 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
                     </button>
                   ))}
                 </div>
+                {onFilterChange && (
+                  <div style={{ display: "flex", gap: "2px", backgroundColor: T.bg, borderRadius: "8px", padding: "2px", border: `1px solid ${T.border}` }}>
+                    {moduleId === "szs"
+                      ? ([{ key: "sao-paulo" as RatioFilter, label: "São Paulo" }, { key: "salvador" as RatioFilter, label: "Salvador" }, { key: "florianopolis" as RatioFilter, label: "Florianópolis" }, { key: "outros" as RatioFilter, label: "Outros" }] as const).map(opt => (
+                          <button
+                            key={opt.key}
+                            onClick={() => onFilterChange(opt.key)}
+                            style={{
+                              padding: "5px 12px",
+                              borderRadius: "6px",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "11px",
+                              fontWeight: 500,
+                              backgroundColor: filter === opt.key ? T.primary : "transparent",
+                              color: filter === opt.key ? "#FFF" : T.mutedFg,
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))
+                      : ([{ key: "all" as RatioFilter, label: "Geral" }, { key: "marketing" as RatioFilter, label: "Marketing" }, { key: "paid" as RatioFilter, label: "Mídia Paga" }, { key: "ctwa" as RatioFilter, label: "CTWA" }] as const).map(opt => (
+                          <button
+                            key={opt.key}
+                            onClick={() => onFilterChange(opt.key)}
+                            style={{
+                              padding: "5px 12px",
+                              borderRadius: "6px",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "11px",
+                              fontWeight: 500,
+                              backgroundColor: filter === opt.key ? T.primary : "transparent",
+                              color: filter === opt.key ? "#FFF" : T.mutedFg,
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                  </div>
+                )}
               </div>
               <DailyConversionHeatmap
                 empDaily={data.empDaily}
@@ -824,6 +888,7 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
                 squadDefs={squadDefs}
                 squadColors={groupColors}
                 empLabel={empLabel}
+                isSZSFiltered={isSZSFiltered}
               />
             </>
           )}

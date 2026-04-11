@@ -119,20 +119,48 @@ export async function GET() {
 
     if (error) throw new Error(`Supabase error: ${error.message}`);
 
-    // TODO: SZS presellers — fill in when team structure is discovered
     const MAIN_PVS = mc.presellers.length > 0 ? [...mc.presellers] : [];
-    const deals = (rows || []).filter((d) => MAIN_PVS.length === 0 || MAIN_PVS.includes(d.preseller_name));
+    let pvDeals = (rows || []).filter((d) => MAIN_PVS.length === 0 || MAIN_PVS.includes(d.preseller_name));
     const now = new Date();
 
-    // Buscar add_time dos deals
-    const dealIds = deals.map((d) => Number(d.deal_id));
-    const { data: dealsExtra } = await supabase
-      .from("nekt_pipedrive_deals_v2")
-      .select("id, add_time")
-      .in("id", dealIds);
-    const addTimeMap = new Map((dealsExtra || []).map((d) => [Number(d.id), d.add_time]));
+    // Filter out lost deals by joining with szs_deals status (paginated — .in() limited to ~1000 IDs)
+    const pvDealIds = pvDeals.map((d) => Number(d.deal_id));
+    if (pvDealIds.length > 0) {
+      const lostIds = new Set<number>();
+      for (let i = 0; i < pvDealIds.length; i += 500) {
+        const batch = pvDealIds.slice(i, i + 500);
+        const { data, error: err } = await supabase
+          .from("szs_deals")
+          .select("deal_id, status")
+          .in("deal_id", batch);
+        if (err) {
+          console.error("Failed to fetch deal statuses for lost filter:", err.message);
+        } else {
+          for (const d of data || []) {
+            if (d.status === "lost") lostIds.add(d.deal_id);
+          }
+        }
+      }
+      pvDeals = pvDeals.filter((d) => !lostIds.has(Number(d.deal_id)));
+    }
 
-    const dealsWithBizTime = deals.map((d) => {
+    // Buscar add_time dos deals de szs_deals (dados atualizados)
+    const addTimeMap = new Map<string, string>();
+    for (let i = 0; i < pvDealIds.length; i += 500) {
+      const batch = pvDealIds.slice(i, i + 500);
+      const { data, error: err } = await supabase
+        .from("szs_deals")
+        .select("deal_id, add_time")
+        .in("deal_id", batch);
+      if (err) {
+        console.error("Failed to fetch add_time:", err.message);
+      } else {
+        for (const d of data || []) {
+          if (d.add_time) addTimeMap.set(String(d.deal_id), d.add_time);
+        }
+      }
+    }
+    const dealsWithBizTime = pvDeals.map((d) => {
       const transbordo = new Date(d.transbordo_at);
       const actionTime = d.first_action_at ? new Date(d.first_action_at) : now;
       const bizMinutes = calcBusinessMinutes(transbordo, actionTime);
@@ -192,7 +220,7 @@ export async function GET() {
       first_action_at: d.first_action_at,
       response_time_minutes: d.biz_minutes,
       action_type: d.action_type,
-      deal_add_time: addTimeMap.get(Number(d.deal_id)) || null,
+      deal_add_time: addTimeMap.get(String(d.deal_id)) || null,
       last_mia_at: d.last_mia_at || null,
     }));
 
@@ -206,7 +234,7 @@ export async function GET() {
       presellers,
       recentDeals,
       totals: {
-        totalDeals: deals.length,
+        totalDeals: pvDeals.length,
         dealsComAcao: dealsWithBizTime.filter((d) => !d.is_pending).length,
         dealsPendentes: dealsWithBizTime.filter((d) => d.is_pending).length,
         avgMinutes: allTempos.length > 0 ? Math.round(allTempos.reduce((a, b) => a + b, 0) / allTempos.length) : 0,

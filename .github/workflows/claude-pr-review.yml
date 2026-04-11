@@ -1,0 +1,122 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: claude-review-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  statuses: read
+  checks: read
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Run Claude review
+        uses: anthropics/claude-code-base-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-6
+          allowed_tools: "Bash,Read,Grep,Glob"
+          prompt: |
+            Você é um revisor automático de PRs da Saleszone. Responda em português brasileiro.
+
+            PR_NUMBER=${{ github.event.pull_request.number }}
+            REPO=seazone-socios/saleszone
+
+            Use `gh` (GH_TOKEN já está configurado) para todas as operações de GitHub.
+
+            ## 1. Coletar contexto
+            ```bash
+            gh pr view $PR_NUMBER --json title,body,commits,additions,deletions,files,author
+            gh pr diff $PR_NUMBER
+            ```
+            Ler `CLAUDE.md` do repo (e subpastas afetadas pelo diff) para convenções.
+
+            ## 2. CLAUDE.md é BLOQUEANTE
+            Se o PR modifica qualquer `CLAUDE.md`, NÃO mergear. Postar comentário e PARAR:
+            ```bash
+            gh pr comment $PR_NUMBER --body "⚠️ PR toca CLAUDE.md — review humano necessário antes de merge automático."
+            ```
+
+            ## 3. Análise em 5 dimensões
+            1. **Correção** — lógica, edge cases, guards (ex: `if (data.length === 0)` antes de delete)
+            2. **Segurança** — input validation, error handling, secrets
+            3. **Performance** — N+1, índices, filtros JS que deveriam ser query, loops
+            4. **Convenções** — alinhamento com CLAUDE.md, naming, dados hardcoded vs config
+            5. **Observabilidade** — logs adequados, erros nunca silenciados (todo `supabase.from().update/insert/delete` deve capturar `{ error }` e logar)
+
+            ## 4. Veredicto
+            - **Aprovar** se nenhum ponto crítico ou moderado
+            - **Request changes** se houver crítico/moderado
+
+            ## 5. Postar review
+            ```bash
+            gh pr review $PR_NUMBER --approve --body "..."
+            # ou
+            gh pr review $PR_NUMBER --request-changes --body "..."
+            ```
+
+            Formato do body:
+            ```
+            ## Code Review — PR #<number> (<título>)
+
+            ### Resumo
+            <1-2 frases>
+
+            ### Problemas encontrados
+            #### 🔴 Crítico — <título>
+            #### 🟡 Moderado — <título>
+            #### 🟢 Menor — <título>
+
+            ### O que está bom
+
+            ### Veredicto
+            ```
+
+            ## 6. Se aprovado → mergear + verificar Vercel
+            ```bash
+            gh pr merge $PR_NUMBER --merge
+            MERGE_SHA=$(gh api repos/$REPO/commits/main --jq '.sha')
+            ```
+
+            ⚠️ A Vercel publica via **commit statuses** (API legada), NÃO check-runs. Endpoint `/commits/$SHA/status` (singular), context literalmente `"Vercel"`.
+
+            ```bash
+            for i in $(seq 1 30); do
+              VERCEL_STATE=$(gh api repos/$REPO/commits/$MERGE_SHA/status --jq '.statuses[] | select(.context == "Vercel") | .state' | tail -1)
+              VERCEL_URL=$(gh api repos/$REPO/commits/$MERGE_SHA/status --jq '.statuses[] | select(.context == "Vercel") | .target_url' | tail -1)
+              if [ -n "$VERCEL_STATE" ] && [ "$VERCEL_STATE" != "pending" ]; then break; fi
+              sleep 10
+            done
+            ```
+
+            - `success` → comentar no PR confirmando deploy + link
+            - `failure`/`error` → comentar no PR alertando build quebrado + link do `target_url`
+            - Status ausente em 5min → comentar "deploy não verificado"
+
+            ## Lições aprendidas (importante)
+            1. **Verificar tabelas/colunas existentes** antes de aprovar código que escreve no Supabase
+            2. **Guard contra API vazia** — sync sem `if (data.length === 0)` pode deletar tudo
+            3. **Erros nunca silenciados** — todo write Supabase deve logar `{ error }`
+            4. **CLAUDE.md é sagrado** — qualquer mudança bloqueia auto-merge
+            5. **Merge ≠ deploy** — confirmar Vercel via commit statuses antes de declarar "deployado"
+
+            Reportar ao final um resumo curto do que foi feito.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
