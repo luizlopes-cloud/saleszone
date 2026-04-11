@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { generateDates } from "@/lib/dates";
 import { getModuleConfig } from "@/lib/modules";
 import { getSquadIdFromCanalGroup, getCidadeGroup } from "@/lib/szs-utils";
@@ -85,8 +85,10 @@ export async function GET(req: NextRequest) {
     const dates = generateDates();
     const startDate = dates[dates.length - 1].date;
 
+    const admin = createSquadSupabaseAdmin();
+
     const [ratiosRes] = await Promise.all([
-      supabase
+      admin
         .from("szs_ratios_daily")
         .select("date, squad_id, ratios, counts_90d")
         .gte("date", cutoffDate)
@@ -98,7 +100,7 @@ export async function GET(req: NextRequest) {
     const countsAll: Array<{ date: string; tab: string; empreendimento: string; canal_group: string; count: number }> = [];
     let o = 0;
     while (true) {
-      const { data, error } = await supabase
+      const { data, error } = await admin
         .from("szs_daily_counts")
         .select("date, tab, empreendimento, canal_group, count")
         .gte("date", startDate)
