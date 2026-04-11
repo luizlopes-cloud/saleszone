@@ -1,9 +1,11 @@
-// MKTP (Marketplace) module — monthly metrics
 import { NextRequest, NextResponse } from "next/server";
-import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
+import { createClient } from "@supabase/supabase-js";
 import { paginate } from "@/lib/paginate";
 
 export const dynamic = "force-dynamic";
+
+// MKTP data lives in the squad project, NOT the main saleszone project
+const MKTP_SUPABASE_URL = "https://cncistmevwwghtaiyaao.supabase.co";
 
 const MONTH_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -16,7 +18,9 @@ export async function GET(req: NextRequest) {
     const monthsParam = req.nextUrl.searchParams.get("months");
     const numMonths = Math.min(Math.max(Number(monthsParam) || 6, 1), 24);
 
-    const admin = createSquadSupabaseAdmin();
+    const srvKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!srvKey) throw new Error("SUPABASE_SERVICE_ROLE_KEY not configured");
+    const admin = createClient(MKTP_SUPABASE_URL, srvKey);
 
     // Build month ranges
     const now = new Date();
