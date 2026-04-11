@@ -1,17 +1,11 @@
-// MKTP (Marketplace) module — Mensal
+// MKTP (Marketplace) module — monthly metrics
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { paginate } from "@/lib/paginate";
 
-export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const TABS = ["mql", "sql", "opp", "won"] as const;
-
-const MONTH_LABELS = [
-  "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
-  "Jul", "Ago", "Set", "Out", "Nov", "Dez",
-];
+const MONTH_LABELS = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
 function pct(num: number, den: number): number {
   return den > 0 ? Math.round((num / den) * 10000) / 100 : 0;
@@ -22,11 +16,9 @@ export async function GET(req: NextRequest) {
     const monthsParam = req.nextUrl.searchParams.get("months");
     const numMonths = Math.min(Math.max(Number(monthsParam) || 6, 1), 24);
 
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
+    const admin = createSquadSupabaseAdmin();
 
+    // Build month ranges
     const now = new Date();
     const months: { key: string; label: string; start: string; end: string }[] = [];
 
@@ -43,47 +35,69 @@ export async function GET(req: NextRequest) {
     }
 
     const globalStart = months[0].start;
-    const globalEnd = months[months.length - 1].end;
 
-    // Fetch all daily counts from mktp_daily_counts
-    const countsPromises = TABS.map((tab) =>
-      paginate((offset, ps) =>
-        supabase
-          .from("mktp_daily_counts")
-          .select("date, count")
-          .eq("tab", tab)
-          .gte("date", globalStart)
-          .lte("date", globalEnd)
-          .range(offset, offset + ps - 1),
-      ),
+    // Fetch from mktp_deals directly (more reliable than pre-aggregated counts)
+    const deals = await paginate((o, ps) =>
+      admin
+        .from("mktp_deals")
+        .select("add_time, qualificacao_date, reuniao_date, won_time, status, lost_reason")
+        .gte("add_time", globalStart)
+        .range(o, o + ps - 1),
     );
 
-    const results = await Promise.all(countsPromises);
+    // Aggregate by month
+    const mqlByMonth = new Map<string, number>();
+    const sqlByMonth = new Map<string, number>();
+    const oppByMonth = new Map<string, number>();
+    const wonByMonth = new Map<string, number>();
 
-    const mqlRows = results[0] as { date: string; count: number }[];
-    const sqlRows = results[1] as { date: string; count: number }[];
-    const oppRows = results[2] as { date: string; count: number }[];
-    const wonRows = results[3] as { date: string; count: number }[];
+    for (const d of deals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
 
-    function sumByMonth(rows: { date: string; count: number }[]): Map<string, number> {
-      const map = new Map<string, number>();
-      for (const row of rows) {
-        const monthKey = row.date.substring(0, 7);
-        map.set(monthKey, (map.get(monthKey) || 0) + (row.count || 0));
+      const mkAdd = d.add_time?.substring(0, 7);
+      const mkQual = d.qualificacao_date?.substring(0, 7);
+      const mkReun = d.reuniao_date?.substring(0, 7);
+      const mkWon = d.won_time?.substring(0, 7);
+
+      if (mkAdd && months.some((m) => m.key === mkAdd)) {
+        mqlByMonth.set(mkAdd, (mqlByMonth.get(mkAdd) || 0) + 1);
       }
-      return map;
+      if (mkQual && months.some((m) => m.key === mkQual)) {
+        sqlByMonth.set(mkQual, (sqlByMonth.get(mkQual) || 0) + 1);
+      }
+      if (mkReun && months.some((m) => m.key === mkReun)) {
+        oppByMonth.set(mkReun, (oppByMonth.get(mkReun) || 0) + 1);
+      }
+      if (d.status === "won" && mkWon && months.some((m) => m.key === mkWon)) {
+        wonByMonth.set(mkWon, (wonByMonth.get(mkWon) || 0) + 1);
+      }
     }
 
-    const mqlByMonth = sumByMonth(mqlRows);
-    const sqlByMonth = sumByMonth(sqlRows);
-    const oppByMonth = sumByMonth(oppRows);
-    const wonByMonth = sumByMonth(wonRows);
+    // Metas from mktp_metas table
+    const monthDates = months.map((m) => `${m.key}-01`);
+    const metaByMonth = new Map<string, number>();
 
+    const metaRows = await paginate((o, ps) =>
+      admin
+        .from("mktp_metas")
+        .select("month, meta, tab")
+        .in("month", monthDates)
+        .range(o, o + ps - 1),
+    );
+    for (const m of metaRows) {
+      if (m.tab === "won") {
+        const mk = m.month?.substring(0, 7);
+        if (mk) metaByMonth.set(mk, (metaByMonth.get(mk) || 0) + (m.meta || 0));
+      }
+    }
+
+    // Build response
     const result = months.map((m) => {
       const mql = mqlByMonth.get(m.key) || 0;
       const sql = sqlByMonth.get(m.key) || 0;
       const opp = oppByMonth.get(m.key) || 0;
       const won = wonByMonth.get(m.key) || 0;
+      const meta = metaByMonth.get(m.key) || 0;
 
       return {
         month: m.key,
@@ -92,12 +106,13 @@ export async function GET(req: NextRequest) {
         sql,
         opp,
         won,
-        meta: 0,
-        pctMeta: 0,
+        meta,
+        pctMeta: pct(won, meta),
         conversions: {
           mqlToSql: pct(sql, mql),
           sqlToOpp: pct(opp, sql),
           oppToWon: pct(won, opp),
+          mqlToWon: pct(won, mql),
         },
       };
     });
@@ -107,10 +122,7 @@ export async function GET(req: NextRequest) {
       updatedAt: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("MKTP Mensal API error:", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
-    );
+    console.error("MKTP Mensal error:", error);
+    return NextResponse.json({ error: String(error) }, { status: 500 });
   }
 }
