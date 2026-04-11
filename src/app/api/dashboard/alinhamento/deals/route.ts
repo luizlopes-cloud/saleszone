@@ -1,85 +1,80 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS, PV_COLS, V_COLS, SQUAD_V_MAP } from "@/lib/constants";
+import { paginate } from "@/lib/paginate";
+import type { MisalignedDeal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const PIPEDRIVE_DOMAIN = "seazone-fd92b9.pipedrive.com";
 
-function normalize(s: string): string {
+function nfd(s: string): string {
   return s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
 function matchOwner(colName: string, ownerName: string): boolean {
-  return normalize(ownerName).includes(normalize(colName));
+  if (!colName || !ownerName) return false;
+  const c = nfd(colName);
+  const o = nfd(ownerName);
+  return o.includes(c) || c.includes(o);
 }
 
-// Build map: empreendimento → { correctPV, correctVIndices, squadId }
-function buildSquadMap() {
-  const map = new Map<string, { correctPV: string; correctVIndices: number[]; squadId: number }>();
-  for (const sq of SQUADS) {
-    const vIndices = SQUAD_V_MAP[sq.id] || [];
-    for (const emp of sq.empreendimentos) {
-      map.set(emp, { correctPV: sq.preVenda, correctVIndices: vIndices, squadId: sq.id });
-    }
-  }
-  return map;
-}
-
-interface MisalignedDeal {
-  deal_id: number;
-  title: string;
-  empreendimento: string;
-  owner_name: string;
-  link: string;
-}
+// SZI Pipeline 28 stage_ids (from nekt_pipedrive_stages)
+const SZI_STAGE_IDS = new Set([392, 184, 186, 338, 346, 339, 187, 340, 208, 312, 313, 311, 191, 192]);
 
 export async function GET() {
   try {
-    const { data: deals, error } = await supabase
-      .from("squad_alignment_deals")
-      .select("deal_id, title, empreendimento, owner_name");
+    const admin = createSquadSupabaseAdmin();
 
-    if (error) throw new Error(`Supabase error: ${error.message}`);
+    // Read all open deals from squad_deals for SZI pipeline
+    const deals = await paginate((o, ps) =>
+      admin
+        .from("squad_deals")
+        .select("deal_id, title, owner_name, stage_id, stage_order, empreendimento")
+        .eq("status", "open")
+        .in("stage_id", [...SZI_STAGE_IDS])
+        .not("lost_reason", "eq", "Duplicado/Erro")
+        .range(o, o + ps - 1),
+    );
 
-    const squadMap = buildSquadMap();
-
-    // Dedup by deal_id (SCD2 join in Edge Function can produce duplicates)
-    const seenIds = new Set<number>();
-    const uniqueDeals = (deals || []).filter((d: { deal_id: number }) => {
-      if (seenIds.has(d.deal_id)) return false;
-      seenIds.add(d.deal_id);
-      return true;
-    });
+    // Build squad map: empreendimento → { correctPV, correctVIndices }
+    const squadMap = new Map<string, { correctPV: string; correctVIndices: number[] }>();
+    for (const sq of SQUADS) {
+      const vIndices = SQUAD_V_MAP[sq.id] || [];
+      for (const emp of sq.empreendimentos) {
+        squadMap.set(emp, { correctPV: sq.preVenda, correctVIndices: vIndices });
+      }
+    }
 
     // Group misaligned deals by person (PV or V column name)
     const byPerson = new Map<string, { role: "pv" | "v"; deals: MisalignedDeal[] }>();
 
-    for (const deal of uniqueDeals) {
+    for (const deal of deals) {
+      if (!deal.empreendimento) continue;
       const info = squadMap.get(deal.empreendimento);
-      if (!info) continue;
+      if (!info) continue; // skip unknown empreendimentos
 
-      // Check which PV/V column this owner matches
+      const dealInfo: MisalignedDeal = {
+        deal_id: deal.deal_id,
+        title: deal.title || `Deal #${deal.deal_id}`,
+        owner_name: deal.owner_name || "Sem dono",
+        empreendimento: deal.empreendimento,
+        link: `https://${PIPEDRIVE_DOMAIN}/deal/${deal.deal_id}`,
+      };
+
+      // Determine which column the current owner matches (PV or V)
       let matchedPV: string | null = null;
       let matchedV: string | null = null;
 
       for (const col of PV_COLS) {
-        if (matchOwner(col, deal.owner_name)) { matchedPV = col; break; }
+        if (matchOwner(col, deal.owner_name || "")) { matchedPV = col; break; }
       }
       for (const col of V_COLS) {
-        if (matchOwner(col, deal.owner_name)) { matchedV = col; break; }
+        if (matchOwner(col, deal.owner_name || "")) { matchedV = col; break; }
       }
 
-      const dealInfo: MisalignedDeal = {
-        deal_id: deal.deal_id,
-        title: deal.title,
-        empreendimento: deal.empreendimento,
-        owner_name: deal.owner_name,
-        link: `https://${PIPEDRIVE_DOMAIN}/deal/${deal.deal_id}`,
-      };
-
       // Check PV misalignment
-      if (matchedPV && !matchOwner(info.correctPV, deal.owner_name)) {
+      if (matchedPV && !matchOwner(info.correctPV, deal.owner_name || "")) {
         if (!byPerson.has(matchedPV)) byPerson.set(matchedPV, { role: "pv", deals: [] });
         byPerson.get(matchedPV)!.deals.push(dealInfo);
       }
