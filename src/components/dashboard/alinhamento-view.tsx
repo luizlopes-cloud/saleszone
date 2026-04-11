@@ -109,7 +109,7 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, 
               </tr>
               <tr style={{ backgroundColor: T.cinza50 }}>
                 <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 50 }}>Squad</th>
-                <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 180 }}>{isSZS ? "Cidade" : "Empreendimento"}</th>
+                <th style={{ ...thBaseStyle, textAlign: "left", minWidth: 180 }}>{isSZS ? "Cidade" : moduleConfig.id === "mktp" ? "Canal" : "Empreendimento"}</th>
                 {moduleConfig.presellers.map((p, i) => (
                   <th
                     key={`pv-${i}`}
@@ -311,7 +311,7 @@ export function AlinhamentoView({ data, misalignedDeals, loading, moduleConfig, 
                               <thead>
                                 <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                                   <th style={{ textAlign: "left", padding: "4px 8px", color: T.cinza600, fontWeight: 600 }}>
-                                    {isSZS ? "Cidade" : "Empreendimento"}
+                                    {moduleConfig.id === "mktp" ? "Canal" : isSZS ? "Cidade" : "Empreendimento"}
                                   </th>
                                   <th style={{ textAlign: "left", padding: "4px 8px", color: T.cinza600, fontWeight: 600 }}>
                                     Deal
