@@ -517,6 +517,27 @@ async function getMaxStageReached(apiToken: string, dealId: number, currentOrder
   return max;
 }
 
+// ---- Stale cleanup: fetch all open deal IDs from DB, exclude current Pipedrive IDs ----
+async function fetchStaleIdsSZ(supabase: any, currentPdIds: Set<number>): Promise<number[]> {
+  const staleIds: number[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("szs_deals")
+      .select("deal_id")
+      .eq("status", "open")
+      .range(offset, offset + 999);
+    if (error) { console.error("  Stale cleanup query error:", error.message); break; }
+    if (!data || data.length === 0) break;
+    for (const d of data) {
+      if (!currentPdIds.has(d.deal_id)) staleIds.push(d.deal_id);
+    }
+    if (data.length < 1000) break;
+    offset += 1000;
+  }
+  return staleIds;
+}
+
 // ---- Mode: deals-open ----
 async function syncDealsOpen(apiToken: string, supabase: any) {
   console.log(`syncDealsOpen: fetching pipeline ${PIPELINE_ID} open deals...`);
@@ -557,6 +578,22 @@ async function syncDealsOpen(apiToken: string, supabase: any) {
 
   console.log(`  Open deals fetched: ${total}, rows to upsert: ${rows.length}`);
   await upsertBatch(supabase, rows);
+
+  // Stale cleanup: mark as "lost" any deals that are "open" in DB but no longer
+  // in the Pipedrive open deals list (i.e., they were closed since last sync).
+  const currentPdIds = new Set(rows.map((r: any) => r.deal_id));
+  const staleIds = currentPdIds.size > 0
+    ? await fetchStaleIdsSZ(supabase, currentPdIds)
+    : [];
+
+  if (staleIds.length > 0) {
+    await supabase
+      .from("szs_deals")
+      .update({ status: "lost", synced_at: new Date().toISOString() })
+      .in("deal_id", staleIds);
+    console.log(`  Stale cleanup: marked ${staleIds.length} deals as lost`);
+  }
+
   return { totalFetched: total, upserted: rows.length };
 }
 

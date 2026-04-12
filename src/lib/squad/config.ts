@@ -67,7 +67,7 @@ const SZS_EMP_OPTIONS: Record<number, string> = {}
 const MKT_SQUADS: Squad[] = [
   {
     id: 1, name: 'Marketplace', color: '#0EA5E9',
-    marketing: '', preVenda: [], venda: [],
+    marketing: '', preVenda: ['Karoane Izabela Soares', 'Karoline Borges'], venda: [],
     empreendimentos: [
       'Foz Spot', 'Rosa Sul Spot', 'Cachoeira Beach Spot', 'Meireles Spot',
       'Ilha do Campeche II Spot', 'Ingleses Spot', 'Bonito Spot', 'Santinho Spot',
@@ -124,7 +124,7 @@ export const PIPELINES: PipelineConfig[] = [
     nektTable: 'facebook_ads_szs_adsinsights', squads: SZS_SQUADS, empOptions: SZS_EMP_OPTIONS, groupBy: 'canal',
   },
   {
-    id: 37, slug: 'marketplace', name: 'Marketplace', shortName: 'Marketplace', filterId: 584740,
+    id: 37, slug: 'mktp', name: 'Marketplace', shortName: 'Marketplace', filterId: 584740,
     stageIds: { MQL: [336, 335, 334], SQL: [347, 333, 284], OPP: [337, 274, 308, 309], WON: [393, 305, 271] },
     nektTable: 'facebook_ads_mktplace_adsinsights', squads: MKT_SQUADS, empOptions: MKT_EMP_OPTIONS, groupBy: 'empreendimento',
   },
