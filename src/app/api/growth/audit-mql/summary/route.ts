@@ -24,8 +24,16 @@ function pct(n: number, d: number) { return d > 0 ? `${Math.round(n / d * 100)}%
 
 async function buildSummary(key: string) {
   const all = await readLeads(key)
-  // Exclui descartados — igual ao filtro da UI
-  const leads = all.filter(l => l.status !== "descartado")
+  // Filtra por created_at dentro do dia BRT (igual à UI) + exclui descartados.
+  // O blob pode conter leads históricos adicionados pelo recovery cron quando
+  // o filtro de data da Meta API falha — esses leads têm created_at de outros dias.
+  const dayStart = new Date(`${key}T03:00:00Z`).getTime() // midnight BRT = 03:00 UTC
+  const dayEnd   = dayStart + 24 * 60 * 60 * 1000         // next midnight BRT
+  const leads = all.filter(l =>
+    l.status !== "descartado" &&
+    new Date(l.created_at).getTime() >= dayStart &&
+    new Date(l.created_at).getTime() < dayEnd
+  )
   if (leads.length === 0) return null
 
   // fora_sla não é erro — lead simplesmente não qualificou
