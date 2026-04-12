@@ -126,6 +126,10 @@ interface ChannelResult {
 interface ResultadosSZSData {
   month: string;
   channels: ChannelResult[];
+  diagnostic?: {
+    szsDealsCount: number;
+    usingFallback: boolean;
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -541,7 +545,11 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    const body: ResultadosSZSData = { month: monthKey, channels };
+    const body: ResultadosSZSData = {
+      month: monthKey,
+      channels,
+      diagnostic: { szsDealsCount: szsDealsTotal ?? 0, usingFallback },
+    };
     return NextResponse.json(body);
   } catch (err: unknown) {
     console.error("[szs/resultados]", err);
