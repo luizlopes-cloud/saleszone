@@ -397,12 +397,9 @@ export async function GET(request: NextRequest) {
       snapHistMap[ch] = arr;
     }
 
-    // Override Geral's last chart data point with snapshot total_open
-    if (pdSnap && snapHistMap.Geral.length > 0) {
-      const last = snapHistMap.Geral[snapHistMap.Geral.length - 1];
-      last.total = snapshots.Geral.totalOpen;
-      last.openTotal = snapshots.Geral.totalOpen;
-    }
+    // DON'T override with snapshot — use the live szs_deals computed total (snapHistMap).
+    // The snapshot total_open from pipedrive_daily_snapshot may be stale,
+    // causing the chart to show wrong numbers. The delta-based history is authoritative.
 
     // Accumulated: deals that reached Ag.Dados (>=11) and Contrato (>=12) this month
     // Count deals that were active in March (won/lost/open) and reached these stages
