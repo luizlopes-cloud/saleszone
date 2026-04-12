@@ -317,22 +317,12 @@ export async function runAuditCTWPP(
     const results = await Promise.all(batch.map(async lead => {
       const contextCrm = await fetchDealContext(lead.deal_id)
 
-      if (!lead.morada_conversation_id) {
-        return { ...lead, tem_problema: true, temperatura: "Indefinido", tag: "Sem conversa",
-          resumo: "Campo de conversa Morada vazio no Pipedrive.",
-          problemas: "Campo de conversa Morada vazio no Pipedrive.",
-          recomendacao: "Verificar se o lead foi abordado pela MIA." } as AuditCTWPPLead
-      }
+      if (!lead.morada_conversation_id) return null
 
       const messages = await fetchMetabaseMessages(lead.morada_conversation_id)
       const filtered = messages.filter(m => m.conversa_id === lead.morada_conversation_id)
 
-      if (!filtered.length) {
-        return { ...lead, tem_problema: true, temperatura: "Indefinido", tag: "Sem conversa",
-          resumo: "Conversa não encontrada no Metabase.",
-          problemas: "Conversa não encontrada no Metabase.",
-          recomendacao: "Verificar manualmente na Morada." } as AuditCTWPPLead
-      }
+      if (!filtered.length) return null
 
       try {
         const analysis = await analyzeWithAI(formatConversation(filtered.slice(-100)), contextCrm, today)
@@ -343,7 +333,7 @@ export async function runAuditCTWPP(
           recomendacao: "Revisar manualmente." } as AuditCTWPPLead
       }
     }))
-    auditLeads.push(...results)
+    auditLeads.push(...results.filter((r): r is AuditCTWPPLead => r !== null))
   }
 
   const day = { date: blobKey, ran_at: new Date().toISOString(), total_leads: leads.length, leads: auditLeads }
