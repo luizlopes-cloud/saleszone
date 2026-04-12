@@ -1,0 +1,550 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
+import { paginate } from "@/lib/paginate";
+import { getCidadeGroup, getSquadMetasFromNekt } from "@/lib/szs-utils";
+
+/* ── Macro-channel mapping ────────────────────────────────── */
+const MACRO_CHANNELS: Record<string, string> = {
+  Marketing: "Vendas Diretas",
+  "Mônica": "Vendas Diretas",
+  Spots: "Expansão",      // Spots vai para Expansão (não Vendas Diretas)
+  Outros: "Vendas Diretas",
+  Parceiros: "Parceiros",
+  "Ind. Corretor": "Parceiros",
+  "Ind. Franquia": "Parceiros",
+  "Ind. Outros Parceiros": "Parceiros",
+  "Expansão": "Expansão",
+};
+
+/* ── Canal group → macro channels (for counts aggregation) ── */
+const CANAL_PARCEIROS = new Set(["Parceiros", "Ind. Corretor", "Ind. Franquia", "Ind. Outros Parceiros"]);
+const CANAL_SPOTS = new Set(["Spots"]);
+const CANAL_EXPANSAO = new Set(["Expansão"]);
+
+function getChannelTabs(canalGroup: string): string[] {
+  if (CANAL_PARCEIROS.has(canalGroup)) return ["Geral", "Parceiros"];
+  if (CANAL_SPOTS.has(canalGroup))     return ["Geral", "Expansão"]; // Spots → Expansão (não Vendas Diretas)
+  if (CANAL_EXPANSAO.has(canalGroup))  return ["Geral", "Expansão"];
+  return ["Geral", "Vendas Diretas"];
+}
+
+/* ── Canal ID → group (for szs_deals which stores raw IDs) ── */
+const CANAL_ID_TO_GROUP: Record<string, string> = {
+  "12": "Marketing",
+  "582": "Ind. Corretor",
+  "583": "Ind. Franquia",
+  "2876": "Ind. Outros Parceiros",
+  "1748": "Expansão",
+  "3189": "Spots",
+  "4551": "Mônica",
+};
+function getCanalGroup(canalId: string): string {
+  return CANAL_ID_TO_GROUP[canalId] || "Outros";
+}
+
+const CHANNEL_ORDER = ["Geral", "Vendas Diretas", "Parceiros", "Expansão"] as const;
+
+const CHANNEL_FILTERS: Record<string, string> = {
+  Geral: "Todos os canais\nExclui: Duplicado/Erro",
+  "Vendas Diretas": "Inclui: Marketing, Mônica, Ind. Colaborador, Eventos, Ind. Clientes, Outros\nExclui: Expansão, Spots, Ind. Corretor, Ind. Franquia, Duplicado/Erro",
+  Parceiros: "Inclui: Ind. Corretor, Ind. Franquia, Ind. Outros Parceiros\nExclui: Duplicado/Erro",
+  "Expansão": "Inclui: Expansão, Spots\nExclui: Duplicado/Erro",
+};
+
+interface ChannelMetas {
+  orcamento?: number;
+  leads?: number;
+  mql: number;
+  sql: number;
+  opp: number;
+  won: number;
+  agDados?: number;
+  contrato?: number;
+}
+
+const SZS_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
+  "2026-03": {
+    Geral: { mql: 3143, sql: 1291, opp: 696, won: 266, agDados: 314, contrato: 314 },
+    "Vendas Diretas": { orcamento: 76500, leads: 2500, mql: 1639, sql: 674, opp: 328, won: 98 },
+    Parceiros: { mql: 249, sql: 154, opp: 140, won: 73 },
+    "Expansão": { mql: 1832, sql: 566, opp: 216, won: 95 },
+  },
+  "2026-04": {
+    Geral: { mql: 3521, sql: 1446, opp: 780, won: 298 },
+    "Vendas Diretas": { mql: 1739, sql: 715, opp: 348, won: 104 },
+    Parceiros: { mql: 256, sql: 158, opp: 144, won: 75 },
+    "Expansão": { mql: 1967, sql: 608, opp: 232, won: 102 },
+  },
+};
+
+const CHANNEL_CLOSERS: Record<string, string[]> = {
+  Geral: ["Gabriela Lemos", "Gabriela Branco", "Giovanna Araujo Zanchetta", "Maria Amaral", "Samuel Barreto"],
+  "Vendas Diretas": ["Gabriela Lemos", "Maria Amaral"],
+  Parceiros: ["Gabriela Branco"],
+  "Expansão": ["Giovanna Araujo Zanchetta", "Samuel Barreto"],
+};
+
+/* ── Closer email → tabs (for calendar events) ──────────── */
+const CLOSER_EMAIL_CHANNEL: Record<string, string[]> = {
+  "maria.amaral@seazone.com.br":          ["Geral", "Vendas Diretas"],
+  "gabriela.lemos@seazone.com.br":        ["Geral", "Vendas Diretas"],
+  "gabriela.branco@seazone.com.br":       ["Geral", "Parceiros"],
+  "giovanna.araujo@seazone.com.br":       ["Geral", "Expansão"],
+  "samuel.barreto@seazone.com.br":        ["Geral", "Expansão"],
+};
+
+const MEETINGS_PER_DAY = 16;
+const WORK_DAYS_PER_WEEK = 5;
+
+const STAGE_AG_DADOS = 11;   // stage_id 152 → stage_order 11
+const STAGE_CONTRATO = 12;   // stage_id 76  → stage_order 12
+
+interface MetricPair { real: number; meta: number }
+
+interface ChannelResult {
+  name: string;
+  filterDescription: string;
+  metrics: {
+    orcamento?: MetricPair;
+    leads?: MetricPair;
+    mql: MetricPair;
+    sql: MetricPair;
+    opp: MetricPair;
+    won: MetricPair;
+  };
+  lastMonthWon: number;
+  snapshots: {
+    aguardandoDados: number; emContrato: number; totalOpen: number;
+    agDadosAccum?: number; contratoAccum?: number;
+    agDadosMeta?: number; contratoMeta?: number;
+  };
+  ocupacaoAgenda: { agendadas: number; capacidade: number; percent: number; closers: string[]; meetingsPerDay: number; workDays: number };
+  noShow: { canceladas: number; total: number; percent: number };
+  dealsHistory: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[];
+}
+
+interface ResultadosSZSData {
+  month: string;
+  channels: ChannelResult[];
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const cityParam = request.nextUrl.searchParams.get("city");
+    const cityFilter: string | null =
+      cityParam === "sao-paulo" ? "São Paulo"
+        : cityParam === "salvador" ? "Salvador"
+          : cityParam === "florianopolis" ? "Florianópolis"
+            : cityParam === "outros" ? "Outros"
+              : null;
+
+    const admin = createSquadSupabaseAdmin();
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+    const startDate = `${monthKey}-01`;
+
+    const prevDate = new Date(year, month - 1, 1);
+    const prevKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+    const prevStart = `${prevKey}-01`;
+    const prevEnd = `${prevKey}-${new Date(prevDate.getFullYear(), prevDate.getMonth() + 1, 0).getDate()}`;
+
+    const cutoff90 = new Date(now);
+    cutoff90.setDate(cutoff90.getDate() - 90);
+    const cutoffDate = cutoff90.toISOString().substring(0, 10);
+
+    // MQL/SQL/OPP/WON direto de szs_deals (szs_daily_counts pode estar desatualizado)
+    // MQL = add_time no mês | SQL = qualificacao_date no mês | OPP = reuniao_date no mês | WON = won_time no mês
+    const currentDeals = await paginate((o, ps) =>
+      admin.from("szs_deals")
+        .select("canal, lost_reason, empreendimento, status, add_time, qualificacao_date, reuniao_date, won_time")
+        .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate},qualificacao_date.gte.${startDate},reuniao_date.gte.${startDate}`)
+        .range(o, o + ps - 1)
+    );
+
+    // Diagnostic: check szs_deals completeness
+    const { count: szsDealsTotal } = await admin
+      .from("szs_deals").select("*", { count: "exact", head: true });
+    console.log(`[szs-resultados] szs_deals: fetched=${currentDeals.length}, total=${szsDealsTotal}`);
+
+    const channelCounts: Record<string, Record<string, number>> = {};
+    for (const ch of CHANNEL_ORDER) channelCounts[ch] = {};
+
+    for (const d of currentDeals) {
+      if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
+      if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
+      const canalGroup = getCanalGroup(String(d.canal || ""));
+      const tabs = getChannelTabs(canalGroup);
+
+      if (d.add_time && d.add_time >= startDate) {
+        for (const tab of tabs) channelCounts[tab]["mql"] = (channelCounts[tab]["mql"] || 0) + 1;
+      }
+      if (d.qualificacao_date && d.qualificacao_date >= startDate) {
+        for (const tab of tabs) channelCounts[tab]["sql"] = (channelCounts[tab]["sql"] || 0) + 1;
+      }
+      if (d.reuniao_date && d.reuniao_date >= startDate) {
+        for (const tab of tabs) channelCounts[tab]["opp"] = (channelCounts[tab]["opp"] || 0) + 1;
+      }
+      if (d.status === "won" && d.won_time && d.won_time >= startDate) {
+        for (const tab of tabs) channelCounts[tab]["won"] = (channelCounts[tab]["won"] || 0) + 1;
+      }
+    }
+
+    // reserva/contrato ainda vêm de szs_daily_counts (não há campo de data equivalente em szs_deals)
+    const countsRows2 = await paginate((o, ps) =>
+      admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count")
+        .gte("date", startDate).in("tab", ["reserva", "contrato"]).range(o, o + ps - 1)
+    );
+    for (const r of countsRows2) {
+      if (cityFilter && getCidadeGroup(r.empreendimento || "") !== cityFilter) continue;
+      const tabs = getChannelTabs(r.canal_group || "Outros");
+      for (const tab of tabs) {
+        channelCounts[tab][r.tab] = (channelCounts[tab][r.tab] || 0) + (r.count || 0);
+      }
+    }
+
+    // Fallback for MQL/SQL/OPP from szs_daily_counts when szs_deals is suspiciously small
+    let usingFallback = false;
+    const SZ_DEALS_MIN = 15000;
+    if (szsDealsTotal && szsDealsTotal < SZ_DEALS_MIN) {
+      console.warn(`[szs-resultados] szs_deals incomplete (${szsDealsTotal} < ${SZ_DEALS_MIN}) — using szs_daily_counts fallback`);
+      usingFallback = true;
+      // Reset MQL/SQL/OPP before fallback — szs_deals is incomplete, don't double-count
+      for (const ch of CHANNEL_ORDER) {
+        channelCounts[ch]["mql"] = 0;
+        channelCounts[ch]["sql"] = 0;
+        channelCounts[ch]["opp"] = 0;
+      }
+      const fallbackCounts = await paginate((o, ps) =>
+        admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count")
+          .gte("date", startDate).in("tab", ["mql", "sql", "opp"]).range(o, o + ps - 1)
+      );
+      for (const r of fallbackCounts) {
+        if (cityFilter && getCidadeGroup(r.empreendimento || "") !== cityFilter) continue;
+        const tabs = getChannelTabs(r.canal_group || "Outros");
+        for (const tab of tabs) channelCounts[tab][r.tab] = (channelCounts[tab][r.tab] || 0) + (r.count || 0);
+      }
+    }
+
+    // Last month WON from szs_deals (more complete than daily_counts)
+    const prevWonRows = await paginate((o, ps) =>
+      admin.from("szs_deals").select("canal, lost_reason, empreendimento").eq("status", "won").gte("won_time", prevStart).lt("won_time", startDate).range(o, o + ps - 1)
+    );
+    const prevWon: Record<string, number> = {};
+    for (const ch of CHANNEL_ORDER) prevWon[ch] = 0;
+    for (const d of prevWonRows) {
+      if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
+      if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
+      const canalGroup = getCanalGroup(String(d.canal || ""));
+      const tabs = getChannelTabs(canalGroup);
+      for (const tab of tabs) prevWon[tab] = (prevWon[tab] || 0) + 1;
+    }
+
+    const metaRows = await paginate((o, ps) =>
+      admin.from("szs_meta_ads").select("ad_id, spend_month").gte("snapshot_date", startDate).range(o, o + ps - 1)
+    );
+    // Dedup: max spend_month per ad_id (multiple snapshots in the month)
+    const adSpend = new Map<string, number>();
+    for (const r of metaRows) {
+      const spend = Number(r.spend_month) || 0;
+      const cur = adSpend.get(r.ad_id) || 0;
+      if (spend > cur) adSpend.set(r.ad_id, spend);
+    }
+    let totalSpend = 0;
+    for (const v of adSpend.values()) totalSpend += v;
+
+    // Snapshots from pipedrive_daily_snapshot (pipeline 14)
+    const todayStr = now.toISOString().substring(0, 10);
+
+    const snapshots: Record<string, { agDados: number; contrato: number; agendado: number; totalOpen: number }> = {};
+    for (const ch of CHANNEL_ORDER) snapshots[ch] = { agDados: 0, contrato: 0, agendado: 0, totalOpen: 0 };
+
+    // Busca snapshot mais recente (não só de hoje — sync pode não ter rodado)
+    const { data: pdSnap } = await admin
+      .from("pipedrive_daily_snapshot")
+      .select("date, total_open, by_stage")
+      .eq("pipeline_id", 14)
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Snapshots de Ag.Dados e Contrato direto de szs_deals (sempre atualizado, filtrável por cidade e canal)
+    {
+      const snapDeals = await paginate((o, ps) =>
+        admin.from("szs_deals")
+          .select("stage_id, empreendimento, canal")
+          .eq("status", "open")
+          .in("stage_id", [152, 76])
+          .range(o, o + ps - 1),
+      );
+      console.log(`[szs-resultados] snapDeals (stage 152/76): ${snapDeals.length} deals, cityFilter=${cityFilter}`);
+      for (const d of snapDeals) {
+        if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
+        const canalGroup = getCanalGroup(d.canal || "");
+        const tabs = getChannelTabs(canalGroup);
+        for (const tab of tabs) {
+          if (d.stage_id === 152) snapshots[tab].agDados++;
+          if (d.stage_id === 76)  snapshots[tab].contrato++;
+        }
+      }
+    }
+    // Total open: pipedrive_daily_snapshot (mais confiável) > szs_open_snapshots > delta approach
+    if (pdSnap) {
+      snapshots.Geral.totalOpen = pdSnap.total_open || 0;
+      console.log(`[szs-resultados] Using pipedrive_daily_snapshot from ${pdSnap.date}: totalOpen=${pdSnap.total_open}`);
+    } else {
+      const snapRows = await paginate((o, ps) =>
+        admin.from("szs_open_snapshots").select("*").eq("date", todayStr).range(o, o + ps - 1)
+      );
+      if (snapRows.length > 0) {
+        for (const s of snapRows) {
+          snapshots.Geral.totalOpen += s.total_open || 0;
+        }
+        console.log(`[szs-resultados] Using szs_open_snapshots (today): totalOpen=${snapshots.Geral.totalOpen}`);
+      } else {
+        console.warn("[szs-resultados] No pipedrive_daily_snapshot or szs_open_snapshots — chart will show delta-computed total (may be inaccurate)");
+      }
+    }
+
+    // Build chart history from szs_deals (last 28 days) using delta/prefix-sum
+    const cutoff28 = new Date(now);
+    cutoff28.setDate(cutoff28.getDate() - 28);
+    const cutoff28Str = cutoff28.toISOString().substring(0, 10);
+
+    const histDeals = await paginate((o, ps) =>
+      admin
+        .from("szs_deals")
+        .select("canal, max_stage_order, stage_order, status, lost_reason, add_time, won_time, lost_time, empreendimento")
+        .or(`status.eq.open,won_time.gte.${cutoff28Str},lost_time.gte.${cutoff28Str}`)
+        .range(o, o + ps - 1),
+    );
+
+    // Build date array for last 28 days
+    const allHistDates: string[] = [];
+    for (let i = 28; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      allHistDates.push(d.toISOString().substring(0, 10));
+    }
+    const dateIndexMap = new Map<string, number>();
+    for (let i = 0; i < allHistDates.length; i++) dateIndexMap.set(allHistDates[i], i);
+    const histN = allHistDates.length;
+
+    // Stage thresholds for SZS
+    const HIST_STAGES_SZS = ["mql", "sql", "opp"] as const;
+    const HIST_STAGE_MIN_SZS: Record<string, number> = { mql: 1, sql: 4, opp: 9 };
+
+    // delta[channel][stage][dateIdx]
+    const histDelta: Record<string, Record<string, number[]>> = {};
+    for (const ch of CHANNEL_ORDER) {
+      histDelta[ch] = {};
+      for (const s of HIST_STAGES_SZS) histDelta[ch][s] = new Array(histN + 1).fill(0);
+      histDelta[ch]["total"] = new Array(histN + 1).fill(0);
+    }
+
+    for (const d of histDeals) {
+      if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
+      if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
+      const canalGroup = getCanalGroup(String(d.canal || ""));
+      const mso = d.max_stage_order || d.stage_order || 0;
+      const addDay = d.add_time?.substring(0, 10) || "";
+      const closeDay = d.status === "won" ? d.won_time?.substring(0, 10) : d.status === "lost" ? d.lost_time?.substring(0, 10) : null;
+
+      let addIdx = dateIndexMap.get(addDay) ?? (addDay < allHistDates[0] ? 0 : -1);
+      if (addIdx < 0) continue;
+
+      let closeIdx: number | null = null;
+      if (closeDay) {
+        const ci = dateIndexMap.get(closeDay);
+        if (ci !== undefined) closeIdx = ci;
+        else if (closeDay < allHistDates[0]) continue;
+      }
+
+      const targets = getChannelTabs(canalGroup);
+      for (const ch of targets) {
+        if (!histDelta[ch]) continue;
+        histDelta[ch]["total"][addIdx]++;
+        if (closeIdx !== null) histDelta[ch]["total"][closeIdx]--;
+        for (const s of HIST_STAGES_SZS) {
+          if (mso >= HIST_STAGE_MIN_SZS[s]) {
+            histDelta[ch][s][addIdx]++;
+            if (closeIdx !== null) histDelta[ch][s][closeIdx]--;
+          }
+        }
+      }
+    }
+
+    // Build cumulative per channel
+    const snapHistMap: Record<string, { date: string; total: number; openTotal: number; byStage: Record<string, number> }[]> = {};
+    for (const ch of CHANNEL_ORDER) {
+      const arr: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[] = [];
+      const cum: Record<string, number> = { total: 0 };
+      for (const s of HIST_STAGES_SZS) cum[s] = 0;
+      for (let i = 0; i < histN; i++) {
+        cum["total"] += histDelta[ch]["total"][i];
+        const byStage: Record<string, number> = {};
+        for (const s of HIST_STAGES_SZS) {
+          cum[s] += histDelta[ch][s][i];
+          byStage[s] = cum[s];
+        }
+        arr.push({ date: allHistDates[i], total: cum["total"], openTotal: cum["total"], byStage });
+      }
+      snapHistMap[ch] = arr;
+    }
+
+    // Override Geral's last chart data point with snapshot total_open
+    if (pdSnap && snapHistMap.Geral.length > 0) {
+      const last = snapHistMap.Geral[snapHistMap.Geral.length - 1];
+      last.total = snapshots.Geral.totalOpen;
+      last.openTotal = snapshots.Geral.totalOpen;
+    }
+
+    // Accumulated: deals that reached Ag.Dados (>=11) and Contrato (>=12) this month
+    // Count deals that were active in March (won/lost/open) and reached these stages
+    // 3 queries: open with mso>=11, won in March with mso>=11, lost in March with mso>=11
+    const [accumOpen, accumWon, accumLost] = await Promise.all([
+      paginate((o, ps) =>
+        admin.from("szs_deals").select("canal, max_stage_order, stage_order, lost_reason, empreendimento")
+          .eq("status", "open").range(o, o + ps - 1)
+      ),
+      paginate((o, ps) =>
+        admin.from("szs_deals").select("canal, max_stage_order, stage_order, lost_reason, empreendimento")
+          .eq("status", "won").gte("won_time", startDate).range(o, o + ps - 1)
+      ),
+      paginate((o, ps) =>
+        admin.from("szs_deals").select("canal, max_stage_order, stage_order, lost_reason, empreendimento")
+          .eq("status", "lost").gte("lost_time", startDate).range(o, o + ps - 1)
+      ),
+    ]);
+    const accumData: Record<string, { agDados: number; contrato: number }> = {};
+    for (const ch of CHANNEL_ORDER) accumData[ch] = { agDados: 0, contrato: 0 };
+    for (const d of [...accumOpen, ...accumWon, ...accumLost]) {
+      if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
+      if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
+      const mso = d.max_stage_order || d.stage_order || 0;
+      const canalGroup = getCanalGroup(String(d.canal || ""));
+      const tabs = getChannelTabs(canalGroup);
+      for (const tab of tabs) {
+        if (mso >= 11) accumData[tab].agDados++;
+        if (mso >= 12) accumData[tab].contrato++;
+      }
+    }
+
+    // Google Calendar: count meetings scheduled in next 7 days per closer
+    const today = now.toISOString().substring(0, 10);
+    const next7 = new Date(now);
+    next7.setDate(next7.getDate() + 6);
+    const next7Str = next7.toISOString().substring(0, 10);
+    const calendarRows = await paginate((o, ps) =>
+      admin.from("szs_calendar_events").select("closer_email, empreendimento").gte("dia", today).lte("dia", next7Str).eq("cancelou", false).range(o, o + ps - 1)
+    );
+    for (const ev of calendarRows) {
+      if (cityFilter && getCidadeGroup(ev.empreendimento || "") !== cityFilter) continue;
+      const tabs = CLOSER_EMAIL_CHANNEL[ev.closer_email] || [];
+      for (const tab of tabs) snapshots[tab].agendado++;
+    }
+
+    // No-show: cancelled meetings in last 7 days vs total
+    const past7 = new Date(now);
+    past7.setDate(past7.getDate() - 6);
+    const past7Str = past7.toISOString().substring(0, 10);
+    const noShowRows = await paginate((o, ps) =>
+      admin.from("szs_calendar_events").select("closer_email, cancelou, empreendimento").gte("dia", past7Str).lte("dia", today).range(o, o + ps - 1)
+    );
+    const noShowData: Record<string, { canceladas: number; total: number }> = {};
+    for (const ch of CHANNEL_ORDER) noShowData[ch] = { canceladas: 0, total: 0 };
+    for (const ev of noShowRows) {
+      if (cityFilter && getCidadeGroup(ev.empreendimento || "") !== cityFilter) continue;
+      const tabs = CLOSER_EMAIL_CHANNEL[ev.closer_email] || [];
+      for (const tab of tabs) {
+        noShowData[tab].total++;
+        if (ev.cancelou) noShowData[tab].canceladas++;
+      }
+    }
+
+
+    let metas = SZS_RESULTADOS_METAS[monthKey] || {};
+    if (cityFilter) {
+      const metaDateStr = `01/${String(month + 1).padStart(2, "0")}/${year}`;
+      const { data: nektRow } = await admin.from("nekt_meta26_metas").select("*").eq("data", metaDateStr).single();
+      if (nektRow) {
+        const totalMetas = getSquadMetasFromNekt(nektRow as Record<string, unknown>, null);
+        const cityMetas = getSquadMetasFromNekt(nektRow as Record<string, unknown>, cityFilter);
+        const totalWon = Object.values(totalMetas).reduce((s, v) => s + v, 0);
+        const cityWon = Object.values(cityMetas).reduce((s, v) => s + v, 0);
+        const ratio = totalWon > 0 ? cityWon / totalWon : 0;
+        const scaled: Record<string, ChannelMetas> = {};
+        for (const [ch, m] of Object.entries(metas)) {
+          scaled[ch] = {
+            orcamento: m.orcamento ? Math.round(m.orcamento * ratio) : undefined,
+            leads: m.leads ? Math.round(m.leads * ratio) : undefined,
+            mql: Math.round(m.mql * ratio), sql: Math.round(m.sql * ratio),
+            opp: Math.round(m.opp * ratio), won: Math.round(m.won * ratio),
+            agDados: m.agDados ? Math.round(m.agDados * ratio) : undefined,
+            contrato: m.contrato ? Math.round(m.contrato * ratio) : undefined,
+          };
+        }
+        metas = scaled;
+      }
+    }
+
+    const channels: ChannelResult[] = CHANNEL_ORDER.map((name) => {
+      const counts = channelCounts[name] || {};
+      const meta = metas[name] || { mql: 0, sql: 0, opp: 0, won: 0 };
+      const snap = snapshots[name];
+      const closers = CHANNEL_CLOSERS[name] || [];
+      const capacity = closers.length * MEETINGS_PER_DAY * WORK_DAYS_PER_WEEK;
+
+      const metrics: ChannelResult["metrics"] = {
+        mql: { real: counts.mql || 0, meta: meta.mql },
+        sql: { real: counts.sql || 0, meta: meta.sql },
+        opp: { real: counts.opp || 0, meta: meta.opp },
+        won: { real: counts.won || 0, meta: meta.won },
+      };
+      if (meta.orcamento != null) metrics.orcamento = { real: Math.round(totalSpend), meta: meta.orcamento };
+      if (meta.leads != null) metrics.leads = { real: counts.mql || 0, meta: meta.leads };
+
+      // Charts use delta-computed history from szs_deals
+      const dealsHistory = snapHistMap[name] || [];
+
+      return {
+        name,
+        filterDescription: CHANNEL_FILTERS[name],
+        metrics,
+        lastMonthWon: prevWon[name] || 0,
+        snapshots: name === "Geral"
+          ? {
+              aguardandoDados: snap.agDados,
+              emContrato: snap.contrato,
+              totalOpen: snap.totalOpen,
+              agDadosAccum: accumData[name].agDados,
+              contratoAccum: accumData[name].contrato,
+              agDadosMeta: meta.agDados,
+              contratoMeta: meta.contrato,
+            }
+          : { aguardandoDados: snap.agDados, emContrato: snap.contrato, totalOpen: snap.totalOpen },
+        ocupacaoAgenda: {
+          agendadas: snap.agendado,
+          capacidade: capacity,
+          percent: capacity > 0 ? Math.round((snap.agendado / capacity) * 1000) / 10 : 0,
+          closers,
+          meetingsPerDay: MEETINGS_PER_DAY,
+          workDays: WORK_DAYS_PER_WEEK,
+        },
+        noShow: {
+          canceladas: noShowData[name].canceladas,
+          total: noShowData[name].total,
+          percent: noShowData[name].total > 0 ? Math.round((noShowData[name].canceladas / noShowData[name].total) * 1000) / 10 : 0,
+        },
+        dealsHistory,
+      };
+    });
+
+    const body: ResultadosSZSData = { month: monthKey, channels };
+    return NextResponse.json(body);
+  } catch (err: unknown) {
+    console.error("[szs/resultados]", err);
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
+}
