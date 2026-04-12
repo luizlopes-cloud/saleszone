@@ -9,6 +9,11 @@ import { getMktpCanalName } from "@/lib/mktp-utils";
 
 export const dynamic = "force-dynamic";
 
+function ratio(n: number, d: number): number {
+  if (d < 5) return 0; // minimum 5 deals for meaningful conversion
+  return d > 0 ? Math.round((n / d) * 100) / 100 : 0;
+}
+
 export async function GET(req: NextRequest) {
   const days = parseInt(req.nextUrl.searchParams.get("days") || "90");
   const filterParam = req.nextUrl.searchParams.get("filter");
@@ -60,9 +65,9 @@ export async function GET(req: NextRequest) {
       history.push({
         date: d, squad_id: 0,
         ratios: {
-          mql_sql: mql > 0 ? Math.round((sql / mql) * 100) / 100 : 0,
-          sql_opp: sql > 0 ? Math.round((opp / sql) * 100) / 100 : 0,
-          opp_won: opp > 0 ? Math.round((won / opp) * 100) / 100 : 0,
+          mql_sql: ratio(sql, mql),
+          sql_opp: ratio(opp, sql),
+          opp_won: ratio(won, opp),
         },
         counts_90d: { mql, sql, opp, won },
       });
@@ -118,9 +123,9 @@ export async function GET(req: NextRequest) {
       const totWon = Object.values(empDaily).reduce((s, byDate) =>
         s + Object.values(byDate).reduce((s2, c) => s2 + (c.won || 0), 0), 0);
       globalCurrent.ratios = {
-        mql_sql: totMql > 0 ? Math.round((totSql / totMql) * 100) / 100 : 0,
-        sql_opp: totSql > 0 ? Math.round((totOpp / totSql) * 100) / 100 : 0,
-        opp_won: totOpp > 0 ? Math.round((totWon / totOpp) * 100) / 100 : 0,
+        mql_sql: ratio(totSql, totMql),
+        sql_opp: ratio(totOpp, totSql),
+        opp_won: ratio(totWon, totOpp),
       };
       globalCurrent.counts_90d = { mql: totMql, sql: totSql, opp: totOpp, won: totWon };
     }
