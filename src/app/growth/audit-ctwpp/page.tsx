@@ -448,8 +448,6 @@ export default function AuditCTWPPPage() {
   const [data, setData]       = useState<AuditCTWPPDay | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState("")
-  const [running, setRunning] = useState(false)
-
   async function fetchData(d: string) {
     setLoading(true); setError(""); setData(null)
     try {
@@ -459,29 +457,6 @@ export default function AuditCTWPPPage() {
       else                   setData(await res.json())
     } catch { setError("Erro de rede.") }
     finally { setLoading(false) }
-  }
-
-  async function triggerRun(mode: "daily" | "all_open") {
-    const cron = prompt("CRON_SECRET:")
-    if (!cron) return
-    setRunning(true)
-    try {
-      const body = mode === "all_open"
-        ? { mode: "all_open" }
-        : { date }
-      const r = await fetch("/api/growth/audit-ctwpp/run", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${cron}` },
-        body: JSON.stringify(body),
-      })
-      if (r.ok) {
-        const today = todayKey()
-        if (mode === "all_open") { setDate(today); await fetchData(today) }
-        else                     { await fetchData(date) }
-      } else {
-        alert("Erro: " + (await r.text()))
-      }
-    } finally { setRunning(false) }
   }
 
   useEffect(() => { fetchData(date) }, [date])
@@ -528,18 +503,8 @@ export default function AuditCTWPPPage() {
       <div style={{ maxWidth: 1100, margin: "0 auto", padding: "24px" }}>
         {tab === "sobre" ? <SobreTab /> : (
           <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 10 }}>
+            <div style={{ marginBottom: 20 }}>
               <DatePicker value={date} onChange={d => { setDate(d); setTab("leads") }} />
-              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                <button onClick={() => triggerRun("all_open")} disabled={running}
-                  style={{ fontSize: 12, fontWeight: 600, padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.primary}`, background: T.primary + "10", color: T.primary, cursor: "pointer" }}>
-                  {running ? "Rodando..." : "Rodar para todos abertos (19)"}
-                </button>
-                <button onClick={() => triggerRun("daily")} disabled={running}
-                  style={{ fontSize: 12, padding: "6px 14px", borderRadius: 6, border: `1px solid ${T.border}`, background: "none", color: T.mutedFg, cursor: "pointer" }}>
-                  Rodar para {fmtLabel(date)}
-                </button>
-              </div>
             </div>
             <LeadsTable data={data} loading={loading} error={error} />
           </>
