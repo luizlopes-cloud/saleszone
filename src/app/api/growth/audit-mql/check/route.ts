@@ -99,6 +99,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ force_fora_sla: { date, affected, total: affected.length }, dry, ts: new Date().toISOString() })
   }
 
+  // POST com { cleanup_historical: true, dates: [...] } — remove leads com created_at fora do dia do blob
+  // Resolve lixo adicionado pelo recovery quando o filtro de data da Meta API falha
+  if (body.cleanup_historical) {
+    const dates: string[] = body.dates || [today]
+    const dry = body.dry === true
+    const results: Record<string, { before: number; after: number; removed: number }> = {}
+    for (const d of dates) {
+      const leads = await readLeads(d)
+      const dayStart = new Date(`${d}T03:00:00Z`).getTime()
+      const dayEnd   = dayStart + 24 * 60 * 60 * 1000
+      const clean = leads.filter(l => {
+        const t = new Date(l.created_at).getTime()
+        return t >= dayStart && t < dayEnd
+      })
+      const removed = leads.length - clean.length
+      if (!dry && removed > 0) await writeLeads(d, clean)
+      results[d] = { before: leads.length, after: clean.length, removed }
+    }
+    return NextResponse.json({ cleanup_historical: results, dry, ts: new Date().toISOString() })
+  }
+
   // POST com { recheck_sla: true } re-avalia SLA de todos os leads retroativamente
   // Adicionar { dry: true } para preview sem gravar
   if (body.recheck_sla) {

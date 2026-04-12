@@ -140,6 +140,13 @@ async function recoverDate(targetDate: string, pageTokens: Map<string, string>) 
       try { metaLeads = await getLeadsForForm(form.id, minUnix, maxUnix, pageToken) } catch { continue }
 
       for (const ml of metaLeads) {
+        // Rejeita leads com mais de 48h — captura lixo histórico quando o filtro
+        // de data da Meta API falha, sem perder leads legítimos da fronteira de dia
+        if (ml.created_time) {
+          const age = Date.now() - new Date(ml.created_time).getTime()
+          if (age > 48 * 60 * 60 * 1000) { skipped++; continue }
+        }
+
         const blobLead = existingMap.get(ml.leadgen_id)
 
         if (blobLead) {
