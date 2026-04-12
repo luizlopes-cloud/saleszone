@@ -307,15 +307,15 @@ function LeadsTable({ data, loading, error }: { data: AuditCTWPPDay | null; load
   const filtered    = showAll ? leads : leads.filter(l => l.tem_problema)
   const comProblema = leads.filter(l => l.tem_problema).length
 
-  const tempCounts = leads.reduce((acc, l) => { acc[l.temperatura] = (acc[l.temperatura] || 0) + 1; return acc }, {} as Record<string, number>)
+  const tempCounts = filtered.reduce((acc, l) => { acc[l.temperatura] = (acc[l.temperatura] || 0) + 1; return acc }, {} as Record<string, number>)
 
   return (
     <>
       {data && (
         <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
           {[
-            { label: "Total analisados", value: data.total_leads,           color: T.fg       },
-            { label: "Com problema",     value: comProblema,                color: T.destructive },
+            { label: "Total analisados", value: showAll ? data.total_leads : comProblema, color: T.fg       },
+            ...(showAll ? [{ label: "Com problema", value: comProblema, color: T.destructive }] : []),
             { label: "🔥 Quentes",       value: tempCounts["Quente"] || 0,  color: T.destructive },
             { label: "🌡️ Mornos",        value: tempCounts["Morno"]  || 0,  color: "#D97706"  },
             { label: "❄️ Frios",         value: tempCounts["Frio"]   || 0,  color: "#2563EB"  },
