@@ -12,7 +12,8 @@ const V_COLS = mc.closers;
 export const dynamic = "force-dynamic";
 
 function rate(n: number, d: number): number {
-  return d > 0 ? Math.round((n / d) * 1000) / 10 : 0;
+  if (d < 5) return 0; // minimum 5 deals for meaningful conversion
+  return Math.round((n / d) * 1000) / 10;
 }
 
 function norm(s: string): string {
