@@ -55,7 +55,7 @@ export async function queryNekt(sql: string): Promise<NektQueryResult> {
 
   // Baixa todos os chunks em paralelo
   const csvChunks = await Promise.all(urls.map(async (url) => {
-    const res = await fetch(url)
+    const res = await fetch(url, { cache: "no-store" })
     if (!res.ok) throw new Error(`Falha ao baixar CSV: ${res.status}`)
     return res.text()
   }))
