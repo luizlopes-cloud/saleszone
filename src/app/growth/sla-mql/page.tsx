@@ -394,6 +394,9 @@ export default function SlaPage() {
   // Adição de opção inline
   const [addingOption, setAddingOption] = useState<{ field: keyof Draft; value: string } | null>(null)
 
+  // Agenda dos closers (próximos 2 dias úteis)
+  const [agenda, setAgenda] = useState<{ date: string; label: string; avg: number }[]>([])
+
   // Carrega do localStorage na montagem + dados da API + usuário logado
   useEffect(() => {
     // Renderiza imediatamente com cache local
@@ -422,6 +425,30 @@ export default function SlaPage() {
       }
     }
     fetchAll()
+
+    // Agenda dos closers — próximos 2 dias úteis
+    fetch("/api/dashboard/ociosidade")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.closers?.length) return
+        const closers = data.closers as Array<{ days: Array<{ date: string; occupancyPct: number }> }>
+        const next2: string[] = []
+        const cur = new Date()
+        cur.setDate(cur.getDate() + 1)
+        while (next2.length < 2) {
+          const day = cur.getDay()
+          if (day !== 0 && day !== 6) next2.push(cur.toISOString().slice(0, 10))
+          cur.setDate(cur.getDate() + 1)
+        }
+        const DAYS_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+        setAgenda(next2.map(date => {
+          const pcts = closers.map(c => c.days.find(d => d.date === date)?.occupancyPct ?? 0)
+          const avg = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0
+          const d = new Date(date + "T12:00:00")
+          return { date, label: `${DAYS_PT[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`, avg }
+        }))
+      })
+      .catch(() => {})
 
     // Usuário logado
     const supabase = createClient()
@@ -1074,6 +1101,39 @@ export default function SlaPage() {
 
         {/* ── Aba: Critérios ─────────────────────────────────────────────────── */}
         {pageTab === "criterios" && (<>
+
+        {/* Painel agenda closers */}
+        {agenda.length > 0 && (() => {
+          const avgGeral = Math.round(agenda.reduce((a, b) => a + b.avg, 0) / agenda.length)
+          const cor   = avgGeral >= 70 ? "#E7000B" : avgGeral >= 40 ? "#D97706" : "#5EA500"
+          const bgCor = avgGeral >= 70 ? "#FFF1F0" : avgGeral >= 40 ? "#FFFBEB" : "#F0FDF4"
+          const rec   = avgGeral >= 70
+            ? "Agenda cheia — suba a régua e seja mais criterioso"
+            : avgGeral >= 40
+            ? "Agenda moderada — mantenha os critérios atuais"
+            : "Agenda livre — desça a régua e aceite mais leads"
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, padding: "12px 16px", borderRadius: 10, background: bgCor, border: `1px solid ${cor}30`, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: cor, whiteSpace: "nowrap", fontFamily: T.font }}>
+                Agenda closers
+              </div>
+              {agenda.map(({ label, avg }) => {
+                const c = avg >= 70 ? "#E7000B" : avg >= 40 ? "#D97706" : "#5EA500"
+                const bg = avg >= 70 ? "#FFF1F0" : avg >= 40 ? "#FFFBEB" : "#F0FDF4"
+                return (
+                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 12px" }}>
+                    <span style={{ fontSize: 12, color: T.mutedFg, fontFamily: T.font }}>{label}</span>
+                    <div style={{ width: 60, height: 6, borderRadius: 3, background: T.border, overflow: "hidden" }}>
+                      <div style={{ width: `${Math.min(avg, 100)}%`, height: "100%", background: c, borderRadius: 3, transition: "width 0.4s" }} />
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: c, fontFamily: T.font, minWidth: 34 }}>{avg}%</span>
+                  </div>
+                )
+              })}
+              <span style={{ fontSize: 12, color: cor, fontWeight: 500, fontFamily: T.font }}>{rec}</span>
+            </div>
+          )
+        })()}
 
         {/* Vertical tabs */}
         <div style={{
