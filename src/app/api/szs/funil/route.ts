@@ -92,9 +92,7 @@ export async function GET(req: NextRequest) {
     const mesFim = `${yearStr}-${String(Number(monthStr) + 1).padStart(2, "0")}-01`;
     const admin = createSquadSupabaseAdmin();
 
-    const [countsData, stageData, allDealsRes, paidDealsRes, baserowLeadsRes] = await Promise.all([
-      fetchAll(supabase.from("szs_daily_counts").select("tab, canal_group, count").in("tab", ["mql", "sql", "opp", "won"]).gte("date", startDate)),
-      fetchAll(supabase.from("szs_daily_counts").select("tab, canal_group, count").in("tab", ["reserva", "contrato"])),
+    const [allDealsRes, paidDealsRes, baserowLeadsRes] = await Promise.all([
       // All deals for bridge cidade→canal (no canal filter for complete attribution)
       fetchAll(admin.from("szs_deals").select("empreendimento, canal_group, max_stage_order, status, lost_reason").gte("add_time", startDate)),
       // Paid deals (canal=12, paid source) for funnel metrics
@@ -102,6 +100,36 @@ export async function GET(req: NextRequest) {
       // All form fills from baserow (leads, not qualified)
       fetchAll(admin.from("baserow_szs_leads").select("cidade").gte("data_criacao_ads", startDate).lt("data_criacao_ads", mesFim)),
     ]);
+
+    // Count MQL/SQL/OPP/WON from szs_deals directly (not szs_daily_counts — avoids aggregation gap)
+    const mqlDeals = fetchAll(admin.from("szs_deals").select("canal_group, lost_reason").gte("add_time", startDate));
+    const sqlDeals = fetchAll(admin.from("szs_deals").select("canal_group, lost_reason").gte("qualificacao_date", startDate));
+    const oppDeals = fetchAll(admin.from("szs_deals").select("canal_group, lost_reason").gte("reuniao_date", startDate));
+    const wonDeals = fetchAll(admin.from("szs_deals").select("canal_group, lost_reason").gte("won_time", startDate));
+    const [mqlDealsRes, sqlDealsRes, oppDealsRes, wonDealsRes] = await Promise.all([mqlDeals, sqlDeals, oppDeals, wonDeals]);
+
+    // Reserva/Contrato: deals with max_stage_order >= 13/14 (accumulated from szs_deals)
+    const allClosedDeals = allDealsRes.filter(d => d.status === "won" || d.status === "lost");
+
+    // Build counts by canal_group from szs_deals
+    const countsByCanal = new Map<string, { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number }>();
+    function addToCanal(canal: string, mql = 0, sql = 0, opp = 0, won = 0, reserva = 0, contrato = 0) {
+      const g = canal || "Outros";
+      if (!countsByCanal.has(g)) countsByCanal.set(g, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
+      const c = countsByCanal.get(g)!;
+      c.mql += mql; c.sql += sql; c.opp += opp; c.won += won; c.reserva += reserva; c.contrato += contrato;
+    }
+    for (const d of mqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(d.canal_group, 1, 0, 0, 0, 0, 0); }
+    for (const d of sqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(d.canal_group, 0, 1, 0, 0, 0, 0); }
+    for (const d of oppDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(d.canal_group, 0, 0, 1, 0, 0, 0); }
+    for (const d of wonDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(d.canal_group, 0, 0, 0, 1, 0, 0); }
+    // Reserva/contrato counts use allDealsRes (has max_stage_order)
+    for (const d of allClosedDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const mso = d.max_stage_order || 0;
+      if (mso >= 13) addToCanal(d.canal_group, 0, 0, 0, 0, 1, 0);
+      if (mso >= 14) addToCanal(d.canal_group, 0, 0, 0, 0, 0, 1);
+    }
 
     // Bridge: primary canal per cidade (canal with most qualified deals from that cidade)
     const cidadeCanalCount = new Map<string, Map<string, number>>();
@@ -131,14 +159,12 @@ export async function GET(req: NextRequest) {
       leadsPerCanal.set(canal, (leadsPerCanal.get(canal) || 0) + 1);
     }
 
-    // Build counts by squadId|canalGroup
-    const squadCanalCounts = new Map<string, Record<string, number>>();
-    for (const row of [...countsData, ...stageData]) {
-      const canalGroup = row.canal_group || "Outros";
+    // Build counts by squadId|canalGroup from countsByCanal
+    const squadCanalCounts = new Map<string, { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number }>();
+    for (const [canalGroup, counts] of countsByCanal.entries()) {
       const squadId = CANAL_TO_SQUAD[canalGroup] ?? 3;
       const gKey = `${squadId}|${canalGroup}`;
-      if (!squadCanalCounts.has(gKey)) squadCanalCounts.set(gKey, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      squadCanalCounts.get(gKey)![row.tab] = (squadCanalCounts.get(gKey)![row.tab] || 0) + (row.count || 0);
+      squadCanalCounts.set(gKey, counts);
     }
 
     // Paid deals by canal
@@ -156,7 +182,7 @@ export async function GET(req: NextRequest) {
 
     // Build squads from mc.squads (3 squads: Marketing, Parceiros, Expansão)
     const squads: FunilSquad[] = mc.squads.map((sq) => {
-      const canalEntries: Array<{ canal: string; counts: Record<string, number> }> = [];
+      const canalEntries: Array<{ canal: string; counts: { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number } }> = [];
       for (const [gKey, counts] of squadCanalCounts.entries()) {
         if (!gKey.startsWith(`${sq.id}|`)) continue;
         canalEntries.push({ canal: gKey.split("|")[1], counts });
