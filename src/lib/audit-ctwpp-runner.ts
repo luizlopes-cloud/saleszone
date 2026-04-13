@@ -291,12 +291,6 @@ export async function runAuditCTWPP(
   const fieldKey = process.env.PIPEDRIVE_MORADA_FIELD_KEY || ""
   const blobKey  = options.mode === "daily" ? options.date : dateKeyBRT()
 
-  // Se já rodou (só pula cache no modo all_open quando forçado)
-  if (options.mode === "daily") {
-    const cached = await readAuditCTWPP(blobKey)
-    if (cached) return { ok: true, cached: true, date: blobKey, total: cached.total_leads }
-  }
-
   let leads: Awaited<ReturnType<typeof fetchCTWPPLeads>>
   try {
     leads = await fetchCTWPPLeads(fieldKey, options)
