@@ -62,9 +62,12 @@ capture_*.mjs
 
 # Supabase staging
 supabase_staging_ref.txt
+supabase_staging_api_key.txt
+supabase_staging_password.txt
 .supabase_staging_keys.env
 .supabase_staging_keys.txt
 .supabase_staging_password.txt
+.supabase_staging_uri.txt
 .supabase_prod_uri.txt
 supabase_dump_*.sql
 supabase_dump_*.backup

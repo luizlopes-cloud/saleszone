@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { createSquadSupabaseAdmin, hasServiceRole } from "@/lib/squad/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { createClient } from "@supabase/supabase-js";
 import { SQUADS, EXTRA_EMPREENDIMENTOS } from "@/lib/constants";
 import { paginate } from "@/lib/paginate";
@@ -107,20 +107,22 @@ export async function GET(req: NextRequest) {
       : `${yearStr}-${String(mesNum + 1).padStart(2, "0")}-01`;
 
     // Queries paralelas
+    // NOTA: todas queries usam admin (cncistmevwwghtaiao), NAO supabase (iobxudcyihqfdwiggohz).
+    // squad_daily_counts/squad_meta_ads existem nas duas projects mas com dados diferentes.
     const [metaRes, countsRes, stageSnapshotRes, dealsRes, baserowLeadsRes, paidLeadsDeals, paidSqlDeals, paidOppDeals, paidWonDeals, metasRes, allLeadsDeals, allSqlDeals, allOppDeals, allWonDeals] = await Promise.all([
       // Meta Ads — spend_month/leads_month
-      supabase
+      admin
         .from("squad_meta_ads")
         .select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month")
         .gte("snapshot_date", startDate),
       // MQL/SQL/OPP/WON do mês (eventos acumulados)
-      supabase
+      admin
         .from("squad_daily_counts")
         .select("tab, empreendimento, count")
         .in("tab", ["mql", "sql", "opp", "won"])
         .gte("date", startDate),
       // Reserva/Contrato snapshot (sem filtro de data — estado atual dos stages)
-      supabase
+      admin
         .from("squad_daily_counts")
         .select("tab, empreendimento, count")
         .in("tab", ["reserva", "contrato"]),
@@ -184,7 +186,7 @@ export async function GET(req: NextRequest) {
           .range(o, o + ps - 1),
       ),
       // Metas do mês (squad_metas table)
-      supabase
+      admin
         .from("squad_metas")
         .select("squad_id, tab, meta")
         .eq("month", `${month}-01`),
@@ -341,6 +343,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Agregar deals por etapa — modo "Todos" (cada etapa usa sua data específica)
+    // CUIDADO: nao filtrar lost_reason para MQL/SQL/OPP/WON — sao counts absolutos (nem Nekt filtra).
+    // supabase-js `.neq()` exclui NULLs (bug classico), mas Nekt nao exclui NULLs.
+    // Deals com lost_reason=NULL sao validos e devem ser contados.
     const allLeadsMap = new Map<string, number>();
     const allMqlMap = new Map<string, number>();
     const allSqlMap = new Map<string, number>();
@@ -371,6 +376,7 @@ export async function GET(req: NextRequest) {
         }
       }
     }
+    // SQL/OPP/WON: contar TODOS (incluindo NULL lost_reason) — nao filtrar lost_reason aqui
     for (const d of allSqlDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const key = d.empreendimento || "__sem_emp__";
@@ -409,8 +415,8 @@ export async function GET(req: NextRequest) {
           reserva = paidReservaMap.get(emp) || 0;
           contrato = paidContratoMap.get(emp) || 0;
           eventos = ev;
-        } else if (hasServiceRole()) {
-          // Todos: cada etapa pela data correta de squad_deals (requer service role)
+        } else {
+          // Todos: cada etapa pela data correta de squad_deals (via admin client — dados synced de Nekt)
           leads = allLeadsMap.get(emp) || 0;
           mql = allMqlMap.get(emp) || 0;
           sql = allSqlMap.get(emp) || 0;
@@ -418,17 +424,6 @@ export async function GET(req: NextRequest) {
           won = allWonMap.get(emp) || 0;
           reserva = allReservaMap.get(emp) || 0;
           contrato = allContratoMap.get(emp) || 0;
-          eventos = ev;
-        } else {
-          // Fallback sem service role: squad_daily_counts + baserow/meta ads
-          const baserowLeads = baserowLeadsMap.get(emp) || 0;
-          leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, counts.mql);
-          mql = counts.mql;
-          sql = counts.sql;
-          opp = counts.opp;
-          won = counts.won;
-          reserva = snapshot.reserva;
-          contrato = snapshot.contrato;
           eventos = ev;
         }
 
@@ -476,14 +471,13 @@ export async function GET(req: NextRequest) {
           wonEvento: Math.round(ev.wonEvento * ratio),
         };
       } else {
-        const baserowLeads = baserowLeadsMap.get(emp) || 0;
-        leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, counts.mql);
-        mql = counts.mql;
-        sql = counts.sql;
-        opp = counts.opp;
-        won = counts.won;
-        reserva = snapshot.reserva;
-        contrato = snapshot.contrato;
+        leads = allLeadsMap.get(emp) || 0;
+        mql = allMqlMap.get(emp) || 0;
+        sql = allSqlMap.get(emp) || 0;
+        opp = allOppMap.get(emp) || 0;
+        won = allWonMap.get(emp) || 0;
+        reserva = allReservaMap.get(emp) || 0;
+        contrato = allContratoMap.get(emp) || 0;
         eventos = ev;
       }
 
@@ -493,9 +487,8 @@ export async function GET(req: NextRequest) {
     const allEmps = [...squads.flatMap((sq) => sq.empreendimentos), ...extraRows];
     const grand = sumFunil(allEmps, "Total");
 
-    // Sobrescrever grand com totais reais de squad_deals (só quando service role disponível)
-    if (hasServiceRole()) {
-      const maps = paidOnly
+    // Sobrescrever grand com totais reais de squad_deals (inclui __sem_emp__)
+    const maps = paidOnly
         ? { leads: paidLeadsMap, mql: paidMqlMap, sql: paidSqlMap, opp: paidOppMap, won: paidWonMap, reserva: paidReservaMap, contrato: paidContratoMap }
         : { leads: allLeadsMap, mql: allMqlMap, sql: allSqlMap, opp: allOppMap, won: allWonMap, reserva: allReservaMap, contrato: allContratoMap };
       for (const key of ["leads", "mql", "sql", "opp", "won", "reserva", "contrato"] as const) {
@@ -503,7 +496,6 @@ export async function GET(req: NextRequest) {
         for (const [, v] of maps[key]) total += v;
         (grand as unknown as Record<string, number>)[key] = total;
       }
-    }
 
     // Build metas object from nekt_meta26_metas (service role - RLS blocks anon)
     const metasObj: Record<string, Record<string, number>> = { "Squad 1": {}, "Squad 2": {} };
