@@ -116,8 +116,8 @@ export async function GET(request: Request) {
       fetchPresalesRows(cutoff),
     ]);
 
-    // SZS: don't filter by !empreendimento — SZS deals have null empreendimento by design
     const allDeals = allDealsRows.filter((d) => {
+      if (!d.empreendimento) return false;
       if (d.lost_reason === "Duplicado/Erro") return false;
       return true;
     });

@@ -14,7 +14,6 @@ const MONTH_LABELS = [
 ];
 
 function pct(num: number, den: number): number {
-  if (den < 5) return 0; // minimum 5 deals for meaningful conversion
   return den > 0 ? Math.round((num / den) * 10000) / 100 : 0;
 }
 

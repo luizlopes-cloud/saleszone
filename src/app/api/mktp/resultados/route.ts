@@ -383,10 +383,11 @@ export async function GET() {
       cumulativeHist[ch] = arr;
     }
 
-    // DON'T override with snapshot — use the live mktp_deals computed total (dealsHistory).
-    // The snapshot total_open from pipedrive_daily_snapshot may be stale
-    // (e.g. 414 from before a sync run), causing the chart to show wrong numbers
-    // vs what Pipedrive shows live. The delta-based history is authoritative.
+    // Override Funil Completo's last chart data point with snapshot total_open
+    if (pdSnap && cumulativeHist["Funil Completo"].length > 0) {
+      const last = cumulativeHist["Funil Completo"][cumulativeHist["Funil Completo"].length - 1];
+      last.total = snapshots["Funil Completo"].totalOpen;
+    }
 
     /* ── 7. Build metas per channel ──────────────────────────── */
     // Use mktp_metas if available, otherwise fallback to hardcoded

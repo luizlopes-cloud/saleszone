@@ -230,8 +230,7 @@ function TempoRespostaContent({
       setLoading(true)
       setError(null)
       try {
-        const apiBase = pipelineSlug === "mktp" ? "/api/mktp" : pipelineSlug === "szs" ? "/api/szs" : "/api/dashboard";
-        const res = await fetch(`${apiBase}/presales?pipeline=${pipelineSlug}&dateFrom=${dateFrom}&dateTo=${dateTo}`)
+        const res = await fetch(`/api/dashboard/presales?pipeline=${pipelineSlug}&dateFrom=${dateFrom}&dateTo=${dateTo}`)
         if (!res.ok) throw new Error(`Erro ${res.status}`)
         setData(await res.json())
       } catch (err) {
