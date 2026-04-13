@@ -67,17 +67,35 @@ async function fetchAll(query: any): Promise<any[]> {
   return all;
 }
 
-// canal → squad mapping (matches szs_daily_counts.canal_group values)
-const CANAL_TO_SQUAD: Record<string, number> = {
+// canal (numeric) → squad ID mapping (from szs_deals.canal column)
+const CANAL_NUM_TO_SQUAD: Record<string, number> = {
+  "12": 1,   // Marketing
+  "582": 2,  // Ind. Corretor
+  "583": 2,  // Ind. Franquia
+  "1748": 3, // Expansão
+  "3189": 3, // Spots
+  "4551": 3, // Monica
+};
+// canal (numeric) → canal_group label for display
+const CANAL_NUM_TO_GROUP: Record<string, string> = {
+  "12": "Marketing",
+  "582": "Ind. Corretor",
+  "583": "Ind. Franquia",
+  "1748": "Expansão",
+  "3189": "Spots",
+  "4551": "Monica",
+};
+// canal_group label → squad ID (countsByCanal is keyed by translated label)
+const CANAL_GROUP_TO_SQUAD: Record<string, number> = {
   Marketing: 1,
-  "Ind. Franquia": 2,
   "Ind. Corretor": 2,
-  "Ind. Outros Parceiros": 2,
+  "Ind. Franquia": 2,
   Expansão: 3,
   Spots: 3,
+  Monica: 3,
   Outros: 3,
-  Mônica: 3,
 };
+const DEFAULT_GROUP = "Outros";
 
 export async function GET(req: NextRequest) {
   try {
@@ -94,18 +112,18 @@ export async function GET(req: NextRequest) {
 
     const [allDealsRes, paidDealsRes, baserowLeadsRes] = await Promise.all([
       // All deals for bridge cidade→canal (no canal filter for complete attribution)
-      fetchAll(admin.from("szs_deals").select("empreendimento, canal_group, max_stage_order, status, lost_reason").gte("add_time", startDate)),
+      fetchAll(admin.from("szs_deals").select("empreendimento, canal, max_stage_order, status, lost_reason").gte("add_time", startDate)),
       // Paid deals (canal=12, paid source) for funnel metrics
-      fetchAll(admin.from("szs_deals").select("canal, canal_group, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").gte("add_time", startDate)),
+      fetchAll(admin.from("szs_deals").select("canal, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").gte("add_time", startDate)),
       // All form fills from baserow (leads, not qualified)
       fetchAll(admin.from("baserow_szs_leads").select("cidade").gte("data_criacao_ads", startDate).lt("data_criacao_ads", mesFim)),
     ]);
 
     // Count MQL/SQL/OPP/WON from szs_deals directly (not szs_daily_counts — avoids aggregation gap)
-    const mqlDeals = fetchAll(admin.from("szs_deals").select("canal_group, lost_reason").gte("add_time", startDate));
-    const sqlDeals = fetchAll(admin.from("szs_deals").select("canal_group, lost_reason").gte("qualificacao_date", startDate));
-    const oppDeals = fetchAll(admin.from("szs_deals").select("canal_group, lost_reason").gte("reuniao_date", startDate));
-    const wonDeals = fetchAll(admin.from("szs_deals").select("canal_group, lost_reason").gte("won_time", startDate));
+    const mqlDeals = fetchAll(admin.from("szs_deals").select("canal, lost_reason").gte("add_time", startDate));
+    const sqlDeals = fetchAll(admin.from("szs_deals").select("canal, lost_reason").gte("qualificacao_date", startDate));
+    const oppDeals = fetchAll(admin.from("szs_deals").select("canal, lost_reason").gte("reuniao_date", startDate));
+    const wonDeals = fetchAll(admin.from("szs_deals").select("canal, lost_reason").gte("won_time", startDate));
     const [mqlDealsRes, sqlDealsRes, oppDealsRes, wonDealsRes] = await Promise.all([mqlDeals, sqlDeals, oppDeals, wonDeals]);
 
     // Reserva/Contrato: deals with max_stage_order >= 13/14 (accumulated from szs_deals)
@@ -114,21 +132,21 @@ export async function GET(req: NextRequest) {
     // Build counts by canal_group from szs_deals
     const countsByCanal = new Map<string, { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number }>();
     function addToCanal(canal: string, mql = 0, sql = 0, opp = 0, won = 0, reserva = 0, contrato = 0) {
-      const g = canal || "Outros";
+      const g = canal || DEFAULT_GROUP;
       if (!countsByCanal.has(g)) countsByCanal.set(g, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
       const c = countsByCanal.get(g)!;
       c.mql += mql; c.sql += sql; c.opp += opp; c.won += won; c.reserva += reserva; c.contrato += contrato;
     }
-    for (const d of mqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(d.canal_group, 1, 0, 0, 0, 0, 0); }
-    for (const d of sqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(d.canal_group, 0, 1, 0, 0, 0, 0); }
-    for (const d of oppDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(d.canal_group, 0, 0, 1, 0, 0, 0); }
-    for (const d of wonDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(d.canal_group, 0, 0, 0, 1, 0, 0); }
+    for (const d of mqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 1, 0, 0, 0, 0, 0); }
+    for (const d of sqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 1, 0, 0, 0, 0); }
+    for (const d of oppDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 0, 1, 0, 0, 0); }
+    for (const d of wonDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 0, 0, 1, 0, 0); }
     // Reserva/contrato counts use allDealsRes (has max_stage_order)
     for (const d of allClosedDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const mso = d.max_stage_order || 0;
-      if (mso >= 13) addToCanal(d.canal_group, 0, 0, 0, 0, 1, 0);
-      if (mso >= 14) addToCanal(d.canal_group, 0, 0, 0, 0, 0, 1);
+      if (mso >= 13) addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 0, 0, 0, 1, 0);
+      if (mso >= 14) addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 0, 0, 0, 0, 1);
     }
 
     // Bridge: primary canal per cidade (canal with most qualified deals from that cidade)
@@ -137,12 +155,12 @@ export async function GET(req: NextRequest) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const cidade = getCidadeGroup(d.empreendimento);
       if (!cidadeCanalCount.has(cidade)) cidadeCanalCount.set(cidade, new Map());
-      const canalGroup = d.canal_group || "Outros";
+      const canalGroup = CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP;
       cidadeCanalCount.get(cidade)!.set(canalGroup, (cidadeCanalCount.get(cidade)!.get(canalGroup) || 0) + 1);
     }
     const cidadeToCanal = new Map<string, string>();
     for (const [cidade, canalCounts] of cidadeCanalCount) {
-      let topCanal = "Outros";
+      let topCanal = DEFAULT_GROUP;
       let topCount = 0;
       for (const [canal, count] of canalCounts) {
         if (count > topCount) { topCount = count; topCanal = canal; }
@@ -155,14 +173,14 @@ export async function GET(req: NextRequest) {
     for (const row of baserowLeadsRes) {
       if (!row.cidade) continue;
       const cidade = getCidadeGroup(row.cidade);
-      const canal = cidadeToCanal.get(cidade) || "Outros";
+      const canal = cidadeToCanal.get(cidade) || DEFAULT_GROUP;
       leadsPerCanal.set(canal, (leadsPerCanal.get(canal) || 0) + 1);
     }
 
     // Build counts by squadId|canalGroup from countsByCanal
     const squadCanalCounts = new Map<string, { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number }>();
     for (const [canalGroup, counts] of countsByCanal.entries()) {
-      const squadId = CANAL_TO_SQUAD[canalGroup] ?? 3;
+      const squadId = CANAL_GROUP_TO_SQUAD[canalGroup] ?? 3;
       const gKey = `${squadId}|${canalGroup}`;
       squadCanalCounts.set(gKey, counts);
     }
@@ -171,7 +189,7 @@ export async function GET(req: NextRequest) {
     const paidCountsMap = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
     for (const d of paidDealsRes) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const canal = d.canal === "12" ? "Marketing" : "Outros";
+      const canal = d.canal === "12" ? "Marketing" : DEFAULT_GROUP;
       if (!paidCountsMap.has(canal)) paidCountsMap.set(canal, { mql: 0, sql: 0, opp: 0, won: 0 });
       const cur = paidCountsMap.get(canal)!;
       cur.mql++;
