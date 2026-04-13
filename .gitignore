@@ -41,6 +41,14 @@ scripts/**/outputs/
 # supabase CLI state
 supabase/.temp/
 
+# Supabase staging/dump (contain connection strings and credentials)
+.supabase_prod_uri.txt
+.supabase_staging_uri.txt
+supabase_staging_ref.txt
+supabase_dump_prod.sql
+supabase_dump_prod.backup
+supabase_dump_data.sql
+
 # vercel
 .vercel
 
@@ -51,3 +59,13 @@ next-env.d.ts
 # debug scripts
 capture_*.mjs
 *.debug.mjs
+
+# Supabase staging
+supabase_staging_ref.txt
+.supabase_staging_keys.env
+.supabase_staging_keys.txt
+.supabase_staging_password.txt
+.supabase_prod_uri.txt
+supabase_dump_*.sql
+supabase_dump_*.backup
+supabase_dump_chunks/
