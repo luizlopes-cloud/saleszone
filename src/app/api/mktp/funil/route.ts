@@ -1,6 +1,7 @@
 // MKTP (Marketplace) module
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
 
@@ -76,6 +77,21 @@ function sumFunil(rows: FunilEmpreendimento[], label: string): FunilEmpreendimen
   return buildFunil(label, impressions, clicks, leads, mql, sql, opp, won, reserva, contrato, spend);
 }
 
+async function fetchAll(query: any): Promise<any[]> {
+  const all: any[] = [];
+  let offset = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
 export async function GET(req: NextRequest) {
   try {
     const monthParam = req.nextUrl.searchParams.get("month");
@@ -85,31 +101,52 @@ export async function GET(req: NextRequest) {
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
 
-    const [metaRes, countsRes, stageRes, metasRes] = await Promise.all([
+    const admin = createSquadSupabaseAdmin();
+
+    const [metaRes, metasRes, allDealsRes] = await Promise.all([
       supabase
         .from("mktp_meta_ads")
         .select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month")
         .gte("snapshot_date", startDate),
       supabase
-        .from("mktp_daily_counts")
-        .select("tab, empreendimento, count")
-        .in("tab", ["mql", "sql", "opp", "won"])
-        .gte("date", startDate),
-      supabase
-        .from("mktp_daily_counts")
-        .select("tab, empreendimento, count")
-        .in("tab", ["reserva", "contrato"]),
-      // Metas do mês
-      supabase
         .from("mktp_metas")
         .select("squad_id, tab, meta")
         .eq("month", `${month}-01`),
+      // All deals for counts by empreendimento
+      fetchAll(admin.from("mktp_deals").select("empreendimento, max_stage_order, status, lost_reason")),
     ]);
 
     if (metaRes.error) throw new Error(`Meta Ads query error: ${metaRes.error.message}`);
-    if (countsRes.error) throw new Error(`Daily counts query error: ${countsRes.error.message}`);
-    if (stageRes.error) throw new Error(`Stage counts query error: ${stageRes.error.message}`);
     if (metasRes.error) console.warn(`Metas query warning: ${metasRes.error.message}`);
+
+    // Fetch MQL/SQL/OPP/WON from mktp_deals (not mktp_daily_counts — avoids aggregation gap)
+    const [mqlDealsRes, sqlDealsRes, oppDealsRes, wonDealsRes] = await Promise.all([
+      fetchAll(admin.from("mktp_deals").select("empreendimento, lost_reason").gte("add_time", startDate)),
+      fetchAll(admin.from("mktp_deals").select("empreendimento, lost_reason").gte("qualificacao_date", startDate)),
+      fetchAll(admin.from("mktp_deals").select("empreendimento, lost_reason").gte("reuniao_date", startDate)),
+      fetchAll(admin.from("mktp_deals").select("empreendimento, lost_reason").gte("won_time", startDate)),
+    ]);
+
+    // Build counts by empreendimento from mktp_deals
+    const countsMap = new Map<string, { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number }>();
+    function addToEmp(emp: string, mql = 0, sql = 0, opp = 0, won = 0, reserva = 0, contrato = 0) {
+      const key = emp || "Outros";
+      if (!countsMap.has(key)) countsMap.set(key, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
+      const c = countsMap.get(key)!;
+      c.mql += mql; c.sql += sql; c.opp += opp; c.won += won; c.reserva += reserva; c.contrato += contrato;
+    }
+    for (const d of mqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToEmp(d.empreendimento, 1, 0, 0, 0, 0, 0); }
+    for (const d of sqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToEmp(d.empreendimento, 0, 1, 0, 0, 0, 0); }
+    for (const d of oppDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToEmp(d.empreendimento, 0, 0, 1, 0, 0, 0); }
+    for (const d of wonDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToEmp(d.empreendimento, 0, 0, 0, 1, 0, 0); }
+    // Reserva (stage_order >= 13) / Contrato (stage_order >= 14) from all closed deals
+    const closedDeals = allDealsRes.filter(d => d.status === "won" || d.status === "lost");
+    for (const d of closedDeals) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const mso = d.max_stage_order || 0;
+      if (mso >= 13) addToEmp(d.empreendimento, 0, 0, 0, 0, 1, 0);
+      if (mso >= 14) addToEmp(d.empreendimento, 0, 0, 0, 0, 0, 1);
+    }
 
     // Agregar Meta Ads: max spend_month/leads_month por ad
     const adMax = new Map<string, { empreendimento: string; impressions: number; clicks: number; leads_month: number; spend_month: number }>();
@@ -133,21 +170,6 @@ export async function GET(req: NextRequest) {
       cur.leads += ad.leads_month;
       cur.spend += ad.spend_month;
       metaMap.set(ad.empreendimento, cur);
-    }
-
-    const countsMap = new Map<string, Record<string, number>>();
-    for (const row of countsRes.data || []) {
-      const key = row.empreendimento;
-      if (!countsMap.has(key)) countsMap.set(key, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      const cur = countsMap.get(key)!;
-      cur[row.tab] = (cur[row.tab] || 0) + (row.count || 0);
-    }
-
-    for (const row of stageRes.data || []) {
-      const key = row.empreendimento;
-      if (!countsMap.has(key)) countsMap.set(key, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      const cur = countsMap.get(key)!;
-      cur[row.tab] = (cur[row.tab] || 0) + (row.count || 0);
     }
 
     // Collect all known empreendimentos from DB data
