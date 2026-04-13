@@ -123,7 +123,13 @@ const META_VALUE_MAP: Record<string, string> = {
 }
 
 function canonical(val: string): string {
-  return META_VALUE_MAP[val] ?? val
+  if (META_VALUE_MAP[val]) return META_VALUE_MAP[val]
+  // Fallback: norm-based lookup para variações de acento/typo
+  const normVal = norm(val)
+  for (const [k, v] of Object.entries(META_VALUE_MAP)) {
+    if (norm(k) === normVal) return v
+  }
+  return val
 }
 
 // Quando extractVertical não identifica a vertical pelo nome da campanha (ex: "Itacaré Spot"),
