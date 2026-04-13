@@ -130,7 +130,6 @@ export async function GET(req: NextRequest) {
         admin
           .from("squad_deals")
           .select("empreendimento, max_stage_order, status, lost_reason")
-          .eq("is_marketing", true)
           .in("status", ["won", "lost"])
           .or(`won_time.gte.${startDate},lost_time.gte.${startDate}`)
           .range(o, o + ps - 1),
