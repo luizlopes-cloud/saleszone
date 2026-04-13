@@ -489,13 +489,13 @@ export async function GET(req: NextRequest) {
 
     // Sobrescrever grand com totais reais de squad_deals (inclui __sem_emp__)
     const maps = paidOnly
-        ? { leads: paidLeadsMap, mql: paidMqlMap, sql: paidSqlMap, opp: paidOppMap, won: paidWonMap, reserva: paidReservaMap, contrato: paidContratoMap }
-        : { leads: allLeadsMap, mql: allMqlMap, sql: allSqlMap, opp: allOppMap, won: allWonMap, reserva: allReservaMap, contrato: allContratoMap };
-      for (const key of ["leads", "mql", "sql", "opp", "won", "reserva", "contrato"] as const) {
-        let total = 0;
-        for (const [, v] of maps[key]) total += v;
-        (grand as unknown as Record<string, number>)[key] = total;
-      }
+      ? { leads: paidLeadsMap, mql: paidMqlMap, sql: paidSqlMap, opp: paidOppMap, won: paidWonMap, reserva: paidReservaMap, contrato: paidContratoMap }
+      : { leads: allLeadsMap, mql: allMqlMap, sql: allSqlMap, opp: allOppMap, won: allWonMap, reserva: allReservaMap, contrato: allContratoMap };
+    for (const key of ["leads", "mql", "sql", "opp", "won", "reserva", "contrato"] as const) {
+      let total = 0;
+      for (const [, v] of maps[key]) total += v;
+      (grand as unknown as Record<string, number>)[key] = total;
+    }
 
     // Build metas object from nekt_meta26_metas (service role - RLS blocks anon)
     const metasObj: Record<string, Record<string, number>> = { "Squad 1": {}, "Squad 2": {} };
