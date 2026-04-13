@@ -56,7 +56,7 @@ const SEED: SlaData = {
     { id: 13, vertical: "Serviços", nome: "Seazone Serviços", status: true, commercial_squad: "",
       mql_intencoes: ["Sim","Não","Parcialmente mobiliado"],
       mql_faixas: ["Disponível imediatamente","Alugado com contrato anual","Em reforma / preparação","Já opera por temporada"],
-      mql_pagamentos: ["Sim","Não","Não, mas estou disposto a instalar caso seja necessário"] },
+      mql_pagamentos: ["Sim","Não, mas estou disposto a instalar caso seja necessário"] },
   ],
   forms: {
     SZI: [
