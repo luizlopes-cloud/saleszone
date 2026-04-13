@@ -211,10 +211,16 @@ async function recoverDate(targetDate: string, pageTokens: Map<string, string>) 
     }
   }
 
-  // Batch write: um único writeLeads com todos os leads existentes + novos
-  // Premissa: execução serial garantida pelo cron (1 invocação por vez)
+  // Batch write: re-lê blob fresco antes de gravar para não sobrescrever atualizações
+  // feitas por runCheck() concorrente (GH Actions */15min) durante as chamadas Meta API acima.
+  // Sem isso, leads processados como sem_mia com notified=true seriam revertidos para
+  // aguardando/notified=false, causando Slack duplicado no runCheck() seguinte.
   if (newLeads.length > 0 || toBackfill.size > 0) {
-    const allLeads = newLeads.length > 0 ? [...existing, ...newLeads] : await readLeads(targetDate)
+    const fresh = await readLeads(targetDate)
+    const freshMap = new Map(fresh.map(l => [l.leadgen_id, l]))
+    // Filtra newLeads para não duplicar leads adicionados pelo webhook enquanto rodávamos
+    const actuallyNew = newLeads.filter(l => !freshMap.has(l.leadgen_id))
+    const allLeads = [...fresh, ...actuallyNew]
 
     if (toBackfill.size > 0) {
       for (const lead of allLeads) {
