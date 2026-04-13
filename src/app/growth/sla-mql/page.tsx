@@ -394,8 +394,10 @@ export default function SlaPage() {
   // Adição de opção inline
   const [addingOption, setAddingOption] = useState<{ field: keyof Draft; value: string } | null>(null)
 
-  // Agenda dos closers (próximos 2 dias úteis)
-  const [agenda, setAgenda] = useState<{ date: string; label: string; avg: number }[]>([])
+  // Agenda dos closers SZI (próximos 2 dias úteis)
+  type AgendaDay  = { date: string; label: string; pct: number }
+  type AgendaCloser = { name: string; days: AgendaDay[] }
+  const [agenda, setAgenda] = useState<AgendaCloser[]>([])
 
   // Carrega do localStorage na montagem + dados da API + usuário logado
   useEffect(() => {
@@ -426,12 +428,15 @@ export default function SlaPage() {
     }
     fetchAll()
 
-    // Agenda dos closers — próximos 2 dias úteis
+    // Agenda dos closers SZI (Luana + Filipe) — próximos 2 dias úteis
     fetch("/api/dashboard/ociosidade")
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (!data?.closers?.length) return
-        const closers = data.closers as Array<{ days: Array<{ date: string; occupancyPct: number }> }>
+        const SZI_CLOSERS = ["luana", "filipe"]
+        const closers = (data.closers as Array<{ name: string; days: Array<{ date: string; occupancyPct: number }> }>)
+          .filter(c => SZI_CLOSERS.some(k => c.name.toLowerCase().includes(k)))
+        if (!closers.length) return
         const next2: string[] = []
         const cur = new Date()
         cur.setDate(cur.getDate() + 1)
@@ -441,12 +446,18 @@ export default function SlaPage() {
           cur.setDate(cur.getDate() + 1)
         }
         const DAYS_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
-        setAgenda(next2.map(date => {
-          const pcts = closers.map(c => c.days.find(d => d.date === date)?.occupancyPct ?? 0)
-          const avg = pcts.length ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 0
+        const dayLabel = (date: string) => {
           const d = new Date(date + "T12:00:00")
-          return { date, label: `${DAYS_PT[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`, avg }
-        }))
+          return `${DAYS_PT[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`
+        }
+        setAgenda(closers.map(c => ({
+          name: c.name.split(" ")[0],
+          days: next2.map(date => ({
+            date,
+            label: dayLabel(date),
+            pct: c.days.find(d => d.date === date)?.occupancyPct ?? 0,
+          })),
+        })))
       })
       .catch(() => {})
 
@@ -1102,35 +1113,42 @@ export default function SlaPage() {
         {/* ── Aba: Critérios ─────────────────────────────────────────────────── */}
         {pageTab === "criterios" && (<>
 
-        {/* Painel agenda closers */}
+        {/* Painel agenda closers SZI */}
         {agenda.length > 0 && (() => {
-          const avgGeral = Math.round(agenda.reduce((a, b) => a + b.avg, 0) / agenda.length)
+          const allPcts = agenda.flatMap(c => c.days.map(d => d.pct))
+          const avgGeral = Math.round(allPcts.reduce((a, b) => a + b, 0) / allPcts.length)
           const cor   = avgGeral >= 70 ? "#E7000B" : avgGeral >= 40 ? "#D97706" : "#5EA500"
-          const bgCor = avgGeral >= 70 ? "#FFF1F0" : avgGeral >= 40 ? "#FFFBEB" : "#F0FDF4"
+          const bgCor = avgGeral >= 70 ? "#FFF1F050" : avgGeral >= 40 ? "#FFFBEB50" : "#F0FDF450"
           const rec   = avgGeral >= 70
             ? "Agenda cheia — suba a régua e seja mais criterioso"
             : avgGeral >= 40
             ? "Agenda moderada — mantenha os critérios atuais"
             : "Agenda livre — desça a régua e aceite mais leads"
+          const barColor = (pct: number) => pct >= 70 ? "#E7000B" : pct >= 40 ? "#D97706" : "#5EA500"
           return (
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, padding: "12px 16px", borderRadius: 10, background: bgCor, border: `1px solid ${cor}30`, flexWrap: "wrap" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: cor, whiteSpace: "nowrap", fontFamily: T.font }}>
-                Agenda closers
+            <div style={{ marginBottom: 24, padding: "14px 16px", borderRadius: 10, background: bgCor, border: `1px solid ${cor}40` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: cor, fontFamily: T.font }}>
+                  Agenda closers — SZI
+                </span>
+                <span style={{ fontSize: 12, color: cor, fontWeight: 500, fontFamily: T.font }}>· {rec}</span>
               </div>
-              {agenda.map(({ label, avg }) => {
-                const c = avg >= 70 ? "#E7000B" : avg >= 40 ? "#D97706" : "#5EA500"
-                const bg = avg >= 70 ? "#FFF1F0" : avg >= 40 ? "#FFFBEB" : "#F0FDF4"
-                return (
-                  <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8, padding: "6px 12px" }}>
-                    <span style={{ fontSize: 12, color: T.mutedFg, fontFamily: T.font }}>{label}</span>
-                    <div style={{ width: 60, height: 6, borderRadius: 3, background: T.border, overflow: "hidden" }}>
-                      <div style={{ width: `${Math.min(avg, 100)}%`, height: "100%", background: c, borderRadius: 3, transition: "width 0.4s" }} />
-                    </div>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: c, fontFamily: T.font, minWidth: 34 }}>{avg}%</span>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {agenda.map(closer => (
+                  <div key={closer.name} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: T.fg, fontFamily: T.font, minWidth: 56 }}>{closer.name}</span>
+                    {closer.days.map(({ label, pct }) => (
+                      <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 12px" }}>
+                        <span style={{ fontSize: 11, color: T.mutedFg, fontFamily: T.font, minWidth: 52 }}>{label}</span>
+                        <div style={{ width: 64, height: 5, borderRadius: 3, background: T.border, overflow: "hidden" }}>
+                          <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: barColor(pct), borderRadius: 3 }} />
+                        </div>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: barColor(pct), fontFamily: T.font, minWidth: 34 }}>{pct}%</span>
+                      </div>
+                    ))}
                   </div>
-                )
-              })}
-              <span style={{ fontSize: 12, color: cor, fontWeight: 500, fontFamily: T.font }}>{rec}</span>
+                ))}
+              </div>
             </div>
           )
         })()}
