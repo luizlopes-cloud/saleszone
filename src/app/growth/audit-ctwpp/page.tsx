@@ -38,6 +38,7 @@ function offsetKeyFrom(key: string, days: number) {
   const d = new Date(key + "T12:00:00Z"); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10)
 }
 function fmtLabel(key: string) {
+  if (key === "all") return "Todos"
   const today = todayKey(), yesterday = offsetKey(-1)
   if (key === today)     return "Hoje"
   if (key === yesterday) return "Ontem"
@@ -53,12 +54,13 @@ function fmtDate(iso: string) {
 // ─── DatePicker ───────────────────────────────────────────────────────────────
 
 const PRESETS = [
-  { label: "Hoje",          key: () => todayKey()     },
-  { label: "Ontem",         key: () => offsetKey(-1)  },
-  { label: "2 dias atrás",  key: () => offsetKey(-2)  },
-  { label: "3 dias atrás",  key: () => offsetKey(-3)  },
-  { label: "7 dias atrás",  key: () => offsetKey(-7)  },
-  { label: "14 dias atrás", key: () => offsetKey(-14) },
+  { label: "Todos analisados", key: () => "all"          },
+  { label: "Hoje",             key: () => todayKey()     },
+  { label: "Ontem",            key: () => offsetKey(-1)  },
+  { label: "2 dias atrás",     key: () => offsetKey(-2)  },
+  { label: "3 dias atrás",     key: () => offsetKey(-3)  },
+  { label: "7 dias atrás",     key: () => offsetKey(-7)  },
+  { label: "14 dias atrás",    key: () => offsetKey(-14) },
 ]
 
 function calendarDays(year: number, month: number) {
@@ -119,13 +121,15 @@ function DatePicker({ value, onChange }: { value: string; onChange: (d: string) 
     )
   }
 
-  const canGoRight = value < today
+  const isAll     = value === "all"
+  const canGoLeft  = !isAll
+  const canGoRight = !isAll && value < today
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden", background: T.card, boxShadow: T.elevSm }}>
-        <button onClick={() => onChange(offsetKeyFrom(value, -1))}
-          style={{ border: "none", background: "none", padding: "6px 8px", cursor: "pointer", color: T.mutedFg }}>
+        <button onClick={() => canGoLeft && onChange(offsetKeyFrom(value, -1))}
+          style={{ border: "none", background: "none", padding: "6px 8px", cursor: canGoLeft ? "pointer" : "default", color: canGoLeft ? T.mutedFg : T.border }}>
           <ChevronLeft size={14} />
         </button>
         <button onClick={() => { setPending(value); setOpen(o => !o) }}
@@ -327,7 +331,9 @@ function LeadsTable({ data, loading, error }: { data: AuditCTWPPDay | null; load
           ))}
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "flex-end" }}>
             <span style={{ fontSize: 11, color: T.mutedFg }}>
-              Rodou às {new Date(data.ran_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })}
+              {data.date === "all"
+                ? "Últimos 30 dias"
+                : `Rodou às ${new Date(data.ran_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: "America/Sao_Paulo" })}`}
             </span>
           </div>
         </div>
