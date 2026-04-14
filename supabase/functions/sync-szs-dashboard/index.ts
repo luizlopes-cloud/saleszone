@@ -1,4 +1,4 @@
-// SZS (Serviços) module — auto-generated from SZI equivalent
+// SZS (Serviços) module — uses Nekt API as data source
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -36,406 +36,89 @@ async function restInsert(svcKey: string, table: string, rows: any[]): Promise<{
   return { error: `${res.status} ${body.substring(0, 200)}`, inserted: 0 };
 }
 
-// ---- Pipedrive constants ----
-const PIPEDRIVE_DOMAIN = "seazone-fd92b9.pipedrive.com";
-const BASE = `https://${PIPEDRIVE_DOMAIN}/api/v1`;
+// ---- Nekt API helpers ----
+async function queryNekt(sql: string, nektApiKey: string): Promise<Record<string, string | null>[]> {
+  const res = await fetch("https://api.nekt.ai/api/v1/sql-query/", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-api-key": nektApiKey },
+    body: JSON.stringify({ sql, mode: "csv" }),
+  });
+  if (!res.ok) throw new Error(`Nekt API error: ${res.status} ${await res.text()}`);
+  const data = await res.json();
+  const url = data.presigned_url || data.presigned_urls?.[0];
+  if (!url) throw new Error("Nekt: no presigned_url");
+  const csvRes = await fetch(url);
+  const csvText = await csvRes.text();
+  return parseCSV(csvText);
+}
+
+function parseCSV(csv: string): Record<string, string | null>[] {
+  const lines = csv.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = parseCSVLine(lines[0]).map(h => h.trim().toLowerCase());
+  return lines.slice(1).map(line => {
+    const values = parseCSVLine(line);
+    const row: Record<string, string | null> = {};
+    for (let i = 0; i < headers.length; i++) {
+      const val = (values[i] ?? "").trim();
+      row[headers[i]] = val === "" || val === "null" ? null : val;
+    }
+    return row;
+  });
+}
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+// ---- Constants ----
 const PIPELINE_ID = 14;
-const FIELD_CANAL = "93b3ada8b94bd1fc4898a25754d6bcac2713f835";
-const FIELD_EMPREENDIMENTO = "6d565fd4fce66c16da078f520a685fa2fa038272";
-const FIELD_CIDADE = "45a56c6ae1f43dad4992c3c23d4a2a32787d93d6";
-const FIELD_BAIRRO = "b080625d5e1ec11f518490717bfa9d22d393f036";
-const FIELD_QUALIFICACAO = "bc74bcc4326527cbeb331d1697d4c8812d68506e";
-const FIELD_REUNIAO = "bfafc352c5c6f2edbaa41bf6d1c6daa825fc9c16";
-// Canal group mapping: groups deals by channel for SZS module
+
+// Canal group mapping: maps Nekt canal NAME to display group
 const CANAL_GROUPS: Record<string, string> = {
-  "12": "Marketing",
-  "582": "Ind. Corretor",
-  "583": "Ind. Franquia",
-  "2876": "Ind. Outros Parceiros",
-  "1748": "Expansão",
-  "3189": "Spots",       // Spot Seazone
-  "4551": "Mônica",
+  "Marketing": "Marketing",
+  "Indicação de Corretor": "Ind. Corretor",
+  "Indicaçao de Franquia": "Ind. Franquia",  // note: typo in source data (missing ~)
+  "Indicação de Franquia": "Ind. Franquia",  // handle both spellings
+  "Indicação de outros Parceiros (exceto corretor e franquia)": "Ind. Outros Parceiros",
+  "Expansão": "Expansão",
+  "Spot Seazone": "Spots",
+  "Colaborador Seazone (para compra de Spot)": "Spots",
+  "Colaborador Seazone (para Compra De Spot)": "Spots",
+  "Mônica": "Mônica",
+  "Cliente SZN": "Outros",
+  "Indicação de Clientes": "Outros",
+  "Indicação de Colaborador": "Outros",
+  "Prospecção Ativa": "Outros",
+  "Prospecção ativa - IA": "Outros",
+  "Indicação de Embaixador": "Outros",
+  "Indicação de Hóspede": "Outros",
+  "Portais de imóveis": "Outros",
+  "Marketing POC": "Outros",
+  "Eventos": "Outros",
 };
-// Any canal ID not in this map → "Outros"
-const EMPREENDIMENTO_MAP: Record<string, string> = {
-  "3313": "Altavista",
-  "1132": "Barra de São Miguel Spot",
-  "3478": "Barra Grande Spot",
-  "462": "Barra Spot",
-  "2840": "Batel Spot",
-  "3303": "Bonito Spot",
-  "3451": "Bonito Spot II",
-  "3266": "Cachoeira Beach Spot",
-  "2835": "Cachoeira Spot",
-  "2324": "Campeche Spot",
-  "4090": "Canas Beach Spot",
-  "2573": "Canasvieiras Spot",
-  "692": "Canela Spot",
-  "3416": "Caraguá Spot",
-  "510": "Downtown",
-  "1125": "Duetto",
-  "4271": "Farol da Barra Spot",
-  "4056": "Foz Spot",
-  "3201": "Ilha do Campeche II Spot",
-  "2607": "Ilha do Campeche Spot",
-  "828": "Imbassaí Spot",
-  "464": "Ingleses Spot",
-  "3467": "Itacaré Spot",
-  "466": "Japaratinga Spot",
-  "3985": "Jardim dos Namorados",
-  "2904": "Jurerê Beach Spot",
-  "506": "Jurerê Spot",
-  "3333": "Jurerê Spot II",
-  "4586": "Jurerê Spot III",
-  "505": "Lagoa Spot",
-  "2935": "Marista 144 Spot",
-  "1126": "Maxxi Garden",
-  "3158": "Meireles Spot",
-  "2885": "Morro das Pedras Spot",
-  "1127": "Mosaico",
-  "4495": "Natal Spot",
-  "3182": "New Life",
-  "4292": "Novo Campeche Spot",
-  "4655": "Novo Campeche Spot II",
-  "636": "Olímpia Spot",
-  "490": "Penha Spot",
-  "1124": "Pio 4",
-  "3489": "Ponta das Canas Spot",
-  "4109": "Ponta das Canas Spot II",
-  "1128": "Reflect",
-  "2795": "Rosa Norte Spot",
-  "504": "Rosa Spot",
-  "463": "Rosa Sul Spot",
-  "1447": "Salvador Spot",
-  "3298": "Santinho Spot",
-  "3119": "Santo Antônio Spot",
-  "3308": "Soul Guarajuba",
-  "2868": "Sul da Ilha Spot",
-  "1129": "T58",
-  "824": "Top Club",
-  "1171": "Trancoso Spot",
-  "465": "Urubici Spot",
-  "2526": "Urubici Spot II",
-  "2415": "Vale do Ouro",
-  "461": "Vistas de Anitá I",
-  "637": "Vistas de Anitá II",
-  "2745": "VN Ueno",
-  "3309": "Zn Barra",
-};
-const CIDADE_MAP: Record<string, string> = {
-  "1465": "Alagoinhas, BA",
-  "607": "Alfredo Wagner, SC",
-  "1781": "Alto Paraíso de Goiás, GO",
-  "2255": "Anchieta, ES",
-  "434": "Angra dos Reis, RJ",
-  "650": "Anitápolis, SC",
-  "4170": "Anápolis, GO",
-  "2484": "Aparecida de Goiânia, GO",
-  "3319": "Aparecida, SP",
-  "2515": "Apiúna, SC",
-  "3265": "Aquiraz, CE",
-  "2196": "Aracaju, SE",
-  "2680": "Aracati, CE",
-  "2563": "Aragoiânia, GO",
-  "2468": "Arapiraca, AL",
-  "2383": "Araranguá, SC",
-  "2469": "Araraquara, SP",
-  "2074": "Araruama, RJ",
-  "2629": "Araçariguama, SP",
-  "2153": "Arcoverde, PE",
-  "196": "Armação dos Búzios, RJ",
-  "436": "Arraial do Cabo, RJ",
-  "2666": "Atibaia, SP",
-  "2478": "Balneário Barra do Sul, SC",
-  "158": "Balneário Camboriú, SC",
-  "2455": "Balneário Pinhal, RS",
-  "431": "Balneário Piçarras, SC",
-  "2734": "Barra de Santo Antônio, AL",
-  "1079": "Barra de São Miguel, AL",
-  "1939": "Barra Mansa, RJ",
-  "1905": "Barra Velha, SC",
-  "1463": "Barreiras, BA",
-  "1940": "Barreirinhas, MA",
-  "4654": "Barueri, SP",
-  "632": "Bauru, SP",
-  "2667": "Baía Formosa, RN",
-  "3264": "Beberibe, CE",
-  "1901": "Belmonte, BA",
-  "1421": "Belo Horizonte, MG",
-  "3263": "Belém, PA",
-  "854": "Bento Gonçalves, RS",
-  "258": "Bertioga, SP",
-  "2470": "Bezerros, PE",
-  "1911": "Biguaçu, SC",
-  "2630": "Biritiba Mirim, SP",
-  "1848": "Blumenau, SC",
-  "2479": "Bom Jardim da Serra, SC",
-  "612": "Bom Retiro, SC",
-  "161": "Bombinhas, SC",
-  "3262": "Bonito, MS",
-  "2681": "Bragança Paulista, SP",
-  "1740": "Brasília, DF",
-  "2140": "Braço do Norte, SC",
-  "2608": "Brusque, SC",
-  "2184": "Cabedelo, PB",
-  "2489": "Cabo de Santo Agostinho, PE",
-  "235": "Cabo Frio, RJ",
-  "1912": "Cachoeira Paulista, SP",
-  "2631": "Cachoeiras de Macacu, RJ",
-  "1913": "Cachoeirinha, RS",
-  "440": "Cairu, BA",
-  "3261": "Cajueiro da Praia, PI",
-  "1387": "Caldas Novas, GO",
-  "3260": "Camanducaia, MG",
-  "1043": "Camaçari, BA",
-  "1853": "Camboriú, SC",
-  "2712": "Camorim, RJ",
-  "1914": "Campinas, SP",
-  "2388": "Campo Alegre, SC",
-  "1941": "Campo Grande, MS",
-  "233": "Campos do Jordão, SP",
-  "1791": "Canavieiras, BA",
-  "2222": "Candeias, BA",
-  "225": "Canela, RS",
-  "2115": "Canoas, RS",
-  "850": "Capão da Canoa, RS",
-  "425": "Caraguatatuba, SP",
-  "2223": "Caravelas, BA",
-  "1849": "Caruaru, PE",
-  "1978": "Casimiro de Abreu, RJ",
-  "4533": "Catalão, GO",
-  "2735": "Caucaia, CE",
-  "845": "Caxias do Sul, RS",
-  "2389": "Chapecó, SC",
-  "3259": "Conde, BA",
-  "2682": "Conde, PB",
-  "1422": "Conselheiro Lafaiete, MG",
-  "2312": "Coruripe, AL",
-  "2632": "Cotia, SP",
-  "2930": "Criciúma, SC",
-  "3258": "Cruz, CE",
-  "1742": "Cuiabá, MT",
-  "1887": "Curitiba, PR",
-  "2609": "Delfinópolis, MG",
-  "4289": "Dourados, MS",
-  "1915": "Duque de Caxias, RJ",
-  "2683": "Embu Guaçu, SP",
-  "1916": "Entre Rios, BA",
-  "1761": "Eunápolis, BA",
-  "1466": "Feira de Santana, BA",
-  "119": "Florianópolis, SC",
-  "1917": "Fortaleza, CE",
-  "3257": "Fortim, CE",
-  "2480": "Foz do Iguaçu, PR",
-  "3256": "Garibaldi, RS",
-  "239": "Garopaba, SC",
-  "2684": "Goianira, GO",
-  "1743": "Goiás, GO",
-  "1744": "Goiânia, GO",
-  "1946": "Gonçalves, MG",
-  "432": "Governador Celso Ramos, SC",
-  "4172": "Governador Valadares, MG",
-  "224": "Gramado, RS",
-  "2713": "Gravatá, PE",
-  "2337": "Guapimirim, RJ",
-  "2102": "Guaramiranga, CE",
-  "1448": "Guarapari, ES",
-  "2440": "Guaratinguetá, SP",
-  "3320": "Guaratuba, PR",
-  "1918": "Guarujá, SP",
-  "1919": "Guarulhos, SP",
-  "1769": "Guará, DF",
-  "2481": "Harmonia, RS",
-  "1745": "Hidrolândia, GO",
-  "1920": "Ibiúna, SP",
-  "2151": "Icapuí, CE",
-  "2543": "Iguape, SP",
-  "2714": "Ilha de Itamaracá, PE",
-  "426": "Ilhabela, SP",
-  "831": "Ilhéus, BA",
-  "241": "Imbituba, SC",
-  "2633": "Imbé, RS",
-  "1133": "Ipojuca, PE",
-  "1462": "Itabuna, BA",
-  "605": "Itacaré, BA",
-  "236": "Itajaí, SC",
-  "1850": "Itanhaém, SP",
-  "839": "Itaparica, BA",
-  "157": "Itapema, SC",
-  "2075": "Itapoá, SC",
-  "2150": "Itatiba, SP",
-  "2154": "Itatuba, PB",
-  "2268": "Itobi, SP",
-  "2076": "Itu, SP",
-  "4548": "Itumbiara, GO",
-  "1180": "Jaboatão dos Guararapes, PE",
-  "3137": "Jaguaruna, SC",
-  "590": "Japaratinga, AL",
-  "1921": "Jaraguá do Sul, SC",
-  "2610": "Jaú, SP",
-  "1464": "Jequié, BA",
-  "1254": "Joinville, SC",
-  "4649": "João Monlevade, MG",
-  "1406": "João Pessoa, PB",
-  "2116": "Juazeiro do Norte, CE",
-  "1467": "Juazeiro, BA",
-  "2141": "Juiz de Fora, MG",
-  "2931": "Lages, SC",
-  "1397": "Lauro de Freitas, BA",
-  "3255": "Lençóis, BA",
-  "2224": "Leopoldo Bulhões, GO",
-  "2155": "Londrina, PR",
-  "2715": "Luis Correia, PI",
-  "2668": "Luziânia, GO",
-  "2157": "Luís Eduardo Magalhães, BA",
-  "4619": "Macapá, AP",
-  "614": "Maceió, AL",
-  "2588": "Mairiporã, SP",
-  "1948": "Manaus, AM",
-  "437": "Mangaratiba, RJ",
-  "442": "Maragogi, AL",
-  "628": "Maraú, BA",
-  "1066": "Marechal Deodoro, AL",
-  "2471": "Marialva, PR",
-  "2564": "Maricá, RJ",
-  "1922": "Maringá, PR",
-  "649": "Mata de São João, BA",
-  "3254": "Matinhos, PR",
-  "2634": "Miguel Pereira, RJ",
-  "2185": "Mogi das Cruzes, SP",
-  "2441": "Mongaguá, SP",
-  "1851": "Natal, RN",
-  "2142": "Navegantes, SC",
-  "438": "Niterói, RJ",
-  "2313": "Nova Petrópolis, RS",
-  "2611": "Nova Prata, RS",
-  "2490": "Nova Santa Rita, RS",
-  "427": "Olímpia, SP",
-  "2371": "Orleans, SC",
-  "3253": "Ouro Preto, MG",
-  "177": "Outros",
-  "1168": "Palhoça, SC",
-  "1949": "Palmas, TO",
-  "2736": "Palmeira, SC",
-  "3252": "Palmeiras, BA",
-  "2472": "Paraipaba, CE",
-  "1852": "Paranavaí, PR",
-  "2491": "Paraty, RJ",
-  "1923": "Paripueira, AL",
-  "1886": "Passo de Camaragibe, AL",
-  "2669": "Paulista, PE",
-  "2589": "Pelotas, RS",
-  "433": "Penha, SC",
-  "2482": "Peruíbe, SP",
-  "439": "Petrópolis, RJ",
-  "1854": "Piatã, BA",
-  "1746": "Pirenópolis, GO",
-  "2152": "Pitimbu, PB",
-  "3251": "Pomerode, SC",
-  "1924": "Ponta Grossa, PR",
-  "4494": "Ponta Porã, MS",
-  "2612": "Pontal do Paraná, PR",
-  "392": "Porto Alegre, RS",
-  "159": "Porto Belo, SC",
-  "1724": "Porto de Pedras, AL",
-  "441": "Porto Seguro, BA",
-  "2156": "Pouso Alegre, MG",
-  "1142": "Poços de Caldas, MG",
-  "2186": "Prado, BA",
-  "242": "Praia do Rosa, SC",
-  "2402": "Praia Grande, SC",
-  "428": "Praia Grande, SP",
-  "4301": "Presidente Prudente, SP",
-  "613": "Rancho Queimado, SC",
-  "1179": "Recife, PE",
-  "2635": "Ribeirão das Neves, MG",
-  "630": "Ribeirão Preto, SP",
-  "2143": "Rio das Ostras, RJ",
-  "1202": "Rio de Janeiro, RJ",
-  "2565": "Rio do Sul, SC",
-  "3250": "Salinópolis, PA",
-  "653": "Salvador, BA",
-  "1177": "Santa Cruz Cabrália, BA",
-  "232": "Torres, RS",
-  "429": "Santos, SP",
-  "430": "São Sebastião, SP",
-  "384": "Ubatuba, SP",
-  "631": "São José do Rio Preto, SP",
-  "695": "Uberaba, MG",
-  "698": "Uberlândia, MG",
-  "455": "Urubici, SC",
-  "1058": "São Miguel dos Milagres, AL",
-  "1178": "Tamandaré, PE",
-  "1182": "Sinop, MT",
-  "1239": "Teixeira de Freitas, BA",
-  "1310": "São Paulo, SP",
-  "1461": "Vitória da Conquista, BA",
-  "1468": "Tibau do Sul, RN",
-  "1727": "Vitória, ES",
-  "1770": "Taguatinga, DF",
-  "1793": "Uruçuca, BA",
-  "1855": "Teresópolis, RJ",
-  "1856": "Vila Velha, ES",
-  "1858": "Tangará da Serra, MT",
-  "1885": "São Pedro da Aldeia, RJ",
-  "1899": "Teresina, PI",
-  "1925": "Sapucaí-Mirim, MG",
-  "1926": "São José, SC",
-  "1952": "São Carlos, SP",
-  "1976": "São Pedro de Alcântara, SC",
-  "1977": "São Francisco do Sul, SC",
-  "2098": "Sorocaba, SP",
-  "2099": "Toledo, PR",
-  "2103": "Santa Maria, RS",
-  "2104": "Volta Redonda, RJ",
-  "2144": "Santo Amaro da Imperatriz, SC",
-  "2187": "Santa Luzia, MG",
-  "2188": "São José dos Campos, SP",
-  "2189": "São Vicente, SP",
-  "2225": "Tubarão, SC",
-  "2328": "São José dos Pinhais, PR",
-  "2338": "Una, BA",
-  "2349": "Serra Negra, SP",
-  "2350": "São Bernardo do Campo, SP",
-  "2372": "Vassouras, RJ",
-  "2390": "Santo André, SP",
-  "2391": "Timbó, SC",
-  "2456": "São Leopoldo, RS",
-  "2473": "Santo Antônio da Patrulha, RS",
-  "2477": "Santo Amaro do Maranhão, MA",
-  "2544": "Serra, ES",
-  "2566": "São Joaquim, SC",
-  "2590": "São Caetano do Sul, SP",
-  "2591": "São Tomé das Letras, MG",
-  "2613": "São Francisco de Paula, RS",
-  "2636": "São Roque, SP",
-  "2637": "Vera Cruz, BA",
-  "2685": "Senador Canedo, GO",
-  "2686": "Vespasiano, MG",
-  "2716": "Timburi, SP",
-  "2717": "Unaí, MG",
-  "3247": "São Miguel do Gostosos, RN",
-  "3248": "São Luís, MA",
-  "3249": "Santarém, PA",
-  "4547": "Valença, BA",
-  "4650": "Santo Ângelo, RS",
-  "856": "Xangri-lá, RS",
-  "1771": "Águas Claras, DF",
-  "4676": "Três Rios, RJ",
-  "4677": "Primavera do Leste, MT",
-  "4679": "Indaiatuba, SP",
-  "4682": "Cascavel, PR",
-  "4683": "São João del Rei, MG",
-  "4815": "São Miguel do Gostoso, RN",
-  "4816": "Schroeder, SC",
-  "4817": "Itaitinga, CE",
-  "4818": "Ipióca, AL",
-  "4819": "Caeté, MG",
-  "4820": "Alfredo Chaves, ES",
-};
+// Any canal not in this map -> "Outros"
+
 // SZS team: single squad with 5 closers
+// Note: empreendimentos list is empty — SZS uses dynamic cities from Nekt, not a fixed list
 const SQUADS: Array<{ id: number; closers: number; empreendimentos: string[] }> = [
-  { id: 1, closers: 5, empreendimentos: Object.values(CIDADE_MAP).filter(c => c !== "Outros") },
+  { id: 1, closers: 5, empreendimentos: [] },
 ];
 const TOTAL_CLOSERS = SQUADS.reduce((sum, sq) => sum + sq.closers, 0);
 const TABS = ["mql", "sql", "opp", "won"] as const;
@@ -450,55 +133,40 @@ const STAGE_CONTRATO = 76;  // "Contrato"
 
 const PIPELINE_STAGES: number[] = [70, 71, 72, 345, 341, 73, 342, 151, 74, 75, 152, 76];
 
-// ---- Pipedrive API ----
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const STAGE_ORDER: Record<number, number> = {
+  70: 1, 71: 2, 72: 3, 345: 4, 341: 5, 73: 6, 342: 7, 151: 8, 74: 9, 75: 10, 152: 11, 76: 12,
+};
+const MQL_MIN_ORDER = 2;  // Contatados
+const SQL_MIN_ORDER = 4;  // Qualificado
+const OPP_MIN_ORDER = 8;  // Reunião Realizada
 
-async function pipedriveGet(apiToken: string, path: string, params: Record<string, string> = {}) {
-  const url = new URL(`${BASE}${path}`);
-  url.searchParams.set("api_token", apiToken);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  const RETRY_DELAYS = [5_000, 15_000, 30_000];
-  for (let attempt = 0; attempt <= 3; attempt++) {
-    const res = await fetch(url.toString());
-    if (res.ok) return res.json();
-    if (res.status === 429 && attempt < 3) {
-      console.warn(`Pipedrive 429 on ${path}, retry ${attempt + 1}/3 in ${RETRY_DELAYS[attempt] / 1000}s`);
-      await sleep(RETRY_DELAYS[attempt]);
-      continue;
-    }
-    throw new Error(`Pipedrive ${path}: ${res.status}`);
-  }
-  throw new Error(`Pipedrive ${path}: max retries exceeded`);
-}
+// ---- Nekt Deal type ----
+type NektDeal = Record<string, string | null>;
 
-// ---- Deal helpers ----
-function getDateField(deal: any, tab: Tab): string | null {
+// ---- Deal helpers (Nekt row format) ----
+function getDateField(deal: NektDeal, tab: Tab): string | null {
   switch (tab) {
-    case "mql": return deal.add_time || null;
-    case "sql": return deal[FIELD_QUALIFICACAO] || null;
-    case "opp": return deal[FIELD_REUNIAO] || null;
-    case "won": return deal.won_time || null;
+    case "mql": return deal.negocio_criado_em || null;
+    case "sql": return deal.data_de_qualificacao || null;
+    case "opp": return deal.data_da_reuniao || null;
+    case "won": return deal.ganho_em || null;
   }
 }
 
-function getCanalGroup(deal: any): string {
-  const canal = String(deal[FIELD_CANAL] || "");
+function getCanalGroup(deal: NektDeal): string {
+  const canal = String(deal.canal || "");
   return CANAL_GROUPS[canal] || "Outros";
 }
 
-function getEmpreendimento(deal: any) {
-  const enumId = String(deal[FIELD_EMPREENDIMENTO] || "");
-  return EMPREENDIMENTO_MAP[enumId] || null;
+function getCidade(deal: NektDeal): string {
+  const cidade = deal.cidade_do_imovel;
+  if (!cidade || cidade === "-") return "Sem cidade";
+  return cidade.trim();
 }
 
-function getCidade(deal: any): string {
-  const enumId = String(deal[FIELD_CIDADE] || "");
-  return CIDADE_MAP[enumId] || "Sem cidade";
-}
-
-function getBairro(deal: any): string {
-  const val = deal[FIELD_BAIRRO];
-  if (!val || typeof val !== "string" || val.trim() === "") return "Sem bairro";
+function getBairro(deal: NektDeal): string {
+  const val = deal.bairro_do_imovel;
+  if (!val || val.trim() === "" || val === "-") return "Sem bairro";
   return val.trim().split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(" ");
 }
 
@@ -510,16 +178,14 @@ function getDateRange() {
   return { startDate, endDate };
 }
 
-// ---- Stream deals from API, counting all tabs ----
+// ---- Count deals across all tabs ----
 function countDeals(
-  deals: any[], startDate: string, endDate: string,
+  deals: NektDeal[], startDate: string, endDate: string,
   countsPerTab: Record<Tab, Map<string, number>>,
 ) {
   let mkt = 0;
   for (const deal of deals) {
-    // Filter to SZS pipeline only (/deals endpoint returns ALL pipelines)
-    if (deal.pipeline_id !== PIPELINE_ID) continue;
-    if (String(deal.lost_reason || "").toLowerCase() === "duplicado/erro") continue;
+    if (deal.motivo_da_perda === "Duplicado/Erro") continue;
     mkt++;
     const canalGroup = getCanalGroup(deal);
     const emp = getCidade(deal);
@@ -569,7 +235,7 @@ async function writeDailyCounts(svcKey: string, countsPerTab: Record<Tab, Map<st
 
 // ---- Count deals in specific stages (snapshot for today) ----
 function countDealsByStage(
-  deals: any[],
+  deals: NektDeal[],
   stageCounts: Record<"reserva" | "contrato", Map<string, number>>,
 ) {
   const today = new Date().toISOString().substring(0, 10);
@@ -578,7 +244,7 @@ function countDealsByStage(
     const emp = getCidade(deal);
     const bairro = getBairro(deal);
     if (!emp) continue;
-    const stageId = deal.stage_id;
+    const stageId = parseInt(deal.etapa || "0");
     if (stageId === STAGE_RESERVA) {
       const key = `${today}|${canalGroup}|${emp}|${bairro}`;
       stageCounts.reserva.set(key, (stageCounts.reserva.get(key) || 0) + 1);
@@ -607,10 +273,23 @@ async function writeStageCounts(svcKey: string, stageCounts: Record<"reserva" | 
   }
 }
 
-// ---- Mode: daily-open (pipeline endpoint, replaces counts) ----
-async function syncDailyOpen(apiToken: string, supabase: any, svcKey: string) {
+// ---- Nekt SQL column list for deals ----
+const NEKT_DEAL_COLUMNS = `id, pipeline_id, status, etapa, canal, empreendimento,
+    cidade_do_imovel, bairro_do_imovel, negocio_criado_em, ganho_em, data_de_perda,
+    data_de_qualificacao, data_da_reuniao, owner_id, deal_owner_name, motivo_da_perda, titulo`;
+
+// ---- Mode: daily-open (Nekt query, replaces counts) ----
+async function syncDailyOpen(nektApiKey: string, supabase: any, svcKey: string) {
   const { startDate, endDate } = getDateRange();
-  console.log(`syncDailyOpen: fetching pipeline ${PIPELINE_ID} open deals...`);
+  console.log(`syncDailyOpen: querying Nekt for open deals in pipeline ${PIPELINE_ID}...`);
+
+  const sql = `
+    SELECT ${NEKT_DEAL_COLUMNS}
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'open'
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
+  console.log(`syncDailyOpen: fetched ${deals.length} deals from Nekt`);
 
   const countsPerTab: Record<Tab, Map<string, number>> = {
     mql: new Map(), sql: new Map(), opp: new Map(), won: new Map(),
@@ -618,119 +297,75 @@ async function syncDailyOpen(apiToken: string, supabase: any, svcKey: string) {
   const stageCounts: Record<"reserva" | "contrato", Map<string, number>> = {
     reserva: new Map(), contrato: new Map(),
   };
-  let start = 0;
-  let total = 0;
-  while (true) {
-    const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, {
-      limit: "500", start: String(start),
-    });
-    if (!res.data || res.data.length === 0) break;
-    total += res.data.length;
-    countDeals(res.data, startDate, endDate, countsPerTab);
-    countDealsByStage(res.data, stageCounts);
-    if (!res.additional_data?.pagination?.more_items_in_collection) break;
-    start += 500;
-  }
+
+  const mkt = countDeals(deals, startDate, endDate, countsPerTab);
+  countDealsByStage(deals, stageCounts);
+
   const reservaTotal = Array.from(stageCounts.reserva.values()).reduce((a, b) => a + b, 0);
   const contratoTotal = Array.from(stageCounts.contrato.values()).reduce((a, b) => a + b, 0);
-  console.log(`  Open deals: ${total}, reserva=${reservaTotal}, contrato=${contratoTotal}`);
+  console.log(`  Open deals: ${deals.length}, counted=${mkt}, reserva=${reservaTotal}, contrato=${contratoTotal}`);
+
   // Write main counts first, then stage counts (so stage counts aren't overwritten)
   const mainResult = await writeDailyCounts(svcKey, countsPerTab, startDate, endDate, "open");
   await writeStageCounts(svcKey, stageCounts);
   return { ...mainResult, reserva: reservaTotal, contrato: contratoTotal };
 }
 
-// ---- Mode: daily-status (uses stage_id filter, merges with existing) ----
-// For lost deals: sorts by add_time DESC and stops when deals are older than cutoff
-async function syncDailyByStatus(apiToken: string, supabase: any, svcKey: string, status: string) {
+// ---- Mode: daily-won / daily-lost (Nekt query) ----
+async function syncDailyByStatus(nektApiKey: string, supabase: any, svcKey: string, status: string) {
   const { startDate, endDate } = getDateRange();
-  // Cutoff: stop scanning when add_time is older than 90 days (generous buffer over 35-day window)
-  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90);
+  // Cutoff: won=365d, lost=90d (generous buffer over 35-day window)
+  const cutoffDays = status === "lost" ? 90 : 365;
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - cutoffDays);
   const cutoffStr = cutoff.toISOString().substring(0, 10);
-  console.log(`syncDailyByStatus: ${status} via stage_id, cutoff=${cutoffStr}`);
+  console.log(`syncDailyByStatus: ${status} from Nekt, cutoff=${cutoffStr}`);
+
+  const dateFilter = status === "won"
+    ? `AND ganho_em >= TIMESTAMP '${cutoffStr}'`
+    : `AND data_de_perda >= TIMESTAMP '${cutoffStr}'`;
+
+  const sql = `
+    SELECT ${NEKT_DEAL_COLUMNS}
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = '${status}'
+    ${dateFilter}
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
 
   const countsPerTab: Record<Tab, Map<string, number>> = {
     mql: new Map(), sql: new Map(), opp: new Map(), won: new Map(),
   };
-  let totalDeals = 0;
-  let totalMkt = 0;
-  let skippedStages = 0;
-  // Deduplicate: /deals endpoint ignores stage_id param (same as pipeline_id),
-  // so each stage query returns ALL deals of that status, causing 14x duplication.
-  const seenDealIds = new Set<number>();
 
-  for (const stageId of PIPELINE_STAGES) {
-    let start = 0;
-    let stoppedEarly = false;
-    while (true) {
-      const res = await pipedriveGet(apiToken, "/deals", {
-        status,
-        stage_id: String(stageId),
-        sort: "add_time DESC",
-        limit: "500",
-        start: String(start),
-      });
-      if (!res.data || res.data.length === 0) break;
-
-      // Filter out deals already seen from previous stage queries
-      const newDeals = res.data.filter((d: any) => {
-        if (seenDealIds.has(d.id)) return false;
-        seenDealIds.add(d.id);
-        return true;
-      });
-
-      totalDeals += newDeals.length;
-      totalMkt += countDeals(newDeals, startDate, endDate, countsPerTab);
-
-      // Check if the oldest deal in this page is before cutoff
-      const oldestAddTime = res.data[res.data.length - 1]?.add_time?.substring(0, 10) || "";
-      if (oldestAddTime && oldestAddTime < cutoffStr) {
-        stoppedEarly = true;
-        break;
-      }
-
-      if (!res.additional_data?.pagination?.more_items_in_collection) break;
-      start += 500;
-    }
-    if (stoppedEarly) skippedStages++;
-  }
-  console.log(`  ${status}: ${totalDeals} unique deals (${seenDealIds.size} seen), ${totalMkt} marketing, ${skippedStages} stages stopped early`);
+  const mkt = countDeals(deals, startDate, endDate, countsPerTab);
+  console.log(`  ${status}: ${deals.length} deals, ${mkt} counted`);
   return writeDailyCounts(svcKey, countsPerTab, startDate, endDate, status);
 }
 
-// ---- Mode: alignment ----
-async function syncAlignment(apiToken: string, svcKey: string) {
-  console.log(`syncAlignment: fetching pipeline ${PIPELINE_ID} open deals...`);
-  const deals: any[] = [];
-  let start = 0;
-  while (true) {
-    const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, {
-      limit: "500", start: String(start),
-    });
-    if (!res.data || res.data.length === 0) break;
-    deals.push(...res.data);
-    if (!res.additional_data?.pagination?.more_items_in_collection) break;
-    start += 500;
-  }
+// ---- Mode: alignment (Nekt query — no Pipedrive API needed) ----
+async function syncAlignment(nektApiKey: string, svcKey: string) {
+  console.log(`syncAlignment: querying Nekt for open deals + owner names...`);
 
-  const usersRes = await pipedriveGet(apiToken, "/users");
-  const userMap = new Map(usersRes.data.map((u: any) => [u.id, u.name]));
+  const sql = `
+    SELECT id, pipeline_id, canal, cidade_do_imovel, bairro_do_imovel,
+           owner_id, deal_owner_name, titulo
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'open'
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
+
   const counts = new Map<string, number>();
   const dealRows: Array<{deal_id: number; title: string; empreendimento: string; owner_name: string; synced_at: string}> = [];
   for (const deal of deals) {
     const emp = getCidade(deal);
     if (!emp) continue;
-    // Pipeline endpoint returns user_id as integer (not object)
-    const ownerId = typeof deal.user_id === "object" ? deal.user_id?.id : deal.user_id;
-    if (!ownerId) continue;
-    const ownerName = userMap.get(ownerId) || String(ownerId);
+    const ownerName = deal.deal_owner_name || deal.owner_id || "Unknown";
     const key = `${emp}|${ownerName}`;
     counts.set(key, (counts.get(key) || 0) + 1);
     dealRows.push({
-      deal_id: deal.id,
-      title: deal.title || `Deal #${deal.id}`,
+      deal_id: parseInt(deal.id || "0"),
+      title: deal.titulo || `Deal #${deal.id}`,
       empreendimento: emp,
-      owner_name: ownerName,
+      owner_name: String(ownerName),
       synced_at: new Date().toISOString(),
     });
   }
@@ -878,14 +513,7 @@ async function syncMetas(supabase: any) {
   return { squadMetas: metaRows.length, ratios };
 }
 
-// ---- Mode: backfill-monthly-* (Pipedrive → szs_monthly_counts, 12 months) ----
-// Split into 3 separate calls to stay within 150MB memory:
-//   backfill-monthly-clear  → empties table
-//   backfill-monthly-open   → open deals (pipeline endpoint)
-//   backfill-monthly-won    → won deals (stage_id loop)
-//   backfill-monthly-lost   → lost deals (stage_id loop with cutoff)
-// Uses RPC add_monthly_counts for additive upsert (count += new).
-
+// ---- Mode: backfill-monthly-clear ----
 async function backfillMonthlyClear(supabase: any) {
   const { error } = await supabase.from("szs_monthly_counts").delete().neq("month", "");
   if (error) throw new Error(`Clear error: ${error.message}`);
@@ -893,42 +521,10 @@ async function backfillMonthlyClear(supabase: any) {
   return { cleared: true };
 }
 
-const STAGE_ORDER: Record<number, number> = {
-  70: 1, 71: 2, 72: 3, 345: 4, 341: 5, 73: 6, 342: 7, 151: 8, 74: 9, 75: 10, 152: 11, 76: 12,
-};
-const MQL_MIN_ORDER = 2;  // Contatados
-const SQL_MIN_ORDER = 4;  // Qualificado
-const OPP_MIN_ORDER = 8;  // Reunião Realizada
-
-// ---- Flow API: find max stage a deal ever reached ----
-async function getMaxStageReached(apiToken: string, dealId: number, currentOrder: number): Promise<number> {
-  if (currentOrder >= OPP_MIN_ORDER) return currentOrder; // Already at OPP+, skip flow
-  let max = currentOrder;
-  let s = 0;
-  try {
-    while (true) {
-      const res = await pipedriveGet(apiToken, `/deals/${dealId}/flow`, { limit: "100", start: String(s) });
-      if (!res.data) break;
-      for (const e of res.data) {
-        if (e.object === "dealChange" && e.data?.field_key === "stage_id") {
-          for (const v of [e.data.old_value, e.data.new_value]) {
-            const order = STAGE_ORDER[parseInt(v)] || 0;
-            if (order > max) max = order;
-          }
-        }
-      }
-      if (max >= OPP_MIN_ORDER) break; // Found OPP+, early exit
-      if (!res.additional_data?.pagination?.more_items_in_collection) break;
-      s += 100;
-    }
-  } catch (err) { console.error(`flow error deal ${dealId}:`, err); }
-  return max;
-}
-
 // Count deal into monthly map based on max stage reached
-function countDealByStage(deal: any, maxOrder: number, monthly: Map<string, number>, startDate: string, endDate: string) {
-  if (String(deal.lost_reason || "").toLowerCase() === "duplicado/erro") return;
-  const addTime = deal.add_time;
+function countDealByStage(deal: NektDeal, maxOrder: number, monthly: Map<string, number>, startDate: string, endDate: string) {
+  if (deal.motivo_da_perda === "Duplicado/Erro") return;
+  const addTime = deal.negocio_criado_em;
   if (!addTime) return;
   const day = addTime.substring(0, 10);
   if (day < startDate || day > endDate) return;
@@ -952,53 +548,42 @@ function countDealByStage(deal: any, maxOrder: number, monthly: Map<string, numb
   }
 }
 
-// ---- Backfill open+won deals (stage_id based, no flow needed) ----
-async function backfillOpenWon(apiToken: string, supabase: any) {
+// ---- Backfill open+won deals (Nekt, stage_id based) ----
+async function backfillOpenWon(nektApiKey: string, supabase: any) {
   const now = new Date();
   const endDate = now.toISOString().substring(0, 10);
   const start365 = new Date(now); start365.setDate(start365.getDate() - 365);
   const startDate = start365.toISOString().substring(0, 10);
-  console.log(`backfillOpenWon: ${startDate} → ${endDate}`);
+  console.log(`backfillOpenWon: ${startDate} -> ${endDate}`);
 
   const monthly = new Map<string, number>();
-  let totalOpen = 0, totalWon = 0;
 
-  // Open deals — stage_id is reliable for active deals (forward progression)
-  let s = 0;
-  while (true) {
-    const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, { limit: "500", start: String(s) });
-    if (!res.data || res.data.length === 0) break;
-    for (const deal of res.data) {
-      if (deal.pipeline_id !== PIPELINE_ID) continue;
-
-      totalOpen++;
-      const currentOrder = STAGE_ORDER[deal.stage_id] || 0;
-      countDealByStage(deal, currentOrder, monthly, startDate, endDate);
-    }
-    if (!res.additional_data?.pagination?.more_items_in_collection) break;
-    s += 500;
+  // Open deals — etapa is reliable for active deals
+  const openSql = `
+    SELECT ${NEKT_DEAL_COLUMNS}
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'open'
+  `;
+  const openDeals = await queryNekt(openSql, nektApiKey);
+  let totalOpen = 0;
+  for (const deal of openDeals) {
+    totalOpen++;
+    const currentOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
+    countDealByStage(deal, currentOrder, monthly, startDate, endDate);
   }
 
-  // Won deals — all at Contrato (order 13), no flow needed
-  const seenWon = new Set<number>();
-  for (const stageId of PIPELINE_STAGES) {
-    let ws = 0;
-    while (true) {
-      const res = await pipedriveGet(apiToken, "/deals", {
-        status: "won", stage_id: String(stageId), sort: "add_time DESC", limit: "500", start: String(ws),
-      });
-      if (!res.data || res.data.length === 0) break;
-      for (const deal of res.data) {
-        if (seenWon.has(deal.id)) continue;
-        seenWon.add(deal.id);
-        if (deal.pipeline_id !== PIPELINE_ID) continue;
-
-        totalWon++;
-        countDealByStage(deal, 12, monthly, startDate, endDate); // Won = passed all stages (SZS has 12 stages)
-      }
-      if (!res.additional_data?.pagination?.more_items_in_collection) break;
-      ws += 500;
-    }
+  // Won deals — all at Contrato (order 12)
+  const wonSql = `
+    SELECT ${NEKT_DEAL_COLUMNS}
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'won'
+      AND negocio_criado_em >= TIMESTAMP '${startDate}'
+  `;
+  const wonDeals = await queryNekt(wonSql, nektApiKey);
+  let totalWon = 0;
+  for (const deal of wonDeals) {
+    totalWon++;
+    countDealByStage(deal, 12, monthly, startDate, endDate); // Won = passed all stages (SZS has 12 stages)
   }
 
   // Upsert (additive)
@@ -1018,65 +603,31 @@ async function backfillOpenWon(apiToken: string, supabase: any) {
   return { totalOpen, totalWon, monthlyRows: rows.length };
 }
 
-// ---- Backfill lost deals with flow API (batched, parallel flow calls) ----
-async function backfillLostWithFlow(apiToken: string, supabase: any, startFrom: number = 0) {
+// ---- Backfill lost deals (Nekt has all data, no flow API needed) ----
+async function backfillLostWithFlow(nektApiKey: string, supabase: any, _startFrom: number = 0) {
   const now = new Date();
   const endDate = now.toISOString().substring(0, 10);
   const start365 = new Date(now); start365.setDate(start365.getDate() - 365);
   const startDate = start365.toISOString().substring(0, 10);
-  const BATCH_LIMIT = 5000; // API-returned deals per invocation
-  const FLOW_CONCURRENCY = 10; // parallel flow API calls
 
-  console.log(`backfillLostWithFlow(start=${startFrom}): ${startDate} → ${endDate}`);
+  console.log(`backfillLostWithFlow: ${startDate} -> ${endDate}`);
+
+  const sql = `
+    SELECT ${NEKT_DEAL_COLUMNS}
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'lost'
+      AND negocio_criado_em >= TIMESTAMP '${startDate}'
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
 
   const monthly = new Map<string, number>();
-  const seenDealIds = new Set<number>();
-  let mktDeals = 0, flowCalls = 0;
-  let apiStart = startFrom;
-  let dealsScanned = 0;
-  let reachedEnd = false;
-  let reachedCutoff = false;
+  let mktDeals = 0;
 
-  while (dealsScanned < BATCH_LIMIT) {
-    const res = await pipedriveGet(apiToken, "/deals", {
-      status: "lost", sort: "add_time DESC", limit: "500", start: String(apiStart),
-    });
-    if (!res.data || res.data.length === 0) { reachedEnd = true; break; }
-
-    // Collect marketing deals that need flow
-    const dealsNeedingFlow: { deal: any; currentOrder: number }[] = [];
-    for (const deal of res.data) {
-      if (seenDealIds.has(deal.id)) continue;
-      seenDealIds.add(deal.id);
-      dealsScanned++;
-      if (deal.pipeline_id !== PIPELINE_ID) continue;
-
-      const addTime = deal.add_time;
-      if (!addTime) continue;
-      const day = addTime.substring(0, 10);
-      if (day < startDate || day > endDate) continue;
-      mktDeals++;
-      const currentOrder = STAGE_ORDER[deal.stage_id] || 0;
-      dealsNeedingFlow.push({ deal, currentOrder });
-    }
-
-    // Fetch flows in parallel batches
-    for (let i = 0; i < dealsNeedingFlow.length; i += FLOW_CONCURRENCY) {
-      const chunk = dealsNeedingFlow.slice(i, i + FLOW_CONCURRENCY);
-      const results = await Promise.all(
-        chunk.map(({ deal, currentOrder }) => getMaxStageReached(apiToken, deal.id, currentOrder))
-      );
-      flowCalls += chunk.length;
-      for (let j = 0; j < chunk.length; j++) {
-        countDealByStage(chunk[j].deal, results[j], monthly, startDate, endDate);
-      }
-    }
-
-    // Cutoff: stop when deals are older than our window
-    const oldest = res.data[res.data.length - 1]?.add_time?.substring(0, 10) || "";
-    if (oldest && oldest < startDate) { reachedCutoff = true; break; }
-    if (!res.additional_data?.pagination?.more_items_in_collection) { reachedEnd = true; break; }
-    apiStart += 500;
+  for (const deal of deals) {
+    mktDeals++;
+    // For lost deals, use current etapa as max stage (Nekt has the stage where deal was lost)
+    const currentOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
+    countDealByStage(deal, currentOrder, monthly, startDate, endDate);
   }
 
   // Upsert (additive)
@@ -1092,14 +643,12 @@ async function backfillLostWithFlow(apiToken: string, supabase: any, startFrom: 
     }
   }
 
-  const done = reachedEnd || reachedCutoff;
-  const nextStart = done ? null : apiStart;
-  console.log(`backfillLostWithFlow: scanned=${dealsScanned} mkt=${mktDeals} flow=${flowCalls} rows=${rows.length} done=${done}`);
-  return { dealsScanned, mktDeals, flowCalls, monthlyRows: rows.length, nextStart, done };
+  console.log(`backfillLostWithFlow: deals=${deals.length} mkt=${mktDeals} rows=${rows.length}`);
+  return { dealsScanned: deals.length, mktDeals, flowCalls: 0, monthlyRows: rows.length, nextStart: null, done: true };
 }
 
-// ---- Mode: monthly-rollup (stage-based counting from Pipedrive for current + prev month) ----
-async function syncMonthlyRollup(apiToken: string, supabase: any) {
+// ---- Mode: monthly-rollup (stage-based counting for current + prev month, via Nekt) ----
+async function syncMonthlyRollup(nektApiKey: string, supabase: any) {
   const now = new Date();
   const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -1107,25 +656,35 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
   const startDate = `${prevMonth}-01`;
   const endDate = now.toISOString().substring(0, 10);
 
-  console.log(`syncMonthlyRollup (stage-based): ${startDate} → ${endDate}`);
+  console.log(`syncMonthlyRollup (stage-based): ${startDate} -> ${endDate}`);
 
   const monthly = new Map<string, number>();
 
-  function countDeal(deal: any) {
-    if (deal.pipeline_id !== PIPELINE_ID) return;
-    if (String(deal.lost_reason || "").toLowerCase() === "duplicado/erro") return;
+  // Fetch all deals (open, won, lost) from Nekt for this period
+  const sql = `
+    SELECT ${NEKT_DEAL_COLUMNS}
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID}
+      AND negocio_criado_em >= TIMESTAMP '${startDate}'
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
+  let totalDeals = 0;
+
+  for (const deal of deals) {
+    if (deal.motivo_da_perda === "Duplicado/Erro") continue;
+    const addTime = deal.negocio_criado_em;
+    if (!addTime) continue;
+    const day = addTime.substring(0, 10);
+    if (day < startDate || day > endDate) continue;
+    totalDeals++;
     const canalGroup = getCanalGroup(deal);
     const emp = getCidade(deal);
     const bairro = getBairro(deal);
-    if (!emp) return;
-    const addTime = deal.add_time;
-    if (!addTime) return;
-    const day = addTime.substring(0, 10);
-    if (day < startDate || day > endDate) return;
+    if (!emp) continue;
     const month = day.substring(0, 7);
-    const stageOrder = STAGE_ORDER[deal.stage_id] || 0;
-    const hasQualDate = !!deal[FIELD_QUALIFICACAO];
-    const hasReunDate = !!deal[FIELD_REUNIAO];
+    const stageOrder = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
+    const hasQualDate = !!deal.data_de_qualificacao;
+    const hasReunDate = !!deal.data_da_reuniao;
 
     monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|mql`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|mql`) || 0) + 1);
     if (stageOrder >= SQL_MIN_ORDER || hasQualDate) {
@@ -1138,49 +697,6 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
       monthly.set(`${month}|${canalGroup}|${emp}|${bairro}|won`, (monthly.get(`${month}|${canalGroup}|${emp}|${bairro}|won`) || 0) + 1);
     }
   }
-
-  // Scan open deals
-  let totalDeals = 0;
-  let start = 0;
-  while (true) {
-    const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, {
-      limit: "500", start: String(start),
-    });
-    if (!res.data || res.data.length === 0) break;
-    totalDeals += res.data.length;
-    for (const deal of res.data) countDeal(deal);
-    if (!res.additional_data?.pagination?.more_items_in_collection) break;
-    start += 500;
-  }
-
-  // Scan won + lost deals (deduped)
-  const seenDealIds = new Set<number>();
-  for (const dealStatus of ["won", "lost"] as const) {
-    for (const stageId of PIPELINE_STAGES) {
-      let s = 0;
-      let stoppedEarly = false;
-      while (true) {
-        const res = await pipedriveGet(apiToken, "/deals", {
-          status: dealStatus, stage_id: String(stageId),
-          sort: "add_time DESC", limit: "500", start: String(s),
-        });
-        if (!res.data || res.data.length === 0) break;
-        for (const deal of res.data) {
-          if (seenDealIds.has(deal.id)) continue;
-          seenDealIds.add(deal.id);
-          countDeal(deal);
-        }
-        if (dealStatus === "lost") {
-          const oldest = res.data[res.data.length - 1]?.add_time?.substring(0, 10) || "";
-          if (oldest && oldest < startDate) { stoppedEarly = true; break; }
-        }
-        if (!res.additional_data?.pagination?.more_items_in_collection) break;
-        s += 500;
-      }
-      if (dealStatus === "lost" && stoppedEarly) break;
-    }
-  }
-  totalDeals += seenDealIds.size;
 
   // Upsert (replace) for current + prev month
   const rows = Array.from(monthly.entries()).map(([key, count]) => {
@@ -1195,8 +711,51 @@ async function syncMonthlyRollup(apiToken: string, supabase: any) {
     if (upsertErr) console.error(`monthly-rollup upsert error:`, upsertErr.message);
   }
 
-  console.log(`syncMonthlyRollup: ${totalDeals} deals → ${rows.length} monthly rows`);
+  console.log(`syncMonthlyRollup: ${totalDeals} deals -> ${rows.length} monthly rows`);
   return { months: [prevMonth, curMonth], totalDeals, totalRows: rows.length };
+}
+
+// ---- Mode: snapshot (Nekt query) ----
+async function syncSnapshot(nektApiKey: string, supabase: any) {
+  const today = new Date().toISOString().substring(0, 10);
+  console.log(`syncSnapshot: querying Nekt for open deals snapshot...`);
+
+  const sql = `
+    SELECT id, pipeline_id, status, etapa, canal, motivo_da_perda
+    FROM nekt_silver.pipedrive_deals_readable
+    WHERE pipeline_id = ${PIPELINE_ID} AND status = 'open'
+  `;
+  const deals = await queryNekt(sql, nektApiKey);
+
+  const snapCounts: Record<string, { total: number; mql: number; sql: number; opp: number; won: number; ag_dados: number; contrato: number }> = {};
+  let snapTotal = 0;
+
+  for (const deal of deals) {
+    if (deal.motivo_da_perda === "Duplicado/Erro") continue;
+    const cg = getCanalGroup(deal);
+    if (!snapCounts[cg]) snapCounts[cg] = { total: 0, mql: 0, sql: 0, opp: 0, won: 0, ag_dados: 0, contrato: 0 };
+    const c = snapCounts[cg];
+    const so = STAGE_ORDER[parseInt(deal.etapa || "0")] || 0;
+    c.total++;
+    c.mql++;
+    if (so >= SQL_MIN_ORDER) c.sql++;
+    if (so >= OPP_MIN_ORDER) c.opp++;
+    if (so === 11) c.ag_dados++;
+    if (so === 12) c.contrato++;
+    snapTotal++;
+  }
+
+  // Upsert rows
+  const snapRows = Object.entries(snapCounts).map(([canal_group, c]) => ({
+    date: today, canal_group, total_open: c.total, mql: c.mql, sql_count: c.sql,
+    opp: c.opp, won: c.won, ag_dados: c.ag_dados, contrato: c.contrato,
+    synced_at: new Date().toISOString(),
+  }));
+  if (snapRows.length > 0) {
+    const { error: snapErr } = await supabase.from("szs_open_snapshots").upsert(snapRows, { onConflict: "date,canal_group" });
+    if (snapErr) console.error("Snapshot upsert error:", snapErr.message);
+  }
+  return { date: today, groups: snapRows.length, total: snapTotal };
 }
 
 // ---- Handler ----
@@ -1209,12 +768,10 @@ Deno.serve(async (req) => {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const svcKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Auth handled by Supabase gateway (--no-verify-jwt not set)
-
-    // Get Pipedrive token from Vault
-    const { data: tokenData } = await supabase.rpc("vault_read_secret", { secret_name: "PIPEDRIVE_API_TOKEN" });
-    const apiToken = tokenData?.trim();
-    if (!apiToken) throw new Error("PIPEDRIVE_API_TOKEN not found in vault");
+    // Get Nekt API key from Vault
+    const { data: nektKeyData } = await supabase.rpc("vault_read_secret", { secret_name: "NEKT_API_KEY" });
+    const nektApiKey = nektKeyData?.trim();
+    if (!nektApiKey) throw new Error("NEKT_API_KEY not found in vault");
 
     // Parse mode
     let mode = "daily-open";
@@ -1228,165 +785,44 @@ Deno.serve(async (req) => {
     let result;
     switch (mode) {
       case "daily-open":
-        // Open deals from pipeline endpoint (replaces counts)
-        result = await syncDailyOpen(apiToken, supabase, svcKey);
+        result = await syncDailyOpen(nektApiKey, supabase, svcKey);
         break;
       case "daily-won":
-        // Won deals via stage_id filter (merges with existing)
-        result = await syncDailyByStatus(apiToken, supabase, svcKey, "won");
+        result = await syncDailyByStatus(nektApiKey, supabase, svcKey, "won");
         break;
       case "daily-lost":
-        // Lost deals via stage_id filter (merges with existing)
-        result = await syncDailyByStatus(apiToken, supabase, svcKey, "lost");
+        result = await syncDailyByStatus(nektApiKey, supabase, svcKey, "lost");
         break;
       case "alignment":
-        result = { rows: await syncAlignment(apiToken, svcKey) };
+        result = { rows: await syncAlignment(nektApiKey, svcKey) };
         break;
       case "metas":
         result = await syncMetas(supabase);
         break;
       case "monthly-rollup":
-        result = await syncMonthlyRollup(apiToken, supabase);
+        result = await syncMonthlyRollup(nektApiKey, supabase);
         break;
       case "backfill-monthly-clear":
         result = await backfillMonthlyClear(supabase);
         break;
       case "backfill-open-won":
-        result = await backfillOpenWon(apiToken, supabase);
+        result = await backfillOpenWon(nektApiKey, supabase);
         break;
       case "backfill-lost-flows": {
         const startFrom = body?.start || 0;
-        result = await backfillLostWithFlow(apiToken, supabase, startFrom);
+        result = await backfillLostWithFlow(nektApiKey, supabase, startFrom);
         break;
       }
-      case "debug-stages": {
-        // Debug: scan a sample of deals and report stage_id distribution
-        const stageDistOpen: Record<string, number> = {};
-        const stageDistWon: Record<string, number> = {};
-        const stageDistLost: Record<string, number> = {};
-        let sampleOpen = 0, sampleWon = 0, sampleLost = 0;
-        let mktOpen = 0, mktWon = 0, mktLost = 0;
-
-        // Open deals
-        let s = 0;
-        while (true) {
-          const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, { limit: "500", start: String(s) });
-          if (!res.data || res.data.length === 0) break;
-          for (const d of res.data) {
-            if (d.pipeline_id !== PIPELINE_ID) continue;
-            sampleOpen++;
-            if (getCidade(d)) {
-              mktOpen++;
-              const sid = String(d.stage_id);
-              stageDistOpen[sid] = (stageDistOpen[sid] || 0) + 1;
-            }
-          }
-          if (!res.additional_data?.pagination?.more_items_in_collection) break;
-          s += 500;
-        }
-
-        // Won deals (first 2000)
-        const seenW = new Set<number>();
-        for (const stageId of PIPELINE_STAGES) {
-          let ws = 0;
-          while (true) {
-            const res = await pipedriveGet(apiToken, "/deals", { status: "won", stage_id: String(stageId), sort: "add_time DESC", limit: "500", start: String(ws) });
-            if (!res.data || res.data.length === 0) break;
-            for (const d of res.data) {
-              if (seenW.has(d.id)) continue;
-              seenW.add(d.id);
-              if (d.pipeline_id !== PIPELINE_ID) continue;
-              sampleWon++;
-              if (getCidade(d)) {
-                mktWon++;
-                const sid = String(d.stage_id);
-                stageDistWon[sid] = (stageDistWon[sid] || 0) + 1;
-              }
-            }
-            if (!res.additional_data?.pagination?.more_items_in_collection) break;
-            ws += 500;
-          }
-        }
-
-        // Lost deals (first 5000, sorted by add_time DESC)
-        const seenL = new Set<number>();
-        for (const stageId of PIPELINE_STAGES) {
-          let ls = 0;
-          while (true) {
-            const res = await pipedriveGet(apiToken, "/deals", { status: "lost", stage_id: String(stageId), sort: "add_time DESC", limit: "500", start: String(ls) });
-            if (!res.data || res.data.length === 0) break;
-            for (const d of res.data) {
-              if (seenL.has(d.id)) continue;
-              seenL.add(d.id);
-              if (d.pipeline_id !== PIPELINE_ID) continue;
-              sampleLost++;
-              if (getCidade(d)) {
-                mktLost++;
-                const sid = String(d.stage_id);
-                stageDistLost[sid] = (stageDistLost[sid] || 0) + 1;
-              }
-            }
-            if (seenL.size >= 5000) break;
-            if (!res.additional_data?.pagination?.more_items_in_collection) break;
-            ls += 500;
-          }
-          if (seenL.size >= 5000) break;
-        }
-
-        result = {
-          open: { total: sampleOpen, marketing: mktOpen, stages: stageDistOpen },
-          won: { total: sampleWon, marketing: mktWon, stages: stageDistWon },
-          lost: { total: sampleLost, marketing: mktLost, stages: stageDistLost },
-        };
+      case "snapshot":
+        result = await syncSnapshot(nektApiKey, supabase);
         break;
-      }
       case "all": {
         // Full sync: open + won + alignment + metas (lost runs separately due to volume)
-        const daily = await syncDailyOpen(apiToken, supabase);
-        const won = await syncDailyByStatus(apiToken, supabase, "won");
-        const alignment = await syncAlignment(apiToken, supabase);
+        const daily = await syncDailyOpen(nektApiKey, supabase, svcKey);
+        const won = await syncDailyByStatus(nektApiKey, supabase, svcKey, "won");
+        const alignment = await syncAlignment(nektApiKey, svcKey);
         const metas = await syncMetas(supabase);
         result = { daily, won, alignment, metas };
-        break;
-      }
-      case "snapshot": {
-        // Daily snapshot of open deals by canal_group and stage
-        const today = new Date().toISOString().substring(0, 10);
-        const snapCounts: Record<string, { total: number; mql: number; sql: number; opp: number; won: number; ag_dados: number; contrato: number }> = {};
-        let snapStart = 0;
-        let snapTotal = 0;
-        while (true) {
-          const res = await pipedriveGet(apiToken, `/pipelines/${PIPELINE_ID}/deals`, { limit: "500", start: String(snapStart) });
-          if (!res.data || res.data.length === 0) break;
-          for (const deal of res.data) {
-            if (deal.pipeline_id !== PIPELINE_ID) continue;
-            if (String(deal.lost_reason || "").toLowerCase() === "duplicado/erro") continue;
-            const cg = getCanalGroup(deal);
-            if (!snapCounts[cg]) snapCounts[cg] = { total: 0, mql: 0, sql: 0, opp: 0, won: 0, ag_dados: 0, contrato: 0 };
-            const c = snapCounts[cg];
-            const so = STAGE_ORDER[deal.stage_id] || 0;
-            c.total++;
-            c.mql++;
-            if (so >= SQL_MIN_ORDER) c.sql++;
-            if (so >= OPP_MIN_ORDER) c.opp++;
-            if (so === 11) c.ag_dados++;
-            if (so === 12) c.contrato++;
-            snapTotal++;
-          }
-          if (!res.additional_data?.pagination?.more_items_in_collection) break;
-          snapStart += 500;
-        }
-        // Upsert rows
-        const snapRows = Object.entries(snapCounts).map(([canal_group, c]) => ({
-          date: today, canal_group, total_open: c.total, mql: c.mql, sql_count: c.sql,
-          opp: c.opp, won: c.won, ag_dados: c.ag_dados, contrato: c.contrato,
-          synced_at: new Date().toISOString(),
-        }));
-        if (snapRows.length > 0) {
-          const { error: snapErr } = await supabase.from("szs_open_snapshots").upsert(snapRows, { onConflict: "date,canal_group" });
-          if (snapErr) console.error("Snapshot upsert error:", snapErr.message);
-        }
-        result = { date: today, groups: snapRows.length, total: snapTotal };
         break;
       }
       default:
