@@ -57,8 +57,7 @@ async function fetchDeals(cutoff: string | null): Promise<DealRow[]> {
   while (true) {
     let query = supabase
       .from("mktp_deals")
-      .select("deal_id, owner_name, preseller_name, empreendimento, canal, status, max_stage_order, lost_reason, is_marketing, add_time, won_time, lost_time")
-      .eq("is_marketing", true);
+      .select("deal_id, owner_name, preseller_name, empreendimento, canal, status, max_stage_order, lost_reason, add_time, won_time, lost_time");
     if (cutoff) {
       query = query.or(`status.eq.open,won_time.gte.${cutoff},lost_time.gte.${cutoff},add_time.gte.${cutoff}`);
     }

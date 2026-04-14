@@ -58,12 +58,11 @@ export async function GET(req: NextRequest) {
           .gte(dateCol, startDate);
         if (isWon) q = q.eq("status", "won");
         if (ctwaOnly) {
-          q = q.eq("is_marketing", true).eq("rd_source", "Click To WhatsApp");
+          q = q.eq("rd_source", "Click To WhatsApp");
         } else if (paidOnly) {
-          q = q.eq("is_marketing", true).ilike("rd_source", "%pag%");
-        } else if (marketingOnly) {
-          q = q.eq("is_marketing", true);
+          q = q.ilike("rd_source", "%pag%");
         }
+        // marketingOnly: sem filtro adicional (Geral inclui todos os canais)
         return q.range(o, o + ps - 1);
       });
 
@@ -121,12 +120,11 @@ export async function GET(req: NextRequest) {
               .not("empreendimento", "is", null)
               .gte("add_time", startDate90);
             if (ctwaOnly) {
-              q = q.eq("is_marketing", true).eq("rd_source", "Click To WhatsApp");
+              q = q.eq("rd_source", "Click To WhatsApp");
             } else if (paidOnly) {
-              q = q.eq("is_marketing", true).ilike("rd_source", "%pag%");
-            } else if (marketingOnly) {
-              q = q.eq("is_marketing", true);
+              q = q.ilike("rd_source", "%pag%");
             }
+            // marketingOnly: sem filtro adicional (Geral inclui todos os canais)
             return q.range(o, o + ps - 1);
           });
         })()

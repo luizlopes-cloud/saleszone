@@ -50,7 +50,6 @@ export async function GET() {
           .from("mktp_deals")
           .select("deal_id, stage_order, owner_name, empreendimento")
           .eq("status", "open")
-          .eq("is_marketing", true)
           .not("empreendimento", "is", null)
           .range(o, o + ps - 1),
       ),
@@ -58,7 +57,6 @@ export async function GET() {
         supabase
           .from("mktp_deals")
           .select("deal_id, status, stage_order, max_stage_order, lost_reason, add_time, won_time")
-          .eq("is_marketing", true)
           .not("empreendimento", "is", null)
           .in("status", ["won", "lost"])
           .gte("add_time", d90Str)
@@ -69,7 +67,6 @@ export async function GET() {
           .from("mktp_deals")
           .select("deal_id, add_time, won_time, max_stage_order")
           .eq("status", "won")
-          .eq("is_marketing", true)
           .not("empreendimento", "is", null)
           .gte("won_time", d90Str)
           .range(o, o + ps - 1),
@@ -79,7 +76,6 @@ export async function GET() {
           .from("mktp_deals")
           .select("deal_id, owner_name, empreendimento")
           .eq("status", "won")
-          .eq("is_marketing", true)
           .gte("won_time", mesInicio)
           .lt("won_time", mesFim)
           .range(o, o + ps - 1),
