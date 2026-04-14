@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
     cutoff90.setDate(cutoff90.getDate() - 90);
     const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
-    // ── 1. Funnel counts Geral from squad_deals (cada etapa pela data correta, sem indicação) ──
+    // ── 1. Funnel counts Geral from squad_deals (cada etapa pela data correta, todos os canais) ──
     const [geralMqlDeals, geralSqlDeals, geralOppDeals, geralWonDeals] = await Promise.all([
       // MQL: por add_time
       paginate((o, ps) =>
@@ -125,11 +125,10 @@ export async function GET(req: NextRequest) {
       ),
     ]);
 
-    function countExcludeIndica(deals: { canal: string; lost_reason: string }[]): number {
+    function countAll(deals: { canal: string; lost_reason: string }[]): number {
       let count = 0;
       for (const d of deals) {
         if (d.lost_reason === "Duplicado/Erro") continue;
-        if ((d.canal || "").toLowerCase().includes("indica")) continue;
         count++;
       }
       return count;
@@ -145,10 +144,10 @@ export async function GET(req: NextRequest) {
     let totalCounts: Record<string, number>;
     if (hasServiceRole() && geralMqlDeals.length > 0) {
       totalCounts = {
-        mql: countExcludeIndica(geralMqlDeals),
-        sql: countExcludeIndica(geralSqlDeals),
-        opp: countExcludeIndica(geralOppDeals),
-        won: countExcludeIndica(geralWonDeals),
+        mql: countAll(geralMqlDeals),
+        sql: countAll(geralSqlDeals),
+        opp: countAll(geralOppDeals),
+        won: countAll(geralWonDeals),
       };
     } else {
       // Fallback: squad_daily_counts (anon key)
