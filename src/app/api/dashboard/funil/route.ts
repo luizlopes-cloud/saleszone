@@ -299,10 +299,7 @@ export async function GET(req: NextRequest) {
       // Leads/MQL só contam deals criados no mês (add_time >= startDate)
       if (d.add_time && d.add_time >= startDate) {
         paidLeadsMap.set(key, (paidLeadsMap.get(key) || 0) + 1);
-        const canal = (d.canal || "").toLowerCase();
-        if (!canal.includes("indica")) {
-          paidMqlMap.set(key, (paidMqlMap.get(key) || 0) + 1);
-        }
+        paidMqlMap.set(key, (paidMqlMap.get(key) || 0) + 1);
       }
     }
     for (const d of paidSqlDeals) {
@@ -357,10 +354,7 @@ export async function GET(req: NextRequest) {
       // Leads/MQL só contam deals criados no mês (add_time >= startDate)
       if (d.add_time && d.add_time >= startDate) {
         allLeadsMap.set(key, (allLeadsMap.get(key) || 0) + 1);
-        const canal = (d.canal || "").toLowerCase();
-        if (!canal.includes("indica")) {
-          allMqlMap.set(key, (allMqlMap.get(key) || 0) + 1);
-        }
+        allMqlMap.set(key, (allMqlMap.get(key) || 0) + 1);
       }
     }
     for (const d of allSqlDeals) {

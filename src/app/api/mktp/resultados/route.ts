@@ -153,10 +153,7 @@ export async function GET() {
         const day = dateVal.substring(0, 10);
         if (day < startDate) continue; // only current month
         channelCounts[group][tab] = (channelCounts[group][tab] || 0) + 1;
-        // MQL "sem indicação": Funil Completo excludes Parcerias (canais 582/583/2876)
-        if (tab !== "mql" || group !== "Parcerias") {
-          channelCounts["Funil Completo"][tab] = (channelCounts["Funil Completo"][tab] || 0) + 1;
-        }
+        channelCounts["Funil Completo"][tab] = (channelCounts["Funil Completo"][tab] || 0) + 1;
       }
     }
 

@@ -16,11 +16,10 @@ const TABS: TabKey[] = ["mql", "sql", "opp", "won"];
 // stage thresholds for squad_deals.max_stage_order
 const STAGE_THRESHOLDS: Record<TabKey, number> = { mql: 2, sql: 5, opp: 9, won: 14 };
 
-// Canais excluídos do modo Geral (parceiros/spots internos)
-const EXCLUDED_CANAIS = ["582", "583", "2876", "3189"];
-// 582 = Indicação de Corretor, 583 = Indicação de Franquia
-// 2876 = Indicação de outros Parceiros, 3189 = Spot Seazone
-// NOTA: Indicação de Clientes (10) NÃO é excluído — fica no Geral
+// Canais excluídos do modo Geral
+const EXCLUDED_CANAIS = ["3189"];
+// 3189 = Spot Seazone (canal interno, não é venda)
+// Indicações (582, 583, 2876) agora são incluídas no Geral
 
 export const dynamic = "force-dynamic";
 
