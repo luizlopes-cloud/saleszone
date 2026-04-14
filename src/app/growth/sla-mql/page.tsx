@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { T } from "@/lib/constants"
+import { T, SQUADS, SQUAD_FROM_COMMERCIAL } from "@/lib/constants"
 import { createClient } from "@/lib/supabase/client"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -150,6 +150,12 @@ const VERTICAL_COLOR: Record<string, string> = {
   Serviços:    T.teal600,
 }
 
+const SQUAD_OPTIONS: { value: string; label: string }[] = [
+  { value: "",       label: "— sem squad" },
+  { value: "szi_01", label: "Luana" },
+  { value: "szi_02", label: "Filipe" },
+]
+
 const VERTICAL_TABLE: Record<string, string> = {
   SZI:         "squad_baserow_empreendimentos",
   Marketplace: "mktp_baserow_empreendimentos",
@@ -230,7 +236,7 @@ const DEFAULT_ROWS: SlaRow[] = [
   { id:  3, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Jurerê Spot II",         status: true,  commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F2, mql_pagamentos: P },
   { id:  4, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Jurerê Spot III",        status: true,  commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F2, mql_pagamentos: P },
   { id:  5, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Marista 144 Spot",       status: false, commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: ["R$ 100.001 a R$ 200.000 em até 54 meses", ...F3], mql_pagamentos: P },
-  { id:  6, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Caraguá Spot",           status: false, commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
+  { id:  6, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Caraguá Spot",           status: false, commercial_squad: "szi_02", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
   { id:  7, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Ponta das Canas Spot II",status: true,  commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
   { id:  8, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Barra Grande Spot",      status: true,  commercial_squad: "szi_02", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
   { id:  9, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Natal Spot",             status: true,  commercial_squad: "szi_02", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
@@ -245,6 +251,18 @@ const DEFAULT_ROWS: SlaRow[] = [
     mql_faixas: ["Disponível imediatamente","Alugado com contrato anual","Em reforma / preparação","Já opera por temporada"],
     mql_pagamentos: ["Sim","Não","Não, mas estou disposto a instalar caso seja necessário"] },
 ]
+
+function migrateSquads(rows: SlaRow[]): SlaRow[] {
+  let changed = false
+  const out = rows.map(r => {
+    if (r.nome === "Caraguá Spot" && r.commercial_squad === "szi_01") {
+      changed = true
+      return { ...r, commercial_squad: "szi_02" }
+    }
+    return r
+  })
+  return changed ? out : rows
+}
 
 function migrateFaixas(rows: SlaRow[]): SlaRow[] {
   const OLD = "À vista via PIX ou boleto"
@@ -381,6 +399,7 @@ export default function SlaPage() {
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [draft, setDraft]           = useState<Draft | null>(null)
   const [editStatus, setEditStatus] = useState(true)
+  const [editSquad, setEditSquad]   = useState("")
   const [saving, setSaving]         = useState(false)
   const [saveError, setSaveError]   = useState<string | null>(null)
 
@@ -413,7 +432,28 @@ export default function SlaPage() {
           fetch("/api/sla-mql").then(r => r.json()),
           fetch("/api/sla-mql/log").then(r => r.json()),
         ])
-        if (dataRes.rows) { const migrated = migrateFaixas(dataRes.rows); setRows(migrated); persist(migrated) }
+        if (dataRes.rows) {
+          let migrated = migrateFaixas(dataRes.rows)
+          const afterSquad = migrateSquads(migrated)
+          if (afterSquad !== migrated) {
+            // Caraguá Spot tinha squad errado no blob — corrige agora (fire-and-forget)
+            const fixed = afterSquad.find(r => r.nome === "Caraguá Spot")
+            if (fixed) {
+              fetch(`/api/sla-mql/${fixed.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  status: fixed.status, commercial_squad: fixed.commercial_squad,
+                  mql_intencoes: fixed.mql_intencoes, mql_faixas: fixed.mql_faixas,
+                  mql_pagamentos: fixed.mql_pagamentos, allRows: afterSquad,
+                }),
+              }).catch(() => {})
+            }
+            migrated = afterSquad
+          }
+          setRows(migrated)
+          persist(migrated)
+        }
         if (dataRes.forms) { setForms(dataRes.forms); persistForms(dataRes.forms) }
         if (logRes.entries) {
           const entries = (logRes.entries as Array<{
@@ -513,6 +553,7 @@ export default function SlaPage() {
       mql_pagamentos: makeFieldDraft(get("mql_pagamentos"), row.mql_pagamentos),
     })
     setEditStatus(row.status)
+    setEditSquad(row.commercial_squad)
     setSaveError(null)
     setAddingOption(null)
   }
@@ -520,6 +561,7 @@ export default function SlaPage() {
   function cancelEdit() {
     setEditingKey(null)
     setDraft(null)
+    setEditSquad("")
     setSaveError(null)
     setAddingOption(null)
   }
@@ -562,13 +604,13 @@ export default function SlaPage() {
       // se dois saves correm em paralelo, cada PATCH envia o array inteiro,
       // eliminando a necessidade de read-modify-write no servidor.
       const updated = rows.map(r =>
-        r.id === row.id ? { ...r, status: editStatus, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos } : r
+        r.id === row.id ? { ...r, status: editStatus, commercial_squad: editSquad, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos } : r
       )
 
       const res = await fetch(`/api/sla-mql/${row.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: editStatus, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos, allRows: updated }),
+        body: JSON.stringify({ status: editStatus, commercial_squad: editSquad, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos, allRows: updated }),
       })
       if (!res.ok) { const j = await res.json(); throw new Error(j.error || "Erro ao salvar") }
       setRows(updated)
@@ -591,6 +633,11 @@ export default function SlaPage() {
       }
       if (editStatus !== row.status)
         logEntries.push({ vertical: row.vertical, section: "criterios", action: "edit", entity: row.nome, detail: `Status: ${row.status ? "Ativo → Inativo" : "Inativo → Ativo"}` })
+      if (editSquad !== row.commercial_squad) {
+        const oldLabel = (SQUAD_OPTIONS.find(o => o.value === row.commercial_squad)?.label) ?? (row.commercial_squad || "—")
+        const newLabel = (SQUAD_OPTIONS.find(o => o.value === editSquad)?.label) ?? (editSquad || "—")
+        logEntries.push({ vertical: row.vertical, section: "criterios", action: "edit", entity: row.nome, detail: `Responsável: ${oldLabel} → ${newLabel}` })
+      }
       if (logEntries.length > 0) addLog(logEntries)
 
       cancelEdit()
@@ -1246,7 +1293,9 @@ export default function SlaPage() {
                   const key       = `${row.table}:${row.id}`
                   const isEditing = editingKey === key
                   const rowBg     = i % 2 === 0 ? T.card : T.cinza50
-                  const squad     = (row.commercial_squad || "").replace("_", "-").toUpperCase()
+                  const squadId   = SQUAD_FROM_COMMERCIAL[row.commercial_squad]
+                  const squadData = SQUADS.find(s => s.id === squadId)
+                  const squadLabel = squadData ? squadData.venda.split(" ")[0] : ""
                   const curStatus = isEditing ? editStatus : row.status
 
                   return (
@@ -1272,16 +1321,31 @@ export default function SlaPage() {
                           <span style={{ fontSize: 12.5, fontWeight: 600, color: T.fg, fontFamily: T.font, letterSpacing: "-0.01em" }}>
                             {row.nome}
                           </span>
-                          {squad && (
+                          {isEditing && row.vertical === "SZI" ? (
+                            <select
+                              value={editSquad}
+                              onChange={e => setEditSquad(e.target.value)}
+                              style={{
+                                fontSize: 11, fontFamily: T.font, borderRadius: 4,
+                                border: `1px solid ${T.border}`, padding: "2px 6px",
+                                background: T.card, color: T.fg, cursor: "pointer",
+                                outline: "none",
+                              }}
+                            >
+                              {SQUAD_OPTIONS.map(o => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
+                            </select>
+                          ) : squadLabel ? (
                             <span style={{
                               fontSize: 9, fontWeight: 600, color: accentColor,
                               background: `${accentColor}12`, border: `1px solid ${accentColor}20`,
                               borderRadius: 4, padding: "1px 5px", fontFamily: T.font,
                               letterSpacing: "0.03em", flexShrink: 0,
                             }}>
-                              {squad}
+                              {squadLabel}
                             </span>
-                          )}
+                          ) : null}
                           {isEditing && (
                             <span style={{
                               fontSize: 10, color: curStatus ? "#15803D" : T.mutedFg,

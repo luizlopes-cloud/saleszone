@@ -14,6 +14,7 @@ export async function PATCH(
 
     const body = await req.json() as {
       status: boolean
+      commercial_squad?: string
       mql_intencoes: string[]
       mql_faixas: string[]
       mql_pagamentos: string[]
