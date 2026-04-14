@@ -127,8 +127,7 @@ interface ResultadosSZSData {
   month: string;
   channels: ChannelResult[];
   diagnostic?: {
-    szsDealsCount: number;
-    usingFallback: boolean;
+    source: string;
   };
 }
 
@@ -158,76 +157,22 @@ export async function GET(request: NextRequest) {
     cutoff90.setDate(cutoff90.getDate() - 90);
     const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
-    // MQL/SQL/OPP/WON direto de szs_deals (szs_daily_counts pode estar desatualizado)
-    // MQL = add_time no mês | SQL = qualificacao_date no mês | OPP = reuniao_date no mês | WON = won_time no mês
-    const currentDeals = await paginate((o, ps) =>
-      admin.from("szs_deals")
-        .select("canal, lost_reason, empreendimento, status, add_time, qualificacao_date, reuniao_date, won_time")
-        .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate},qualificacao_date.gte.${startDate},reuniao_date.gte.${startDate}`)
-        .range(o, o + ps - 1)
+    // MQL/SQL/OPP/WON/Reserva/Contrato de szs_daily_counts (fonte única, todos os canais)
+    // szs_deals é incompleto (exclui Parceiros e Expansão), então sempre usa daily_counts
+    const allCounts = await paginate((o, ps) =>
+      admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count")
+        .gte("date", startDate).in("tab", ["mql", "sql", "opp", "won", "reserva", "contrato"]).range(o, o + ps - 1)
     );
-
-    // Diagnostic: check szs_deals completeness
-    const { count: szsDealsTotal } = await admin
-      .from("szs_deals").select("*", { count: "exact", head: true });
-    console.log(`[szs-resultados] szs_deals: fetched=${currentDeals.length}, total=${szsDealsTotal}`);
+    console.log(`[szs-resultados] szs_daily_counts: ${allCounts.length} rows for month`);
 
     const channelCounts: Record<string, Record<string, number>> = {};
     for (const ch of CHANNEL_ORDER) channelCounts[ch] = {};
 
-    for (const d of currentDeals) {
-      if (d.lost_reason && String(d.lost_reason).toLowerCase() === "duplicado/erro") continue;
-      if (cityFilter && getCidadeGroup(d.empreendimento || "") !== cityFilter) continue;
-      const canalGroup = getCanalGroup(String(d.canal || ""));
-      const tabs = getChannelTabs(canalGroup);
-
-      if (d.add_time && d.add_time >= startDate) {
-        for (const tab of tabs) channelCounts[tab]["mql"] = (channelCounts[tab]["mql"] || 0) + 1;
-      }
-      if (d.qualificacao_date && d.qualificacao_date >= startDate) {
-        for (const tab of tabs) channelCounts[tab]["sql"] = (channelCounts[tab]["sql"] || 0) + 1;
-      }
-      if (d.reuniao_date && d.reuniao_date >= startDate) {
-        for (const tab of tabs) channelCounts[tab]["opp"] = (channelCounts[tab]["opp"] || 0) + 1;
-      }
-      if (d.status === "won" && d.won_time && d.won_time >= startDate) {
-        for (const tab of tabs) channelCounts[tab]["won"] = (channelCounts[tab]["won"] || 0) + 1;
-      }
-    }
-
-    // reserva/contrato ainda vêm de szs_daily_counts (não há campo de data equivalente em szs_deals)
-    const countsRows2 = await paginate((o, ps) =>
-      admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count")
-        .gte("date", startDate).in("tab", ["reserva", "contrato"]).range(o, o + ps - 1)
-    );
-    for (const r of countsRows2) {
+    for (const r of allCounts) {
       if (cityFilter && getCidadeGroup(r.empreendimento || "") !== cityFilter) continue;
       const tabs = getChannelTabs(r.canal_group || "Outros");
       for (const tab of tabs) {
         channelCounts[tab][r.tab] = (channelCounts[tab][r.tab] || 0) + (r.count || 0);
-      }
-    }
-
-    // Fallback for MQL/SQL/OPP from szs_daily_counts when szs_deals is suspiciously small
-    let usingFallback = false;
-    const SZ_DEALS_MIN = 15000;
-    if (szsDealsTotal && szsDealsTotal < SZ_DEALS_MIN) {
-      console.warn(`[szs-resultados] szs_deals incomplete (${szsDealsTotal} < ${SZ_DEALS_MIN}) — using szs_daily_counts fallback`);
-      usingFallback = true;
-      // Reset MQL/SQL/OPP before fallback — szs_deals is incomplete, don't double-count
-      for (const ch of CHANNEL_ORDER) {
-        channelCounts[ch]["mql"] = 0;
-        channelCounts[ch]["sql"] = 0;
-        channelCounts[ch]["opp"] = 0;
-      }
-      const fallbackCounts = await paginate((o, ps) =>
-        admin.from("szs_daily_counts").select("date, tab, canal_group, empreendimento, count")
-          .gte("date", startDate).in("tab", ["mql", "sql", "opp"]).range(o, o + ps - 1)
-      );
-      for (const r of fallbackCounts) {
-        if (cityFilter && getCidadeGroup(r.empreendimento || "") !== cityFilter) continue;
-        const tabs = getChannelTabs(r.canal_group || "Outros");
-        for (const tab of tabs) channelCounts[tab][r.tab] = (channelCounts[tab][r.tab] || 0) + (r.count || 0);
       }
     }
 
@@ -545,7 +490,7 @@ export async function GET(request: NextRequest) {
     const body: ResultadosSZSData = {
       month: monthKey,
       channels,
-      diagnostic: { szsDealsCount: szsDealsTotal ?? 0, usingFallback },
+      diagnostic: { source: "szs_daily_counts" },
     };
     return NextResponse.json(body);
   } catch (err: unknown) {
