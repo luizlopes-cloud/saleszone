@@ -31,7 +31,7 @@ export async function GET() {
       try {
         let url =
           `${META_API}/${accountId}/ads` +
-          `?fields=id,name,effective_status,campaign{name},adset{name},created_time,creative{thumbnail_url,image_url}` +
+          `?fields=id,name,effective_status,campaign{name},adset{name},created_time,creative{thumbnail_url,image_url,object_story_spec{link_data{picture}}}` +
           `&filtering=${encodeURIComponent(JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE"] }]))}` +
           `&limit=500&access_token=${token}`
 
@@ -42,7 +42,7 @@ export async function GET() {
           for (const ad of data.data || []) {
             // Meta API bug: filtro effective_status=ACTIVE retorna CAMPAIGN_PAUSED também
             if (ad.effective_status !== "ACTIVE") continue
-            const thumb = ad.creative?.thumbnail_url || ad.creative?.image_url
+            const thumb = ad.creative?.thumbnail_url || ad.creative?.image_url || ad.creative?.object_story_spec?.link_data?.picture
             ads.push({
               ad_id: ad.id,
               ad_name: ad.name || "",

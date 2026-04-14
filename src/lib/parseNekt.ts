@@ -113,9 +113,12 @@ function evaluateStatus(
     return "PAUSAR"
   }
 
+  // Guard global de spend mínimo — sem WON/OPP e sem gasto suficiente, não há dados para decidir
+  if (r.spend < (cfg.spendMinMql ?? 0)) return "AGUARDAR"
+
   if (r.dias_ativos < cp.mql) {
-    // Alerta antecipado: custo/MQL acima de 2x o benchmark antes do primeiro checkpoint → PAUSAR
-    if (isFinite(cost_per_mql) && cost_per_mql > s.mql_meta * 2 && r.spend >= 100) return "PAUSAR"
+    // Alerta antecipado: custo/MQL acima de 3x o benchmark antes do primeiro checkpoint → MONITORAR
+    if (isFinite(cost_per_mql) && cost_per_mql > s.mql_meta * 3 && r.spend >= 100) return "MONITORAR"
     return "AGUARDAR"
   }
 
@@ -123,12 +126,14 @@ function evaluateStatus(
   const rate_sql_opp = r.sql > 0 ? r.opp / r.sql : 0
 
   if (r.dias_ativos < cp.sql) {
+    // Passou o checkpoint sem nenhum MQL → PAUSAR
     if (r.mql === 0) return "PAUSAR"
-    // Custo acima do benchmark → PAUSAR (mql < 3 não protege custo ruim)
-    if (cost_per_mql > s.mql_meta) return "PAUSAR"
+    // Pausa apenas se AMBOS estiverem ruins (AND): custo/MQL alto E taxa MQL→SQL baixa
     const rateOk = r.mql < 3 || rate_mql_sql >= s.taxa_mql_sql
-    if (rateOk) return "MANTER"
-    return "MONITORAR"
+    const costOk = cost_per_mql <= s.mql_meta
+    if (costOk && rateOk) return "MANTER"
+    if (!costOk && !rateOk) return "PAUSAR"
+    return "MONITORAR"  // só um ruim
   }
 
   if (r.dias_ativos < cp.opp) {
@@ -255,13 +260,12 @@ export function computePerformanceRolling(rows: NektRow[]): AdPerformance[] {
       else if (original_status === "PAUSAR" && tendencia === "MELHORANDO") ad_status = "MONITORAR"
     }
 
-    // Fase pós-OPP: se rolling MQL/SQL continua caro, PAUSAR
-    if (!pausedBySpendCap && ad_status !== "PAUSAR" && base.dias_ativos >= cfg.checkpoints.opp) {
-      const sql_7d = sumKey(rows7d, "sql")
-      const costMql7d = mql_7d > 0 ? spend_7d / mql_7d : Infinity
-      const costSql7d = sql_7d > 0 ? spend_7d / sql_7d : Infinity
-      const mqlRollingBad = isFinite(costMql7d) && costMql7d > cfg.scoring.mql_meta
-      const sqlRollingBad = isFinite(costSql7d) && costSql7d > cfg.scoring.sql_meta
+    // Fase pós-OPP: a partir do dia seguinte ao checkpoint, rolling MQL/SQL caro → PAUSAR
+    // +1 porque no dia exato do checkpoint ainda é normal não ter OPP
+    const postOppPhase = base.dias_ativos >= cfg.checkpoints.opp + 1
+    if (postOppPhase && !pausedBySpendCap && ad_status !== "PAUSAR" && ad_status !== "AGUARDAR" && spend_total < (cfg.spendCap ?? Infinity)) {
+      const mqlRollingBad = isFinite(cost_per_mql) && cost_per_mql > cfg.scoring.mql_meta
+      const sqlRollingBad = isFinite(cost_per_sql) && cost_per_sql > cfg.scoring.sql_meta
       if (mqlRollingBad || sqlRollingBad) ad_status = "PAUSAR"
     }
 

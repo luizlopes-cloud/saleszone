@@ -70,6 +70,7 @@ export interface VerticalConfig {
   }
   checkpoints: { mql: number; sql: number; opp: number; won: number }
   spendCap?: number
+  spendMinMql?: number  // Spend mínimo para avaliar checkpoint MQL — abaixo disso retorna AGUARDAR
 }
 
 export const VERTICAL_CONFIGS: Record<string, VerticalConfig> = {
@@ -77,35 +78,40 @@ export const VERTICAL_CONFIGS: Record<string, VerticalConfig> = {
     benchmarks: { cost_per_mql: 121, cost_per_sql: 435, cost_per_opp: 2953, cost_per_won: 5000 },
     scoring: {
       won_meta: 5000, won_teto: 5000,
-      opp_meta: 2953, opp_teto: 4520,
-      sql_meta: 435, sql_teto: 579,
-      mql_meta: 121, mql_teto: 170,
+      opp_meta: 2953,  opp_teto: 4520,
+      sql_meta: 435,   sql_teto: 579,
+      mql_meta: 121,   mql_teto: 170,
       taxa_mql_sql: 0.17, taxa_sql_opp: 0.06,
     },
     checkpoints: { mql: 3, sql: 7, opp: 15, won: 35 },
     spendCap: 5000,
+    spendMinMql: 30,
   },
   Marketplace: {
-    benchmarks: { cost_per_mql: 212.81, cost_per_sql: 876.08, cost_per_opp: 1049.74, cost_per_won: 5391.33 },
+    benchmarks: { cost_per_mql: 123, cost_per_sql: 440, cost_per_opp: 1350, cost_per_won: 5000 },
     scoring: {
-      won_meta: 5391, won_teto: 8087,
-      opp_meta: 1050, opp_teto: 1575,
-      sql_meta: 876, sql_teto: 1314,
-      mql_meta: 213, mql_teto: 260,
-      taxa_mql_sql: 0.17, taxa_sql_opp: 0.06,
+      won_meta: 5000,  won_teto: 8964,
+      opp_meta: 1350,  opp_teto: 2025,
+      sql_meta: 440,   sql_teto: 660,
+      mql_meta: 123,   mql_teto: 185,
+      taxa_mql_sql: 0.15, taxa_sql_opp: 0.10,
     },
-    checkpoints: { mql: 7, sql: 25, opp: 35, won: 50 },
+    checkpoints: { mql: 3, sql: 9, opp: 16, won: 50 },
+    spendCap: 5000,
+    spendMinMql: 30,
   },
   SZS: {
-    benchmarks: { cost_per_mql: 188.74, cost_per_sql: 851.19, cost_per_opp: 2336.86, cost_per_won: 2971.78 },
+    benchmarks: { cost_per_mql: 131, cost_per_sql: 450, cost_per_opp: 1039, cost_per_won: 1400 },
     scoring: {
-      won_meta: 2972, won_teto: 4458,
-      opp_meta: 2337, opp_teto: 3506,
-      sql_meta: 851, sql_teto: 1277,
-      mql_meta: 189, mql_teto: 230,
-      taxa_mql_sql: 0.17, taxa_sql_opp: 0.06,
+      won_meta: 1400,  won_teto: 1400,
+      opp_meta: 1039,  opp_teto: 1559,
+      sql_meta: 450,   sql_teto: 675,
+      mql_meta: 131,   mql_teto: 189,
+      taxa_mql_sql: 0.22, taxa_sql_opp: 0.40,
     },
-    checkpoints: { mql: 7, sql: 25, opp: 35, won: 50 },
+    checkpoints: { mql: 3, sql: 7, opp: 14, won: 35 },
+    spendCap: 1400,
+    spendMinMql: 30,
   },
 }
 

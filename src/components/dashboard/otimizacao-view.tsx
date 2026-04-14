@@ -113,8 +113,10 @@ function generateRecommendation(ad: AdPerformance): string {
 
   const rateMqlSql = ad.mql > 0 ? ad.sql / ad.mql : 0
   const rateSqlOpp = ad.sql > 0 ? ad.opp / ad.sql : 0
-  if (ad.mql >= 3 && rateMqlSql < 0.17) parts.push(`Taxa MQL→SQL ${pct(rateMqlSql)} (min 17%)`)
-  if (ad.sql >= 3 && rateSqlOpp < 0.06) parts.push(`Taxa SQL→OPP ${pct(rateSqlOpp)} (min 6%)`)
+  const minMqlSql = cfg.scoring.taxa_mql_sql
+  const minSqlOpp = cfg.scoring.taxa_sql_opp
+  if (ad.mql >= 3 && rateMqlSql < minMqlSql) parts.push(`Taxa MQL→SQL ${pct(rateMqlSql)} (min ${pct(minMqlSql)})`)
+  if (ad.sql >= 3 && rateSqlOpp < minSqlOpp) parts.push(`Taxa SQL→OPP ${pct(rateSqlOpp)} (min ${pct(minSqlOpp)})`)
 
   if (parts.length === 0) return ad.ad_status === "MONITORAR" ? "Métricas no limite — acompanhar." : "Avaliar manualmente."
   return parts.join(" · ")
@@ -224,6 +226,8 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
   const [previewAd, setPreviewAd] = useState<string | null>(null)
   const [previewHtml, setPreviewHtml] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [agendados, setAgendados] = useState<{ byAdId: Record<string, number> } | null>(null)
+  const manuallyPausedRef = useRef<Set<string>>(new Set())
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -262,8 +266,9 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
             const activeSet = new Set(metaAds.map((a: { ad_id: string }) => a.ad_id))
 
             // Marca ads do perf que estão ativos no Meta
+            // Respeita ads pausados manualmente (Meta pode demorar para refletir)
             for (const ad of perf) {
-              ad.effective_status = activeSet.has(ad.ad_id) ? "ACTIVE" : "PAUSED"
+              ad.effective_status = manuallyPausedRef.current.has(ad.ad_id) ? "PAUSED" : activeSet.has(ad.ad_id) ? "ACTIVE" : "PAUSED"
             }
 
             // Ads ativos no Meta que NÃO estão no Nekt → cria entrada mínima
@@ -306,6 +311,12 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
       }
 
       setAllAds(perf)
+
+      // Fetch agendados em background (não-bloqueante)
+      fetch("/api/meta-ads/agendados")
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d && !d.error) setAgendados(d) })
+        .catch(() => {/* silent */})
     } catch (err) { setError(String(err)) }
     finally { setLoading(false) }
   }, [])
@@ -373,7 +384,10 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
     }
 
     const pausedIds = new Set(results.filter(r => r.success).map(r => r.ad_id))
-    if (pausedIds.size > 0) setAllAds(prev => prev.map(ad => pausedIds.has(ad.ad_id) ? { ...ad, effective_status: "PAUSED" } : ad))
+    if (pausedIds.size > 0) {
+      manuallyPausedRef.current = new Set([...manuallyPausedRef.current, ...pausedIds])
+      setAllAds(prev => prev.map(ad => pausedIds.has(ad.ad_id) ? { ...ad, effective_status: "PAUSED" } : ad))
+    }
 
     setPauseProgress(`${successCount} de ${total} anúncios pausados.${results.some(r => !r.success) ? ` ${total - successCount} falharam.` : ""}`)
     setSelected(new Set())
@@ -499,6 +513,7 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                   <th style={{ ...S.th, textAlign: "right" }}>WON</th>
                   <th style={{ ...S.th, textAlign: "right" }}>R$/WON</th>
                   <th style={{ ...S.th, textAlign: "center" }}>vs BM</th>
+                  <th style={{ ...S.th, textAlign: "right" }} title="Deals em Agendado (reunião marcada) atribuídos a este anúncio">Agend.</th>
                   <th style={{ ...S.th, textAlign: "center" }}>MQL→SQL</th>
                   <th style={{ ...S.th, textAlign: "center" }}>SQL→OPP</th>
                   <th style={{ ...S.th, textAlign: "right" }}>Score</th>
@@ -510,6 +525,7 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
               </thead>
               <tbody>
                 {tabAds.map((ad, i) => {
+                  const cfg = VERTICAL_CONFIGS[ad.vertical] || DEFAULT_CONFIG
                   const rateMqlSql = ad.mql > 0 ? ad.sql / ad.mql : 0
                   const rateSqlOpp = ad.sql > 0 ? ad.opp / ad.sql : 0
                   const isInactive = ad.effective_status !== "ACTIVE"
@@ -593,8 +609,14 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                       <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{ad.won}</td>
                       <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>{ad.cost_per_won > 0 ? fmt(ad.cost_per_won) : "—"}</td>
                       <td style={{ ...S.td, textAlign: "center" }}><BenchBadge ratio={ad.benchmark_vs_won} /></td>
-                      <td style={{ ...S.td, textAlign: "center" }}><RateBadge rate={rateMqlSql} min={0.17} /></td>
-                      <td style={{ ...S.td, textAlign: "center" }}><RateBadge rate={rateSqlOpp} min={0.06} /></td>
+                      <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace" }}>
+                        {(agendados?.byAdId?.[ad.ad_id] ?? 0) > 0
+                          ? <span style={{ color: "#2563EB", fontWeight: 600 }}>{agendados!.byAdId[ad.ad_id]}</span>
+                          : <span style={{ color: T.mutedFg }}>—</span>
+                        }
+                      </td>
+                      <td style={{ ...S.td, textAlign: "center" }}><RateBadge rate={rateMqlSql} min={cfg.scoring.taxa_mql_sql} /></td>
+                      <td style={{ ...S.td, textAlign: "center" }}><RateBadge rate={rateSqlOpp} min={cfg.scoring.taxa_sql_opp} /></td>
                       <td style={{ ...S.td, textAlign: "right", fontFamily: "monospace", fontWeight: 500 }}>{ad.score.toFixed(0)}</td>
                       <td style={{ ...S.td, textAlign: "center" }}><TendenciaBadge tendencia={ad.tendencia} /></td>
                       <td style={{ ...S.td, textAlign: "center" }}>
