@@ -51,6 +51,17 @@ function CopyId({ id }: { id: string }) {
   )
 }
 
+function SortHeaderCell({ column, label, isActive, order, onSort }: { column: string; label: string; isActive: boolean; order: 'asc' | 'desc'; onSort: (col: string) => void }) {
+  return (
+    <th style={{ ...S.th, textAlign: "right", cursor: "pointer", background: isActive ? T.cinza100 : T.cinza50 }} onClick={() => onSort(column)}>
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+        {label}
+        {isActive && <span style={{ color: T.primary, fontSize: 11 }}>{order === 'asc' ? '↑' : '↓'}</span>}
+      </span>
+    </th>
+  )
+}
+
 function BenchBadge({ ratio }: { ratio: number }) {
   if (!ratio || ratio === 0) return <span style={{ fontSize: 10, color: T.mutedFg }}>—</span>
   const good = ratio <= 1
@@ -213,6 +224,8 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
   const [allAds, setAllAds] = useState<AdPerformance[]>([])
   const tab: string = MODULE_VERTICAL[moduleId] || "Investimentos"
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [sortColumn, setSortColumn] = useState<string | null>(null)
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   const [showSettings, setShowSettings] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
   const [showLog, setShowLog] = useState(false)
@@ -340,6 +353,34 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
     if (filterStatus) base = base.filter(a => a.ad_status === filterStatus)
     return base
   }, [allAds, tab, filterStatus, filterCampaigns, searchId])
+
+  const sortedAds = useMemo(() => {
+    if (!sortColumn) return tabAds
+    const sorted = [...tabAds]
+    sorted.sort((a, b) => {
+      let aVal: any = (a as any)[sortColumn]
+      let bVal: any = (b as any)[sortColumn]
+      if (aVal == null) aVal = 0
+      if (bVal == null) bVal = 0
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortOrder === 'asc' ? aVal - bVal : bVal - aVal
+      }
+      if (typeof aVal === 'string') {
+        return sortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+      }
+      return 0
+    })
+    return sorted
+  }, [tabAds, sortColumn, sortOrder])
+
+  const handleSort = (column: string) => {
+    if (sortColumn === column) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortColumn(column)
+      setSortOrder('desc')
+    }
+  }
 
   const pauseCount = useMemo(() => tabAds.filter(a => a.ad_status === "PAUSAR").length, [tabAds])
   const toggleSelect = (id: string) => setSelected(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
@@ -492,31 +533,35 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
               <thead>
                 <tr>
                   <th style={{ ...S.th, width: 32 }}></th>
-                  <th style={S.th}>ID</th>
+                  <th style={{ ...S.th, cursor: "pointer" }} onClick={() => handleSort('ad_id')}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>ID {sortColumn === 'ad_id' && <span style={{ color: T.primary, fontSize: 11 }}>{sortOrder === 'asc' ? '↑' : '↓'}</span>}</span>
+                  </th>
                   <th style={{ ...S.th, minWidth: 200 }}>Anúncio</th>
                   <th style={{ ...S.th, textAlign: "center" }}>Criativo</th>
                   <th style={{ ...S.th, minWidth: 150 }}>Adset</th>
                   {tab === "Investimentos" && <th style={{ ...S.th, minWidth: 140 }}>Empreend.</th>}
-                  <th style={{ ...S.th, textAlign: "right" }}>Dias</th>
+                  <th style={{ ...S.th, textAlign: "right", cursor: "pointer" }} onClick={() => handleSort('dias_ativos')}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>Dias {sortColumn === 'dias_ativos' && <span style={{ color: T.primary, fontSize: 11 }}>{sortOrder === 'asc' ? '↑' : '↓'}</span>}</span>
+                  </th>
                   <th style={{ ...S.th, textAlign: "right" }}>Checkpoint</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>Spend</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>MQL</th>
-                  <th style={{ ...S.th, textAlign: "right" }} title="R$/MQL últimos 7 dias">R$/MQL 7d</th>
-                  <th style={{ ...S.th, textAlign: "right" }} title="R$/MQL acumulado">R$/MQL acum</th>
+                  <SortHeaderCell column="spend" label="Spend" isActive={sortColumn === 'spend'} order={sortOrder} onSort={handleSort} />
+                  <SortHeaderCell column="mql" label="MQL" isActive={sortColumn === 'mql'} order={sortOrder} onSort={handleSort} />
+                  <SortHeaderCell column="cost_per_mql" label="R$/MQL 7d" isActive={sortColumn === 'cost_per_mql'} order={sortOrder} onSort={handleSort} />
+                  <SortHeaderCell column="cost_per_mql_total" label="R$/MQL acum" isActive={sortColumn === 'cost_per_mql_total'} order={sortOrder} onSort={handleSort} />
                   <th style={{ ...S.th, textAlign: "center" }}>vs BM</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>SQL</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>R$/SQL</th>
+                  <SortHeaderCell column="sql" label="SQL" isActive={sortColumn === 'sql'} order={sortOrder} onSort={handleSort} />
+                  <SortHeaderCell column="cost_per_sql" label="R$/SQL" isActive={sortColumn === 'cost_per_sql'} order={sortOrder} onSort={handleSort} />
                   <th style={{ ...S.th, textAlign: "center" }}>vs BM</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>OPP</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>R$/OPP</th>
+                  <SortHeaderCell column="opp" label="OPP" isActive={sortColumn === 'opp'} order={sortOrder} onSort={handleSort} />
+                  <SortHeaderCell column="cost_per_opp" label="R$/OPP" isActive={sortColumn === 'cost_per_opp'} order={sortOrder} onSort={handleSort} />
                   <th style={{ ...S.th, textAlign: "center" }}>vs BM</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>WON</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>R$/WON</th>
+                  <SortHeaderCell column="won" label="WON" isActive={sortColumn === 'won'} order={sortOrder} onSort={handleSort} />
+                  <SortHeaderCell column="cost_per_won" label="R$/WON" isActive={sortColumn === 'cost_per_won'} order={sortOrder} onSort={handleSort} />
                   <th style={{ ...S.th, textAlign: "center" }}>vs BM</th>
                   <th style={{ ...S.th, textAlign: "right" }} title="Deals em Agendado (reunião marcada) atribuídos a este anúncio">Agend.</th>
                   <th style={{ ...S.th, textAlign: "center" }}>MQL→SQL</th>
                   <th style={{ ...S.th, textAlign: "center" }}>SQL→OPP</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>Score</th>
+                  <SortHeaderCell column="score" label="Score" isActive={sortColumn === 'score'} order={sortOrder} onSort={handleSort} />
                   <th style={{ ...S.th, textAlign: "center" }}>Tendência 7d</th>
                   <th style={{ ...S.th, textAlign: "center" }}>Status</th>
                   <th style={{ ...S.th, minWidth: 200 }}>Recomendação</th>
@@ -524,7 +569,7 @@ export function OtimizacaoView({ moduleId = "szi" }: { moduleId?: string }) {
                 </tr>
               </thead>
               <tbody>
-                {tabAds.map((ad, i) => {
+                {sortedAds.map((ad, i) => {
                   const cfg = VERTICAL_CONFIGS[ad.vertical] || DEFAULT_CONFIG
                   const rateMqlSql = ad.mql > 0 ? ad.sql / ad.mql : 0
                   const rateSqlOpp = ad.sql > 0 ? ad.opp / ad.sql : 0

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { put } from "@vercel/blob"
 import { readLeads } from "@/lib/audit-mql"
 import { runCheck } from "@/lib/audit-mql-check"
+import { MOCK_LOG } from "@/lib/audit-mql-mock"
 
 export const maxDuration = 120
 export const dynamic = "force-dynamic"
@@ -215,16 +216,32 @@ export async function GET(req: NextRequest) {
   }
 
   // Sem auth → retorna o log histórico (UI)
-  if (!BLOB_STORE_URL) return NextResponse.json([])
+  if (!BLOB_STORE_URL) {
+    // Em desenvolvimento, retorna mock
+    if (process.env.NODE_ENV === "development") {
+      return NextResponse.json(MOCK_LOG, { headers: { "Cache-Control": "no-store" } })
+    }
+    return NextResponse.json([])
+  }
   const token = process.env.BLOB_READ_WRITE_TOKEN || ""
   try {
     const res = await fetch(`${BLOB_STORE_URL}/audit-mql/log.json`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       cache: "no-store",
     })
-    if (!res.ok) return NextResponse.json([])
+    if (!res.ok) {
+      // Em desenvolvimento, retorna mock como fallback
+      if (process.env.NODE_ENV === "development") {
+        return NextResponse.json(MOCK_LOG, { headers: { "Cache-Control": "no-store" } })
+      }
+      return NextResponse.json([])
+    }
     return NextResponse.json(await res.json(), { headers: { "Cache-Control": "no-store" } })
   } catch {
+    // Em desenvolvimento, retorna mock como fallback
+    if (process.env.NODE_ENV === "development") {
+      return NextResponse.json(MOCK_LOG, { headers: { "Cache-Control": "no-store" } })
+    }
     return NextResponse.json([])
   }
 }
