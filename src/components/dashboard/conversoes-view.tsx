@@ -45,7 +45,7 @@ const SZS_SQUAD_COLORS: Record<number, string> = {
   1: T.azul600, 2: T.roxo600, 3: T.teal600,
 };
 
-type RatioFilter = "all" | "marketing" | "paid" | "ctwa";
+type RatioFilter = "all" | "marketing" | "paid" | "ctwa" | "sao-paulo" | "salvador" | "florianopolis" | "outros";
 
 interface Props {
   data: RatioHistoryData | null;
@@ -839,24 +839,43 @@ export function ConversoesView({ data, loading, daysBack, onDaysChange, moduleId
                 </div>
                 {onFilterChange && (
                   <div style={{ display: "flex", gap: "2px", backgroundColor: T.bg, borderRadius: "8px", padding: "2px", border: `1px solid ${T.border}` }}>
-                    {([{ key: "all" as RatioFilter, label: "Geral" }, { key: "marketing" as RatioFilter, label: "Marketing" }, { key: "paid" as RatioFilter, label: "Mídia Paga" }, { key: "ctwa" as RatioFilter, label: "CTWA" }] as const).map(opt => (
-                      <button
-                        key={opt.key}
-                        onClick={() => onFilterChange(opt.key)}
-                        style={{
-                          padding: "5px 12px",
-                          borderRadius: "6px",
-                          border: "none",
-                          cursor: "pointer",
-                          fontSize: "11px",
-                          fontWeight: 500,
-                          backgroundColor: filter === opt.key ? T.primary : "transparent",
-                          color: filter === opt.key ? "#FFF" : T.mutedFg,
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
+                    {moduleId === "szs"
+                      ? ([{ key: "sao-paulo" as RatioFilter, label: "São Paulo" }, { key: "salvador" as RatioFilter, label: "Salvador" }, { key: "florianopolis" as RatioFilter, label: "Florianópolis" }, { key: "outros" as RatioFilter, label: "Outros" }] as const).map(opt => (
+                          <button
+                            key={opt.key}
+                            onClick={() => onFilterChange(opt.key)}
+                            style={{
+                              padding: "5px 12px",
+                              borderRadius: "6px",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "11px",
+                              fontWeight: 500,
+                              backgroundColor: filter === opt.key ? T.primary : "transparent",
+                              color: filter === opt.key ? "#FFF" : T.mutedFg,
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))
+                      : ([{ key: "all" as RatioFilter, label: "Geral" }, { key: "marketing" as RatioFilter, label: "Marketing" }, { key: "paid" as RatioFilter, label: "Mídia Paga" }, { key: "ctwa" as RatioFilter, label: "CTWA" }] as const).map(opt => (
+                          <button
+                            key={opt.key}
+                            onClick={() => onFilterChange(opt.key)}
+                            style={{
+                              padding: "5px 12px",
+                              borderRadius: "6px",
+                              border: "none",
+                              cursor: "pointer",
+                              fontSize: "11px",
+                              fontWeight: 500,
+                              backgroundColor: filter === opt.key ? T.primary : "transparent",
+                              color: filter === opt.key ? "#FFF" : T.mutedFg,
+                            }}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
                   </div>
                 )}
               </div>

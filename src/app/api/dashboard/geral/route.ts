@@ -7,22 +7,20 @@ import type { GeralData, GeralChannelResult, GeralMetricPair } from "@/lib/types
 
 export const dynamic = "force-dynamic";
 
-// Canal value → macro channel
-// squad_deals.canal has mixed values: names ("Marketing") and IDs ("582")
-const CANAL_MAP: Record<string, string> = {
-  // By name
-  "Marketing": "Vendas Diretas",
-  // By ID and name — Parceiros
-  "582": "Parceiros",
-  "583": "Parceiros",
-  "2876": "Parceiros",
-  "Indicação de Corretor": "Parceiros",
-  "Indicaçao de Franquia": "Parceiros",  // note: typo in data (no ~)
-  "Indicação de outros Parceiros (exceto corretor e franquia)": "Parceiros",
-};
-function getMacroChannel(canal: string | null): string {
-  if (!canal) return "Outros";
-  return CANAL_MAP[canal] || "Outros";
+// SZI channel classification
+// Vendas Diretas = tudo que NÃO é indicação de parceiros, Expansão ou Spot
+// canal in squad_deals has mixed values: names ("Marketing") and IDs ("582", "1748", etc.)
+const CANAL_IDS_PARCEIROS = new Set(["582", "583", "2876"]);
+const CANAL_IDS_EXPANSAO = new Set(["1748"]);
+const CANAL_IDS_SPOT = new Set(["3189"]);
+
+function getMacroChannel(canal: string | null): "Vendas Diretas" | "Parceiros" | "Expansao" | "Spot" {
+  if (!canal) return "Vendas Diretas"; // null canal → sem canal → Vendas Diretas
+  const lower = canal.toLowerCase();
+  if (CANAL_IDS_PARCEIROS.has(canal) || lower.includes("indica")) return "Parceiros";
+  if (CANAL_IDS_EXPANSAO.has(canal) || lower.includes("expans")) return "Expansao";
+  if (CANAL_IDS_SPOT.has(canal) || lower.includes("spot")) return "Spot";
+  return "Vendas Diretas"; // Marketing, Mônica, e qualquer outro canal = Vendas Diretas
 }
 
 const CHANNEL_ORDER = ["Geral", "Vendas Diretas", "Parceiros"] as const;
@@ -162,23 +160,16 @@ export async function GET(req: NextRequest) {
     console.log(`[geral] Geral: mql=${totalCounts.mql}, sql=${totalCounts.sql}, opp=${totalCounts.opp}, won=${totalCounts.won}`);
 
     // ── 2. Canal split from squad_deals (MQL/SQL/OPP/WON by canal) ──
-    // squad_deals has `tipo_de_venda` field for Parceiros breakdown
+    // Vendas Diretas = tudo exceto Parceiros (indicação), Expansão e Spot
     const deals = await paginate((o, ps) =>
       admin
         .from("squad_deals")
-        .select("canal, tipo_de_venda, max_stage_order, stage_order, status, lost_reason, won_time")
+        .select("canal, max_stage_order, stage_order, status, lost_reason, won_time")
         .not("empreendimento", "is", null)
         .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
         .range(o, o + ps - 1),
     );
     console.log(`[geral] squad_deals returned ${deals.length} deals`);
-    // Debug: check canal values
-    const canalDistrib: Record<string, number> = {};
-    for (const d of deals.slice(0, 500)) {
-      const key = String(d.canal ?? "NULL");
-      canalDistrib[key] = (canalDistrib[key] || 0) + 1;
-    }
-    console.log(`[geral] canal distribution (first 500):`, JSON.stringify(canalDistrib));
 
     // Count by macro channel
     const channelCounts: Record<string, Record<string, number>> = {};
@@ -187,9 +178,10 @@ export async function GET(req: NextRequest) {
     for (const d of deals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const mso = d.max_stage_order ?? d.stage_order ?? 0;
+      const macro = getMacroChannel(d.canal);
 
-      // Parceiros = tipo_de_venda Parceiro (todos os canais, inclusive indicação)
-      if (d.tipo_de_venda === "Parceiro") {
+      // Parceiros = indicações de parceiros
+      if (macro === "Parceiros") {
         if (mso >= TH_MQL) channelCounts.Parceiros.mql++;
         if (mso >= TH_SQL) channelCounts.Parceiros.sql++;
         if (mso >= TH_OPP) channelCounts.Parceiros.opp++;
@@ -198,8 +190,8 @@ export async function GET(req: NextRequest) {
         if (d.status === "won") channelCounts.Parceiros.won++;
       }
 
-      // Vendas Diretas = tudo que NÃO é tipo_de_venda Parceiro
-      if (d.tipo_de_venda !== "Parceiro") {
+      // Vendas Diretas = tudo que NÃO é Parceiros, Expansão ou Spot
+      if (macro === "Vendas Diretas") {
         if (mso >= TH_MQL) channelCounts["Vendas Diretas"].mql++;
         if (mso >= TH_SQL) channelCounts["Vendas Diretas"].sql++;
         if (mso >= TH_OPP) channelCounts["Vendas Diretas"].opp++;
@@ -207,6 +199,7 @@ export async function GET(req: NextRequest) {
         if (mso >= TH_CONTRATO) channelCounts["Vendas Diretas"].contrato++;
         if (d.status === "won") channelCounts["Vendas Diretas"].won++;
       }
+      // Expansão e Spot só contam no Geral (não aparecem em VD nem Parceiros)
     }
     console.log(`[geral] channelCounts VD: mql=${channelCounts["Vendas Diretas"].mql}, won=${channelCounts["Vendas Diretas"].won}`);
     console.log(`[geral] channelCounts Parceiros: mql=${channelCounts.Parceiros.mql}, won=${channelCounts.Parceiros.won}`);
@@ -323,9 +316,9 @@ export async function GET(req: NextRequest) {
     const histDeals = await paginate((o, ps) =>
       admin
         .from("squad_deals")
-        .select("canal, max_stage_order, stage_order, status, lost_reason, add_time, won_time, lost_time, update_time")
+        .select("canal, max_stage_order, stage_order, status, lost_reason, add_time, won_time, lost_time, update_time, qualificacao_date, reuniao_date")
         .not("empreendimento", "is", null)
-        .or(`status.eq.open,won_time.gte.${cutoff30Str},lost_time.gte.${cutoff30Str}`)
+        .or(`status.eq.open,won_time.gte.${cutoff30Str},lost_time.gte.${cutoff30Str},qualificacao_date.gte.${cutoff30Str},reuniao_date.gte.${cutoff30Str}`)
         .range(o, o + ps - 1),
     );
 
@@ -340,89 +333,105 @@ export async function GET(req: NextRequest) {
     for (let i = 0; i < allHistDates.length; i++) dateIndex.set(allHistDates[i], i);
     const N = allHistDates.length;
 
-    // Delta arrays per channel and stage
-    const HIST_STAGES = ["mql", "sql", "opp"] as const;
-    const HIST_STAGE_MIN: Record<string, number> = { mql: TH_MQL, sql: TH_SQL, opp: TH_OPP };
     const HIST_CHANNELS = ["Geral", "Vendas Diretas", "Parceiros"] as const;
 
-    // delta[channel][stage][dateIdx] — +1 at add, -1 at close
-    const delta: Record<string, Record<string, number[]>> = {};
+    // delta[channel][dateIdx] — for total open deals (AreaChart)
+    const delta: Record<string, number[]> = {};
+    for (const ch of HIST_CHANNELS) delta[ch] = new Array(N + 1).fill(0);
+
+    // dailyEvents[channel][stage][dateIdx] — event count per day per stage (MultiLineChart)
+    // MQL uses add_time, SQL uses qualificacao_date, OPP uses reuniao_date
+    const dailyEvents: Record<string, Record<string, number[]>> = {};
     for (const ch of HIST_CHANNELS) {
-      delta[ch] = {};
-      for (const s of HIST_STAGES) delta[ch][s] = new Array(N + 1).fill(0);
-      delta[ch]["total"] = new Array(N + 1).fill(0);
+      dailyEvents[ch] = {
+        mql: new Array(N).fill(0),
+        sql: new Array(N).fill(0),
+        opp: new Array(N).fill(0),
+      };
     }
 
     for (const d of histDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
+      const canal = (d.canal || "").toLowerCase();
       const macro = getMacroChannel(d.canal);
-      const mso = d.max_stage_order ?? d.stage_order ?? 0;
       const addDay = d.add_time?.substring(0, 10) || "";
-      // Close day: won_time for won, lost_time (or update_time fallback) for lost
       const closeDay = d.status === "won" ? d.won_time?.substring(0, 10)
         : d.status === "lost" ? (d.lost_time || d.update_time || d.add_time)?.substring(0, 10)
         : null;
 
-      // Determine addIdx: clamp to 0 if before window
-      let addIdx = dateIndex.get(addDay) ?? (addDay < allHistDates[0] ? 0 : -1);
-      if (addIdx < 0) continue; // add_time after last date — skip
+      // Clamp addIdx to 0 if deal was created before the window
+      const addIdx = dateIndex.get(addDay) ?? (addDay < allHistDates[0] ? 0 : -1);
+      if (addIdx < 0) continue;
 
-      // Determine closeIdx: null if still open or close after last date
       let closeIdx: number | null = null;
       if (closeDay) {
         const ci = dateIndex.get(closeDay);
         if (ci !== undefined) closeIdx = ci;
-        else if (closeDay < allHistDates[0]) continue; // closed before window — skip entirely
-        // else: closed after window — treat as still open within window
+        else if (closeDay < allHistDates[0]) continue; // closed before window — skip
       }
 
       const targets = (macro === "Vendas Diretas" || macro === "Parceiros") ? [macro, "Geral"] : ["Geral"];
 
+      // Total open deals delta (for AreaChart)
       for (const ch of targets) {
-        delta[ch]["total"][addIdx]++;
-        if (closeIdx !== null) delta[ch]["total"][closeIdx]--;
+        delta[ch][addIdx]++;
+        if (closeIdx !== null) delta[ch][closeIdx]--;
+      }
 
-        for (const s of HIST_STAGES) {
-          if (mso >= HIST_STAGE_MIN[s]) {
-            delta[ch][s][addIdx]++;
-            if (closeIdx !== null) delta[ch][s][closeIdx]--;
-          }
+      // Daily events per stage using stage-specific dates
+      // MQL: add_time (exclude indicação for Vendas Diretas)
+      const mqlIdx = dateIndex.get(addDay);
+      if (mqlIdx !== undefined) {
+        for (const ch of targets) dailyEvents[ch]["mql"][mqlIdx]++;
+      }
+
+      // SQL: qualificacao_date
+      const sqlDay = (d as any).qualificacao_date?.substring(0, 10);
+      if (sqlDay) {
+        const sqlIdx = dateIndex.get(sqlDay);
+        if (sqlIdx !== undefined) {
+          for (const ch of targets) dailyEvents[ch]["sql"][sqlIdx]++;
+        }
+      }
+
+      // OPP: reuniao_date
+      const oppDay = (d as any).reuniao_date?.substring(0, 10);
+      if (oppDay) {
+        const oppIdx = dateIndex.get(oppDay);
+        if (oppIdx !== undefined) {
+          for (const ch of targets) dailyEvents[ch]["opp"][oppIdx]++;
         }
       }
     }
 
-    // Build cumulative per channel
+    // Build channelHistory: cumulative total (stock) + daily events per stage (flow)
     const channelHistory: Record<string, { date: string; total: number; openTotal: number; byStage: Record<string, number> }[]> = {};
     for (const ch of HIST_CHANNELS) {
       const arr: { date: string; total: number; openTotal: number; byStage: Record<string, number> }[] = [];
-      const cum: Record<string, number> = { total: 0 };
-      for (const s of HIST_STAGES) cum[s] = 0;
+      let cumTotal = 0;
       for (let i = 0; i < N; i++) {
-        cum["total"] += delta[ch]["total"][i];
-        const byStage: Record<string, number> = {};
-        for (const s of HIST_STAGES) {
-          cum[s] += delta[ch][s][i];
-          byStage[s] = cum[s];
-        }
-        arr.push({ date: allHistDates[i], total: cum["total"], openTotal: cum["total"], byStage });
+        cumTotal += delta[ch][i];
+        arr.push({
+          date: allHistDates[i],
+          total: cumTotal,
+          openTotal: cumTotal,
+          byStage: {
+            mql: dailyEvents[ch]["mql"][i],
+            sql: dailyEvents[ch]["sql"][i],
+            opp: dailyEvents[ch]["opp"][i],
+          },
+        });
       }
       channelHistory[ch] = arr;
     }
 
-    // Override Geral's last data point with daily snapshot (accurate total from Pipedrive)
+    // Override Geral's last data point total with daily snapshot (accurate open count from Pipedrive)
+    // byStage is NOT overridden — it shows today's daily events from squad_deals
     if (pdTotalOpen > 0) {
-      const PD_STAGE_ORDER: Record<number, number> = {
-        392:1, 184:2, 186:3, 338:4, 346:5, 339:6, 187:7, 340:8, 208:9, 312:10, 313:11, 311:12, 191:13, 192:14,
-      };
       const geralArr = channelHistory["Geral"];
       if (geralArr && geralArr.length > 0) {
-        const byStage: Record<string, number> = {};
-        for (const s of HIST_STAGES) byStage[s] = 0;
-        for (const [stageId, count] of Object.entries(pdByStage)) {
-          const so = PD_STAGE_ORDER[Number(stageId)] || 0;
-          for (const s of HIST_STAGES) if (so >= HIST_STAGE_MIN[s]) byStage[s] += count;
-        }
-        geralArr[geralArr.length - 1] = { date: geralArr[geralArr.length - 1].date, total: pdTotalOpen, openTotal: pdTotalOpen, byStage };
+        const last = geralArr[geralArr.length - 1];
+        geralArr[geralArr.length - 1] = { ...last, total: pdTotalOpen, openTotal: pdTotalOpen };
       }
     }
 

@@ -80,7 +80,7 @@ function FunnelBar({ data, isSZS = false }: { data: FunilEmpreendimento; isSZS?:
       {stages.map((s) => {
         const pct = (s.value / max) * 100;
         return (
-          <div key={s.key} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div key={s.key} style={{ display: "flex", alignItems: "center", gap: "10px" }} title={`${s.label}: ${fmt(s.value)}`}>
             <span style={{ fontSize: "11px", fontWeight: 500, color: T.cinza600, width: "80px", textAlign: "right" }}>
               {s.label}
             </span>

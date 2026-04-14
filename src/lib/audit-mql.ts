@@ -12,7 +12,7 @@ export interface LeadRecord {
   campaign_name: string
   vertical: string
   created_at: string       // ISO
-  status: "aguardando" | "ok" | "sem_pipedrive" | "sem_mia" | "fora_sla"
+  status: "aguardando" | "ok" | "sem_pipedrive" | "sem_mia" | "fora_sla" | "descartado"
   pipedrive_deal_id?: number
   mia_link?: string
   checked_at?: string
@@ -20,6 +20,8 @@ export interface LeadRecord {
   form_values?: string[]   // todas as respostas do formulário Meta (para verificação SLA)
   form_fields?: { name: string; value: string }[]  // pares pergunta+resposta (para exibição)
   sla_ok?: boolean         // resultado da verificação SLA (undefined = não verificado)
+  in_baserow?: boolean     // true = chegou no Baserow, false = não chegou, undefined = ainda não verificado
+  nekt_status?: "ok" | "nao_encontrado"  // verificação Nekt às 7h BRT do dia seguinte
 }
 
 export function extractVertical(campaignName: string): string {

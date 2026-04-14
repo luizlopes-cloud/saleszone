@@ -36,13 +36,14 @@ function offsetKeyFrom(key: string, days: number) {
   const d = new Date(key + "T12:00:00Z"); d.setDate(d.getDate() + days)
   return d.toISOString().slice(0, 10)
 }
+const BRT = "America/Sao_Paulo"
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  return new Date(iso).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: BRT })
 }
 function fmtDateTime(iso: string) {
   const d = new Date(iso)
-  const date = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })
-  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+  const date = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", timeZone: BRT })
+  const time = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: BRT })
   return { date, time }
 }
 function datesInRange(start: string, end: string): string[] {
@@ -99,6 +100,7 @@ const STATUS_META: Record<Status, { bg: string; label: string; color: string }> 
   sem_mia:       { bg: "#FFF7ED", label: "SEM MIA",       color: T.laranja500 },
   sem_pipedrive: { bg: "#FEF2F2", label: "SEM PIPEDRIVE", color: T.destructive },
   fora_sla:      { bg: "#FDF4FF", label: "FORA SLA",      color: "#9333EA"    },
+  descartado:    { bg: "#F3F4F6", label: "DESCARTADO",    color: "#9CA3AF"    },
 }
 
 const VERTICAL_COLORS: Record<string, string> = {
@@ -351,11 +353,12 @@ export default function AuditMQL() {
   const [log, setLog]               = useState<LogEntry[]>([])
   const [logLoading, setLogLoading] = useState(false)
   const [verticalFilter, setVerticalFilter] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter]     = useState<Status | null>(null)
+  const [statusFilter, setStatusFilter]     = useState<Status | "sem_baserow" | "sem_nekt" | null>(null)
   const [expandedId, setExpandedId]         = useState<string | null>(null)
   const [slaData, setSlaData]               = useState<SlaData | null>(null)
   const [recovering, setRecovering]         = useState(false)
   const [recoveryMsg, setRecoveryMsg]       = useState<string | null>(null)
+  const [recheckingId, setRecheckingId]     = useState<string | null>(null)
 
   const isToday = range.start === todayKey() && range.end === todayKey()
 
@@ -369,8 +372,8 @@ export default function AuditMQL() {
 
   useEffect(() => { if (tab === "log") fetchLog() }, [tab, fetchLog])
 
-  const fetchLeads = useCallback(async (r: DateRange) => {
-    setLoading(true)
+  const fetchLeads = useCallback(async (r: DateRange, silent = false) => {
+    if (!silent) setLoading(true)
     try {
       const dates = datesInRange(r.start, r.end)
       const results = await Promise.all(
@@ -382,10 +385,36 @@ export default function AuditMQL() {
       const merged = results.flat()
       const seen = new Set<string>()
       const deduped = merged.filter(l => { if (seen.has(l.id)) return false; seen.add(l.id); return true })
-      deduped.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      setLeads(deduped)
+      // Filtra leads pelo created_at em BRT — garante que só aparecem leads do range selecionado
+      const startDate = new Date(r.start + "T03:00:00Z") // midnight BRT = 03:00 UTC
+      const endDate   = new Date(r.end   + "T03:00:00Z")
+      endDate.setDate(endDate.getDate() + 1) // end of day BRT = 03:00 UTC next day
+      const filtered = deduped.filter(l => {
+        const t = new Date(l.created_at).getTime()
+        return t >= startDate.getTime() && t < endDate.getTime()
+      })
+      filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      setLeads(filtered)
       setLastUpdate(new Date())
-    } finally { setLoading(false) }
+    } finally { if (!silent) setLoading(false) }
+  }, [])
+
+  const recheckLead = useCallback(async (leadId: string, createdAt: string) => {
+    setRecheckingId(leadId)
+    try {
+      // Calcula a data do blob baseado no created_at em BRT
+      const d = new Date(new Date(createdAt).getTime() - 3 * 60 * 60 * 1000)
+      const date = d.toISOString().slice(0, 10)
+      const res = await fetch("/api/growth/audit-mql/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recheck: leadId, date }),
+      })
+      if (res.ok) {
+        const updated: LeadRecord = await res.json()
+        setLeads(prev => prev.map(l => l.id === leadId ? updated : l))
+      }
+    } finally { setRecheckingId(null) }
   }, [])
 
   const runRecovery = useCallback(async () => {
@@ -418,7 +447,7 @@ export default function AuditMQL() {
   useEffect(() => {
     fetchLeads(range)
     if (!isToday) return
-    const interval = setInterval(() => fetchLeads(range), 30_000)
+    const interval = setInterval(() => fetchLeads(range, true), 30_000)
     return () => clearInterval(interval)
   }, [range, fetchLeads, isToday])
 
@@ -430,25 +459,30 @@ export default function AuditMQL() {
   }, [])
 
   const total      = leads.length
-  const ok         = leads.filter(l => l.status === "ok").length
-  const aguardando = leads.filter(l => l.status === "aguardando").length
-  const semMia     = leads.filter(l => l.status === "sem_mia").length
-  const semPipe    = leads.filter(l => l.status === "sem_pipedrive").length
-  const foraSla    = leads.filter(l => l.status === "fora_sla").length
+  const ok          = leads.filter(l => l.status === "ok").length
+  const aguardando  = leads.filter(l => l.status === "aguardando").length
+  const semMia      = leads.filter(l => l.status === "sem_mia").length
+  const semPipe     = leads.filter(l => l.status === "sem_pipedrive").length
+  const foraSla     = leads.filter(l => l.status === "fora_sla").length
+  const semBaserow  = leads.filter(l => l.in_baserow === false).length
+  const semNekt     = leads.filter(l => l.nekt_status === "nao_encontrado").length
 
   const byVertical = leads.reduce((acc, l) => {
     const v = l.vertical || "—"
-    if (!acc[v]) acc[v] = { total: 0, pipe: 0, ok: 0, semPipe: 0, semMia: 0 }
+    if (!acc[v]) acc[v] = { total: 0, mql: 0, semPipe: 0, semMia: 0, semBaserow: 0, semNekt: 0 }
     acc[v].total++
-    if (l.status !== "sem_pipedrive") acc[v].pipe++
-    if (l.status === "ok")            acc[v].ok++
+    if (l.status === "ok")            acc[v].mql++
     if (l.status === "sem_pipedrive") acc[v].semPipe++
     if (l.status === "sem_mia")       acc[v].semMia++
+    if (l.in_baserow === false)       acc[v].semBaserow++
+    if (l.nekt_status === "nao_encontrado") acc[v].semNekt++
     return acc
-  }, {} as Record<string, { total: number; pipe: number; ok: number; semPipe: number; semMia: number }>)
+  }, {} as Record<string, { total: number; mql: number; semPipe: number; semMia: number; semBaserow: number; semNekt: number }>)
 
   const visibleLeads = leads.filter(l => {
     if (verticalFilter && (l.vertical || "—") !== verticalFilter) return false
+    if (statusFilter === "sem_baserow") return l.in_baserow === false
+    if (statusFilter === "sem_nekt")    return l.nekt_status === "nao_encontrado"
     if (statusFilter && l.status !== statusFilter) return false
     return true
   })
@@ -604,43 +638,53 @@ export default function AuditMQL() {
 
       {/* ── ABA LEADS ────────────────────────────────────────────────────────── */}
       {tab === "leads" && <>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 12, marginBottom: 16 }}>
-          {[
-            { label: "Leads",         value: total,      color: T.fg,          status: null             as Status | null },
-            { label: "OK",            value: ok,         color: T.verde600,    status: "ok"             as Status | null },
-            { label: "Aguardando",    value: aguardando, color: T.primary,     status: "aguardando"     as Status | null },
-            { label: "Sem MIA",       value: semMia,     color: T.laranja500,  status: "sem_mia"        as Status | null },
-            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive, status: "sem_pipedrive"  as Status | null },
-            { label: "Fora SLA",      value: foraSla,    color: "#9333EA",     status: "fora_sla"       as Status | null },
-          ].map(c => {
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(8, 1fr)", gap: 10, marginBottom: 16 }}>
+          {([
+            { label: "Leads",         value: total,      color: T.fg,          status: null,            desc: "Total de leads no dia" },
+            { label: "OK",            value: ok,         color: T.verde600,    status: "ok",            desc: "Pipedrive + MIA ok" },
+            { label: "Aguardando",    value: aguardando, color: T.primary,     status: "aguardando",    desc: "Aguardando verificação" },
+            { label: "Sem MIA",       value: semMia,     color: T.laranja500,  status: "sem_mia",       desc: "Sem link de conversa MIA" },
+            { label: "Sem Pipedrive", value: semPipe,    color: T.destructive, status: "sem_pipedrive", desc: "Não encontrado no Pipe" },
+            { label: "Sem Baserow",   value: semBaserow, color: "#DC2626",     status: "sem_baserow",   desc: "Não chegou no Baserow" },
+            { label: "Sem Nekt",      value: semNekt,    color: "#B45309",     status: "sem_nekt",      desc: "Deal não encontrado na Nekt" },
+            { label: "Fora SLA",      value: foraSla,    color: "#9333EA",     status: "fora_sla",      desc: "Fora dos critérios SLA" },
+          ] as { label: string; value: number; color: string; status: Status | "sem_baserow" | "sem_nekt" | null; desc: string }[]).map(c => {
             const active = statusFilter === c.status && c.status !== null
             return (
               <div key={c.label}
                 onClick={() => c.status ? setStatusFilter(active ? null : c.status) : setStatusFilter(null)}
                 style={{ background: active ? c.color + "12" : T.card,
                   border: `1px solid ${active ? c.color : T.border}`,
-                  borderRadius: 10, padding: "12px 16px", boxShadow: T.elevSm,
+                  borderRadius: 10, padding: "10px 12px", boxShadow: T.elevSm,
                   cursor: c.status ? "pointer" : "default",
                   transition: "border-color 0.15s, background 0.15s" }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: T.mutedFg,
+                <div style={{ fontSize: 9, fontWeight: 600, color: T.mutedFg,
                   textTransform: "uppercase", letterSpacing: "0.07em" }}>{c.label}</div>
-                <div style={{ fontSize: 26, fontWeight: 700, color: c.color, marginTop: 4,
+                <div style={{ fontSize: 22, fontWeight: 700, color: c.color, marginTop: 2,
                   fontVariantNumeric: "tabular-nums" }}>{c.value}</div>
+                <div style={{ fontSize: 9, color: T.mutedFg, marginTop: 2, lineHeight: "1.3" }}>{c.desc}</div>
               </div>
             )
           })}
         </div>
-        {statusFilter && (
-          <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12, color: T.mutedFg }}>Filtro ativo:</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: STATUS_META[statusFilter].color,
-              border: `1px solid ${STATUS_META[statusFilter].color}55`,
-              padding: "2px 8px", borderRadius: 4 }}>{STATUS_META[statusFilter].label}</span>
-            <button onClick={() => setStatusFilter(null)}
-              style={{ background: "none", border: "none", cursor: "pointer",
-                fontSize: 12, color: T.mutedFg, padding: 0 }}>× limpar</button>
-          </div>
-        )}
+        {statusFilter && (() => {
+          const meta = statusFilter === "sem_baserow"
+            ? { color: "#DC2626", label: "SEM BASEROW" }
+            : statusFilter === "sem_nekt"
+            ? { color: "#B45309", label: "SEM NEKT" }
+            : STATUS_META[statusFilter]
+          return (
+            <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: T.mutedFg }}>Filtro ativo:</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: meta.color,
+                border: `1px solid ${meta.color}55`,
+                padding: "2px 8px", borderRadius: 4 }}>{meta.label}</span>
+              <button onClick={() => setStatusFilter(null)}
+                style={{ background: "none", border: "none", cursor: "pointer",
+                  fontSize: 12, color: T.mutedFg, padding: 0 }}>× limpar</button>
+            </div>
+          )
+        })()}
 
         {Object.keys(byVertical).length > 0 && (
           <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-start" }}>
@@ -657,10 +701,11 @@ export default function AuditMQL() {
                   <VerticalBadge vertical={v} />
                   <div style={{ marginTop: 6, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
                     <div style={{ color: T.fg, fontWeight: 600 }}>{g.total} lead{g.total !== 1 ? "s" : ""}</div>
-                    <div>Pipedrive: <strong style={{ color: T.verde600 }}>{g.pipe}</strong></div>
-                    <div>MIA: <strong style={{ color: T.verde600 }}>{g.ok}</strong></div>
-                    {g.semMia  > 0 && <div style={{ color: T.laranja500 }}>⚠ Sem MIA: {g.semMia}</div>}
-                    {g.semPipe > 0 && <div style={{ color: T.destructive }}>✕ Sem Pipe: {g.semPipe}</div>}
+                    <div>MQL: <strong style={{ color: T.verde600 }}>{g.mql}</strong></div>
+                    {g.semPipe > 0    && <div style={{ color: T.destructive }}>Sem Pipedrive: {g.semPipe}</div>}
+                    {g.semMia > 0     && <div style={{ color: T.laranja500 }}>Sem MIA: {g.semMia}</div>}
+                    {g.semBaserow > 0 && <div style={{ color: "#DC2626" }}>Sem Baserow: {g.semBaserow}</div>}
+                    {g.semNekt > 0    && <div style={{ color: "#B45309" }}>Sem Nekt: {g.semNekt}</div>}
                   </div>
                 </button>
               )
@@ -701,8 +746,8 @@ export default function AuditMQL() {
                       const fm = Object.fromEntries((l.form_fields || []).map(f => [f.name, f.value]))
                       const dt = new Date(l.created_at)
                       return [
-                        dt.toLocaleDateString("pt-BR"),
-                        dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
+                        dt.toLocaleDateString("pt-BR", { timeZone: BRT }),
+                        dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: BRT }),
                         l.name, l.email, l.phone, l.vertical || "", l.campaign_name || "",
                         STATUS_META[l.status]?.label || l.status,
                         ...allFieldNames.map(n => fm[n] || ""),
@@ -741,7 +786,7 @@ export default function AuditMQL() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: T.muted }}>
-                  {["Data/Horário", "Lead", "Vertical", "Campanha", "Meta", "Pipedrive", "MIA", "Status"].map(h => (
+                  {["Data/Horário", "Lead", "Vertical", "Campanha", "Meta", "Baserow", "Nekt", "Pipedrive", "MIA", "Status"].map(h => (
                     <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
                       fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
                       letterSpacing: "0.07em", whiteSpace: "nowrap",
@@ -789,6 +834,20 @@ export default function AuditMQL() {
                           <StatusDot ok={true} label="Gerado" />
                         </td>
                         <td style={{ padding: "10px 14px" }}>
+                          {lead.in_baserow === true
+                            ? <StatusDot ok={true} label="Chegou" />
+                            : lead.in_baserow === false
+                              ? <StatusDot ok={false} label="Não chegou" />
+                              : <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>}
+                        </td>
+                        <td style={{ padding: "10px 14px" }}>
+                          {lead.nekt_status === "ok"
+                            ? <StatusDot ok={true} label="OK" />
+                            : lead.nekt_status === "nao_encontrado"
+                              ? <StatusDot ok={false} label="Não encontrado" />
+                              : <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>}
+                        </td>
+                        <td style={{ padding: "10px 14px" }}>
                           {isForaSla
                             ? <span style={{ color: T.mutedFg, fontSize: 12 }}>—</span>
                             : isPending
@@ -822,16 +881,30 @@ export default function AuditMQL() {
                                     : <StatusDot ok={false} pending label="Verificando…" />}
                         </td>
                         <td style={{ padding: "10px 14px" }}>
-                          <span style={{ color: st.color, border: `1px solid ${st.color}55`,
-                            padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
-                            whiteSpace: "nowrap" }}>{st.label}</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <span style={{ color: st.color, border: `1px solid ${st.color}55`,
+                              padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700,
+                              whiteSpace: "nowrap" }}>{st.label}</span>
+                            {!isPending && !isForaSla && lead.status !== "ok" && (
+                              <button
+                                onClick={e => { e.stopPropagation(); recheckLead(lead.id, lead.created_at) }}
+                                disabled={recheckingId === lead.id}
+                                title="Reverificar no Pipedrive"
+                                style={{ background: "none", border: `1px solid ${T.border}`, borderRadius: 4,
+                                  cursor: recheckingId === lead.id ? "wait" : "pointer",
+                                  padding: "2px 5px", fontSize: 12, color: T.mutedFg,
+                                  opacity: recheckingId === lead.id ? 0.5 : 1 }}>
+                                {recheckingId === lead.id ? "…" : "↻"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
 
                       {/* Detalhe expandido — respostas do formulário */}
                       {isExpanded && hasFormValues && (
                         <tr key={`${lead.id}-detail`} style={{ background: st.bg, borderBottom: `1px solid ${T.border}` }}>
-                          <td colSpan={8} style={{ padding: "0 14px 14px 14px" }}>
+                          <td colSpan={9} style={{ padding: "0 14px 14px 14px" }}>
                             <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12, marginTop: 0 }}>
                               {isForaSla && (
                                 <div style={{ display: "inline-flex", alignItems: "center", gap: 6,
@@ -935,21 +1008,24 @@ export default function AuditMQL() {
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
             <h2 style={{ margin: "0 0 10px", fontSize: 15, fontWeight: 700 }}>O que é o Audit MQL</h2>
             <p style={{ margin: 0, fontSize: 13, color: T.mutedFg, lineHeight: 1.7 }}>
-              Sistema de monitoramento em tempo real que rastreia cada lead gerado pelos formulários do Meta Ads (Lead Gen) da Seazone e verifica se foi processado corretamente — passando pelo CRM Pipedrive e pelo atendimento via Morada IA (MIA). Inclui verificação de SLA (se o lead atende aos critérios dos empreendimentos ativos) e recovery automático de leads perdidos.
+              Sistema de monitoramento em tempo real que rastreia cada lead gerado pelos formulários do Meta Ads (Lead Gen) da Seazone. Para cada lead, verifica em sequência: (1) se as respostas do formulário atendem ao SLA do empreendimento, (2) se o deal foi criado no Pipedrive e (3) se a Morada IA iniciou o atendimento. Inclui recovery automático de leads que falharam no webhook, alertas no Slack e re-verificação contínua por até 4h.
             </p>
           </div>
 
           <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
-            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Como funciona</h2>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Como funciona — fluxo completo</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {[
-                { step: "1", title: "Lead gerado no Meta Ads", desc: "Quando alguém preenche um formulário Lead Gen, o Meta envia os dados em tempo real via webhook para este sistema. Páginas inscritas: Seazone, Seazone Marketplace, Seazone Investimentos, Anfitrião Seazone, Vistas de Anitá, Seazone Rentals." },
-                { step: "2", title: "Registro imediato", desc: "O lead é registrado com status \"Aguardando\" e aparece na tabela em até segundos. Atualiza automaticamente a cada 30s enquanto você está no dia de hoje." },
-                { step: "3", title: "Verificação no Pipedrive (7 min depois)", desc: "Após 7 minutos (aguarda índice de busca do Pipedrive), o sistema busca a pessoa por e-mail e telefone. Se não encontrar deal, classifica como \"Sem Pipedrive\" e envia alerta no Slack." },
-                { step: "4", title: "Verificação SLA", desc: "Se o deal existe, verifica se as respostas do formulário atendem aos critérios SLA de pelo menos um empreendimento ativo. Se não atendem, classifica como \"Fora SLA\". Clique na linha para ver quais respostas causaram a reprovação." },
-                { step: "5", title: "Verificação da Morada IA", desc: "Se passou no SLA, verifica se o campo \"Link da Conversa\" foi preenchido pela Morada IA. Se vazio, classifica como \"Sem MIA\" e envia alerta. Re-verifica a cada request por até 4h desde a criação do lead." },
-                { step: "6", title: "Status final OK", desc: "Lead com deal no Pipedrive, dentro do SLA e com conversa MIA preenchida." },
-                { step: "7", title: "Recovery automático (a cada 30 min)", desc: "Um cron roda a cada 30 minutos buscando leads diretamente na Meta API. Leads que chegaram no Meta mas falharam no webhook são recuperados automaticamente e já entram na fila de verificação Pipedrive/SLA/MIA." },
+                { step: "1", title: "Lead gerado no Meta Ads", desc: "Quando alguém preenche um formulário Lead Gen, o Meta envia os dados em tempo real via webhook para /api/growth/audit-mql/webhook. O lead chega com nome, e-mail, telefone, todas as respostas do formulário e o ID da campanha." },
+                { step: "2", title: "Registro imediato como Aguardando", desc: "O lead é salvo no Blob Storage com status \"Aguardando\" e aparece na tabela em segundos. A página atualiza automaticamente a cada 30s enquanto você está no dia de hoje." },
+                { step: "3", title: "Verificação SLA (antes do Pipedrive)", desc: "Após ~2 minutos, o sistema verifica se as respostas do formulário estão dentro do SLA. Para SZI: usa o campo \"Empreendimento\" do formulário para identificar o empreendimento diretamente e checar seus critérios (intenção, faixa de investimento, pagamento). Para SZS e Marketplace: detecta a vertical pelo nome da campanha. Se o lead não atende ao SLA, é marcado como \"Fora SLA\" imediatamente, sem buscar no Pipedrive. Configuração em /growth/sla-mql." },
+                { step: "4", title: "Verificação no Pipedrive", desc: "Se passou no SLA (ou se o empreendimento não está configurado), busca a pessoa por e-mail e depois por telefone (com fallback sem código de país +55). Se não encontrar deal, classifica como \"Sem Pipedrive\" e envia alerta no Slack. Re-verifica por até 4h desde a criação." },
+                { step: "5", title: "Verificação da Morada IA", desc: "Se o deal existe, verifica o campo \"Link da Conversa\" (campo custom no Pipedrive preenchido pela Morada IA). Se vazio, classifica como \"Sem MIA\" e envia alerta no Slack. Re-verifica automaticamente a cada request por até 4h — a MIA pode ter um delay de minutos após o lead chegar." },
+                { step: "6", title: "Status OK", desc: "Lead com SLA aprovado (ou vertical sem critérios), deal encontrado no Pipedrive e campo MIA preenchido. Nenhuma ação necessária." },
+                { step: "7", title: "Verificação no Baserow (em paralelo)", desc: "Para leads das verticais Investimentos, Marketplace e Serviços criados a partir de 10/04/2026, o sistema verifica se o lead chegou na tabela do Baserow da vertical. A coluna Baserow na tabela mostra ✓ (chegou), ✗ (não chegou) ou — (não verificado / vertical sem Baserow). Verificação ocorre via acesso à página e recovery cron. Um lead não encontrado no Baserow é contado como erro no resumo diário." },
+                { step: "8", title: "Verificação Nekt (dia seguinte às 7h BRT)", desc: "Um cron diário às 7h BRT busca todos os leads do dia anterior que chegaram ao Pipedrive e consulta a tabela nekt_silver.pipedrive_deals_readable via SQL na Nekt API. Se o deal ID está na tabela → Nekt OK (✓); se não → Não encontrado (✗). Deals sem Pipedrive ficam como — (não aplicável). Um deal não encontrado na Nekt é contado como erro no resumo." },
+                { step: "9", title: "Recovery automático (a cada 10 min)", desc: "Um cron busca leads diretamente na Meta Graph API para todas as páginas inscritas. Leads que chegaram no Meta mas falharam no webhook (falha de rede, timeout, etc.) são recuperados e entram normalmente na fila SLA → Pipedrive → MIA. Leads recuperados com mais de 15 minutos não disparam alerta no Slack." },
+                { step: "10", title: "Fallback cron GitHub Actions (a cada 15 min)", desc: "Um workflow no GitHub Actions re-verifica leads pendentes caso o cron da Vercel falhe. Garante que nenhum lead fique preso em \"Aguardando\" por mais de 15 minutos por falha de infraestrutura." },
               ].map(({ step, title, desc }) => (
                 <div key={step} style={{ display: "flex", gap: 14 }}>
                   <div style={{ width: 28, height: 28, borderRadius: "50%", background: T.primary,
@@ -968,11 +1044,11 @@ export default function AuditMQL() {
             <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Status dos leads</h2>
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {[
-                { label: "AGUARDANDO",    color: T.primary,    desc: "Lead recém-chegado. Aguardando 7 minutos para verificação no Pipedrive (tempo necessário para o índice de busca do Pipedrive indexar o novo deal)." },
-                { label: "OK",            color: T.verde600,   desc: "Lead encontrado no Pipedrive, dentro do SLA e com conversa MIA preenchida." },
-                { label: "SEM MIA",       color: T.laranja500, desc: "Deal existe no Pipedrive, mas o campo \"Link da Conversa\" não foi preenchido pela Morada IA. Alerta enviado no Slack. Re-verificado por até 4h." },
-                { label: "SEM PIPEDRIVE", color: T.destructive,desc: "Lead não encontrado no Pipedrive 7 minutos após o registro. Alerta enviado no Slack." },
-                { label: "FORA SLA",      color: "#9333EA",    desc: "Lead tem deal e MIA, mas as respostas do formulário não atendem aos critérios SLA de nenhum empreendimento ativo. Clique na linha para ver as respostas destacadas." },
+                { label: "AGUARDANDO",    color: T.primary,    desc: "Lead recém-chegado. Ainda não foi verificado — aguarda ~2 minutos antes da primeira checagem SLA + Pipedrive." },
+                { label: "OK",            color: T.verde600,   desc: "Passou no SLA (ou sem critérios configurados), deal encontrado no Pipedrive e campo \"Link da Conversa\" preenchido pela Morada IA." },
+                { label: "SEM MIA",       color: T.laranja500, desc: "Deal existe no Pipedrive, mas o campo \"Link da Conversa\" ainda não foi preenchido pela Morada IA. Alerta enviado no Slack. Re-verificado automaticamente a cada request por até 4h desde a criação do lead." },
+                { label: "SEM PIPEDRIVE", color: T.destructive,desc: "Lead não encontrado no Pipedrive (nem por e-mail nem por telefone) após ~2 minutos do registro. Alerta enviado no Slack. Re-verificado por até 4h — Pipedrive pode ter lag de indexação." },
+                { label: "FORA SLA",      color: "#9333EA",    desc: "As respostas do formulário não atendem aos critérios SLA do empreendimento. Verificado ANTES do Pipedrive — lead fora do SLA não deveria estar no funil, então nenhuma busca é feita. Clique na linha para ver as respostas e qual critério foi reprovado." },
               ].map(({ label, color, desc }) => (
                 <div key={label} style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color,
@@ -981,6 +1057,34 @@ export default function AuditMQL() {
                   <span style={{ fontSize: 12, color: T.mutedFg, lineHeight: 1.6, paddingTop: 2 }}>{desc}</span>
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Verificação SLA — como funciona</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              <p style={{ margin: 0 }}>
+                O SLA define quais respostas de formulário qualificam um lead para cada empreendimento. A configuração fica em <strong style={{ color: T.fg }}>/growth/sla-mql</strong> e é salva no Blob Storage. Cada empreendimento ativo tem critérios em 3 categorias:
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[
+                  { cat: "Intenção (Q0)", desc: "Ex: \"Investimento - renda com aluguel\", \"Uso próprio - moradia\". Mapeado para a primeira pergunta do formulário." },
+                  { cat: "Faixa de Investimento (Q1)", desc: "Ex: \"R$ 200.001 a R$ 300.000 em até 54 meses\". Mapeado para a segunda pergunta." },
+                  { cat: "Forma de Pagamento (Q2)", desc: "Ex: \"À vista via PIX ou boleto\". Mapeado para a terceira pergunta. Se o formulário não tem essa pergunta, não reprova o lead." },
+                ].map(({ cat, desc }) => (
+                  <div key={cat} style={{ display: "flex", gap: 10 }}>
+                    <span style={{ fontWeight: 700, color: T.fg, whiteSpace: "nowrap" }}>{cat}:</span>
+                    <span>{desc}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                <div><strong style={{ color: T.fg }}>Detecção do empreendimento (SZI):</strong> Formulários SZI têm um dropdown "Empreendimento". O sistema usa esse campo para identificar diretamente o empreendimento e checar seus critérios. É o método mais confiável — independe do nome da campanha.</div>
+                <div><strong style={{ color: T.fg }}>Detecção da vertical (SZS e Marketplace):</strong> O sistema identifica a vertical pelo nome da campanha (ex: "[SZS]", "SERVI", "[MKTPLACE]"). Cada vertical tem uma única configuração SLA.</div>
+                <div><strong style={{ color: T.fg }}>Regra de aprovação:</strong> O lead passa se atender aos critérios de pelo menos um empreendimento ativo da vertical. Para cada categoria, se não houver critério configurado (lista vazia) ou se o formulário não tiver essa pergunta, a categoria não reprova.</div>
+                <div><strong style={{ color: T.fg }}>Categorias sem resposta:</strong> Se o formulário não possui a pergunta (ex: Ponta das Canas não pergunta sobre pagamento), aquela categoria é ignorada — o lead não é reprovado por ausência de resposta.</div>
+                <div><strong style={{ color: T.fg }}>Empreendimento inativo:</strong> Se o empreendimento está com status inativo no SLA, o lead passa automaticamente sem verificação de critérios.</div>
+              </div>
             </div>
           </div>
 
@@ -1049,6 +1153,14 @@ export default function AuditMQL() {
                   update: "Vercel → saleszone → Settings → Environment Variables",
                 },
                 {
+                  name: "NEKT_API_KEY",
+                  type: "API Key da plataforma Nekt (api.nekt.ai)",
+                  expires: "Não expira (revogado apenas manualmente)",
+                  expiresColor: T.verde600,
+                  where: "Nekt → painel → configurações de API",
+                  update: "Vercel → saleszone → Settings → Environment Variables",
+                },
+                {
                   name: "CRON_SECRET",
                   type: "String aleatória para autenticar chamadas internas de cron",
                   expires: "Não expira (rotação manual se necessário)",
@@ -1067,6 +1179,134 @@ export default function AuditMQL() {
                     <div><strong>Onde renovar:</strong> {where}</div>
                     <div><strong>Onde atualizar:</strong> {update}</div>
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Algoritmo de leitura do SLA — field mapping</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              <p style={{ margin: 0 }}>O SLA tem 3 perguntas por vertical (Q0, Q1, Q2). As respostas vêm do formulário Meta como pares <code>nome_do_campo → valor</code>. O sistema mapeia cada valor à pergunta correta em 3 etapas:</p>
+              {[
+                { step: "Match por nome do campo", desc: "Primeiro tenta casar o nome do campo (ex: \"voce_procura_investimento\") com o texto da pergunta SLA via comparação normalizada (sem acentos, case-insensitive). Se encontrar, atribui o valor à pergunta." },
+                { step: "Match por valor único", desc: "Se o nome não casou, verifica se o valor (ex: \"R$ 200.001 a R$ 300.000 em até 54 meses\") aparece nas opções de exatamente uma pergunta SLA. Se sim, atribui àquela pergunta. Valores ambíguos como \"Sim\" ou \"Não\" (que aparecem em múltiplas perguntas) são ignorados nesta etapa." },
+                { step: "Fallback posicional (último recurso)", desc: "Valores ainda não atribuídos são associados às perguntas ainda sem resposta, em ordem de chegada — mas somente se o valor pertencer às opções daquela pergunta. Isso resolve ambiguidades de \"Sim\"/\"Não\" e ignora campos extras como \"Empreendimento\" ou \"Você é corretor?\" que não são perguntas SLA." },
+              ].map(({ step, desc }, i) => (
+                <div key={i} style={{ display: "flex", gap: 10 }}>
+                  <span style={{ fontWeight: 700, color: T.fg, whiteSpace: "nowrap", minWidth: 20 }}>{i + 1}.</span>
+                  <div><strong style={{ color: T.fg }}>{step}:</strong> {desc}</div>
+                </div>
+              ))}
+              <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 10 }}>
+                <strong style={{ color: T.fg }}>Normalização:</strong> Todas as comparações usam <code>norm()</code> — converte para minúsculas, remove acentos e pontuação. "Investimento - renda com aluguel" e "investimento renda com aluguel" são tratados como iguais. Isso evita falsos negativos por diferença de capitalização ou acentuação entre Meta e SLA.
+              </div>
+              <div>
+                <strong style={{ color: T.fg }}>Tradução de valores Meta:</strong> A Meta API envia alguns valores com nomes diferentes dos exibidos no formulário. Ex: "Está disponível para alugar" (API) → "Disponível imediatamente" (SLA). O sistema tem um mapa de tradução (<code>META_VALUE_MAP</code>) que converte automaticamente antes de comparar.
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Janelas de re-verificação</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[
+                { status: "AGUARDANDO", window: "Imediatamente após ~2 min da criação", detail: "Primeira checagem SLA + Pipedrive + MIA. Dispara no próximo acesso à página ou no cron de 15 min." },
+                { status: "SEM PIPEDRIVE", window: "Re-verifica por até 4h desde a criação", detail: "Pipedrive tem lag de indexação — um deal criado com delay pode aparecer em verificações posteriores. Após 4h, o status congela." },
+                { status: "SEM MIA", window: "Re-verifica por até 4h desde a criação", detail: "A Morada IA pode demorar minutos para preencher o campo. Após 4h sem preenchimento, o status congela em Sem MIA." },
+                { status: "FORA SLA", window: "Não re-verifica automaticamente", detail: "O SLA é verificado no momento da checagem com os critérios vigentes. Se os critérios do SLA mudarem, é necessário rodar o recheck retroativo manualmente via GitHub Actions → workflow \"Recheck SLA retroativo\"." },
+                { status: "OK", window: "Não re-verifica", detail: "Status final. Lead processado com sucesso." },
+              ].map(({ status, window: w, detail }) => (
+                <div key={status} style={{ background: T.muted, borderRadius: 8, padding: "10px 14px" }}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
+                    <code style={{ fontSize: 11, fontWeight: 700 }}>{status}</code>
+                    <span style={{ fontSize: 11, color: T.fg, fontWeight: 600 }}>{w}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.6 }}>{detail}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Alertas Slack</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              <div><strong style={{ color: T.fg }}>Canal:</strong> <code>#avaliação-diaria-mql</code></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {[
+                  { trigger: "🚨 Lead sem deal no Pipedrive", when: "Na primeira verificação onde o lead não é encontrado (~2 min após chegar). Inclui nome, e-mail, telefone, campanha e LeadGen ID." },
+                  { trigger: "⚠️ Lead sem atendimento MIA", when: "Na primeira verificação onde o deal existe mas o campo \"Link da Conversa\" está vazio. Inclui nome, vertical, link do deal no Pipedrive e campanha." },
+                  { trigger: "Sem alerta para Fora SLA", when: "Leads fora do SLA não disparam alerta — por design, esses leads não deveriam estar no funil e a equipe não precisa de ação." },
+                  { trigger: "Sem alerta duplicado", when: "Cada lead alerta no máximo uma vez (campo notified=true após envio). Re-verificações posteriores não reenviam o alerta mesmo se o status mudar." },
+                  { trigger: "📊 Resumo diário (7h30 BRT)", when: "Enviado automaticamente todo dia. Mostra: total de leads (com quantos fora do SLA), MQL (leads que passaram no SLA), atendidos pela MIA, erros reais e breakdown por vertical. Erros = sem Pipedrive + sem MIA + não chegou no Baserow + não encontrado na Nekt. Fora SLA não conta como erro. Token Meta alerta só quando faltam 5 dias ou menos." },
+                ].map(({ trigger, when }) => (
+                  <div key={trigger} style={{ display: "flex", gap: 10 }}>
+                    <span style={{ fontWeight: 600, color: T.fg, flexShrink: 0, minWidth: 200 }}>{trigger}</span>
+                    <span>{when}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Como depurar um lead específico</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              {[
+                { step: "1", title: "Clique na linha do lead", desc: "Abre o detalhe com todas as respostas do formulário. Leads Fora SLA mostram as respostas destacadas em vermelho quando reprovadas." },
+                { step: "2", title: "Verifique a vertical", desc: "A vertical é detectada pelo nome da campanha. Se aparecer como \"Outros\", a campanha não tem marcador reconhecido ([SZI], [SZS], [MKTPLACE]). Para SZI, o campo \"Empreendimento\" no formulário resolve isso automaticamente." },
+                { step: "3", title: "Cheque o SLA configurado", desc: "Acesse /growth/sla-mql para ver os critérios ativos por empreendimento. Verifique se o empreendimento está ativo e se os critérios batem com as respostas do lead." },
+                { step: "4", title: "Verifique no Pipedrive", desc: "Para leads \"Sem Pipedrive\", busque manualmente pelo e-mail ou telefone no Pipedrive. Se o deal existir, pode ser problema de encoding de telefone (ex: número com DDD diferente do que a Meta enviou)." },
+                { step: "5", title: "Recovery manual", desc: "Se um lead não chegou pelo webhook, acesse GitHub Actions → seazone-socios/saleszone → Workflows → Backfill Audit MQL → Run workflow com a data desejada. O recovery busca todos os leads do dia diretamente na Meta API." },
+              ].map(({ step, title, desc }) => (
+                <div key={step} style={{ display: "flex", gap: 12 }}>
+                  <div style={{ width: 24, height: 24, borderRadius: "50%", background: T.mutedFg,
+                    color: "#fff", fontSize: 11, fontWeight: 700, flexShrink: 0,
+                    display: "flex", alignItems: "center", justifyContent: "center" }}>{step}</div>
+                  <div style={{ paddingTop: 2 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 1 }}>{title}</div>
+                    <div style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.6 }}>{desc}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Cronograma de automações</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {[
+                { horario: "Tempo real", fonte: "Webhook Meta", desc: "Lead chega e é salvo imediatamente com status Aguardando." },
+                { horario: "A cada 10 min", fonte: "Vercel Cron (recovery)", desc: "Busca leads diretamente na Meta API e faz recovery de perdidos. Também chama o runCheck para re-verificar pendentes." },
+                { horario: "A cada 15 min", fonte: "GitHub Actions (fallback)", desc: "Fallback do cron Vercel. Garante que leads não ficam presos em Aguardando por mais de 15 minutos." },
+                { horario: "7h BRT (diário)", fonte: "Vercel Cron (nekt-check)", desc: "Busca todos os leads do dia anterior que têm deal no Pipedrive e verifica se os IDs existem na tabela nekt_silver.pipedrive_deals_readable via Nekt API. Atualiza a coluna Nekt de cada lead." },
+                { horario: "7h30 BRT (diário)", fonte: "Vercel Cron (resumo)", desc: "Envia resumo diário no Slack com total de leads, fora do SLA, MQL, atendidos pela MIA, erros reais (sem Pipedrive, sem MIA, sem Baserow, sem Nekt) e breakdown por vertical." },
+                { horario: "Acesso à página", fonte: "GET /api/.../leads", desc: "Cada vez que a aba Leads é aberta ou atualiza (30s), verifica leads Aguardando com 2+ minutos e Sem MIA com menos de 4h." },
+              ].map(({ horario, fonte, desc }) => (
+                <div key={horario} style={{ background: T.muted, borderRadius: 8, padding: "10px 14px", display: "flex", gap: 14 }}>
+                  <div style={{ minWidth: 110, flexShrink: 0 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.fg }}>{horario}</div>
+                    <div style={{ fontSize: 10, color: T.mutedFg }}>{fonte}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: T.mutedFg, lineHeight: 1.6 }}>{desc}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: 10, padding: "20px 24px", boxShadow: T.elevSm }}>
+            <h2 style={{ margin: "0 0 14px", fontSize: 15, fontWeight: 700 }}>Armazenamento — Blob Storage</h2>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: 12, color: T.mutedFg, lineHeight: 1.7 }}>
+              <p style={{ margin: 0 }}>Todos os dados são persistidos no Vercel Blob Storage (privado). Não usa banco de dados relacional.</p>
+              {[
+                { path: "audit-mql/YYYY-MM-DD.json", desc: "Um arquivo por dia (fuso BRT = UTC-3). Contém array de todos os LeadRecords do dia com status, respostas do formulário, IDs Pipedrive, link MIA, in_baserow e nekt_status." },
+                { path: "audit-mql/log.json", desc: "Histórico dos resumos diários (últimos 90 dias). Usado pela aba Log Diário. Cada entrada tem: total, mql, mia, fora_sla, erros, breakdown por vertical, Baserow e Nekt." },
+                { path: "sla-mql/data.json", desc: "Configuração atual do SLA: rows (empreendimentos com critérios por categoria) e forms (perguntas por vertical). Editado via /growth/sla-mql." },
+                { path: "sla-mql/log.json", desc: "Histórico de alterações no SLA (últimas 500 entradas). Registra quem alterou, o quê e quando." },
+              ].map(({ path, desc }) => (
+                <div key={path} style={{ background: T.muted, borderRadius: 8, padding: "10px 14px" }}>
+                  <code style={{ fontSize: 11, fontWeight: 700, display: "block", marginBottom: 4 }}>{path}</code>
+                  <div style={{ fontSize: 11, lineHeight: 1.6 }}>{desc}</div>
                 </div>
               ))}
             </div>

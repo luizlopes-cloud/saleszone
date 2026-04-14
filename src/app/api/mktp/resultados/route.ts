@@ -41,9 +41,9 @@ const MKTP_RESULTADOS_METAS: Record<string, Record<string, ChannelMetas>> = {
     "Funil Completo": { leads: 3354, mql: 1677, sql: 530, opp: 126, won: 15, reserva: 25, contrato: 18 },
   },
   "2026-04": {
-    "Vendas Diretas": { mql: 0, sql: 0, opp: 0, won: 20 },
-    Parcerias: { mql: 0, sql: 0, opp: 0, won: 10 },
-    "Funil Completo": { mql: 0, sql: 0, opp: 0, won: 30 },
+    "Vendas Diretas": { mql: 804, sql: 201, opp: 69, won: 10 },
+    Parcerias: { mql: 20, sql: 16, opp: 14, won: 5 },
+    "Funil Completo": { mql: 1707, sql: 406, opp: 128, won: 15 },
   },
 };
 
@@ -77,6 +77,14 @@ interface ResultadosMKTPData {
 
 export const dynamic = "force-dynamic";
 
+/* ── Timezone helper: extract BRT date (UTC-3) from UTC timestamp ── */
+function toDateBRT(ts: string | null | undefined): string | null {
+  if (!ts) return null;
+  const d = new Date(ts);
+  const brt = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+  return brt.toISOString().substring(0, 10);
+}
+
 /* ── Tab → date column in mktp_deals ─────────────────────── */
 const TAB_DATE_COL: Record<string, string> = {
   mql: "add_time",
@@ -105,7 +113,7 @@ export async function GET() {
     cutoff90.setDate(cutoff90.getDate() - 90);
     const cutoffDate = cutoff90.toISOString().substring(0, 10);
 
-    const DEAL_COLS = "canal, status, stage_id, max_stage_order, add_time, won_time, lost_time, qualificacao_date, reuniao_date, lost_reason";
+    const DEAL_COLS = "deal_id, canal, status, stage_id, max_stage_order, add_time, won_time, lost_time, qualificacao_date, reuniao_date, lost_reason";
 
     /* ── 1. Fetch all deals from mktp_deals for current + previous month + 90d history ── */
     const allDeals = await paginate((o, ps) =>
@@ -127,16 +135,10 @@ export async function GET() {
         .range(o, o + ps - 1)
     );
 
-    // Merge, dedup by combining (won deals with old add_time but recent won_time)
-    const dealMap = new Map<string, any>();
-    for (const d of allDeals) {
-      const key = `${d.canal}|${d.add_time}|${d.status}|${d.stage_id}`;
-      dealMap.set(key, d);
-    }
-    for (const d of wonDeals) {
-      const key = `${d.canal}|${d.add_time}|${d.status}|${d.stage_id}`;
-      dealMap.set(key, d);
-    }
+    // Merge, dedup by deal_id
+    const dealMap = new Map<number, any>();
+    for (const d of allDeals) dealMap.set(d.deal_id, d);
+    for (const d of wonDeals) dealMap.set(d.deal_id, d);
     const deals = Array.from(dealMap.values());
 
     /* ── 2. Count funnel by channel for current month ──────── */
@@ -148,10 +150,8 @@ export async function GET() {
       const group = getCanalGroup(String(deal.canal || ""));
       for (const tab of TABS) {
         const dateCol = TAB_DATE_COL[tab];
-        const dateVal = deal[dateCol];
-        if (!dateVal) continue;
-        const day = dateVal.substring(0, 10);
-        if (day < startDate) continue; // only current month
+        const day = toDateBRT(deal[dateCol]);
+        if (!day || day < startDate) continue; // only current month (BRT)
         channelCounts[group][tab] = (channelCounts[group][tab] || 0) + 1;
         channelCounts["Funil Completo"][tab] = (channelCounts["Funil Completo"][tab] || 0) + 1;
       }
@@ -161,7 +161,7 @@ export async function GET() {
     const prevWon: Record<string, number> = {};
     for (const deal of deals) {
       if (deal.status !== "won") continue;
-      const wonDate = deal.won_time?.substring(0, 10);
+      const wonDate = toDateBRT(deal.won_time);
       if (!wonDate || wonDate < prevStart || wonDate > prevEnd) continue;
       const group = getCanalGroup(String(deal.canal || ""));
       prevWon[group] = (prevWon[group] || 0) + 1;
@@ -181,7 +181,7 @@ export async function GET() {
     for (const deal of deals) {
       if (deal.lost_reason === "Duplicado/Erro") continue;
       // Deal must have closed in current month (won or lost)
-      const closeDate = deal.status === "won" ? deal.won_time?.substring(0, 10) : deal.lost_time?.substring(0, 10);
+      const closeDate = deal.status === "won" ? toDateBRT(deal.won_time) : toDateBRT(deal.lost_time);
       const isOpen = deal.status === "open";
       // Include open deals too (they're currently in the funnel)
       if (!isOpen && (!closeDate || closeDate < startDate)) continue;
@@ -203,6 +203,18 @@ export async function GET() {
     const metaRows = await paginate((o, ps) =>
       admin.from("mktp_meta_ads").select("ad_id, spend_month").range(o, o + ps - 1)
     );
+
+    /* ── 4b. Metas do mês de mktp_metas (fallback para hardcoded se vazio) ── */
+    const { data: mktpMetasRows } = await admin
+      .from("mktp_metas").select("tab, meta").eq("month", `${monthKey}-01`);
+    // Aggregate total metas by tab (mql, sql, opp, won, reserva, contrato)
+    const totalMetasByTab: Record<string, number> = {};
+    for (const r of mktpMetasRows || []) {
+      totalMetasByTab[r.tab] = (totalMetasByTab[r.tab] || 0) + (Number(r.meta) || 0);
+    }
+    // If mktp_metas has data, use it to build metas per channel
+    const totalWonMeta = totalMetasByTab.won || 0;
+    const hasMetasData = Object.keys(totalMetasByTab).length > 0;
     const spendByAd = new Map<string, number>();
     for (const r of metaRows) {
       const adId = r.ad_id as string;
@@ -218,11 +230,13 @@ export async function GET() {
     const snapshots: Record<string, { reserva: number; contrato: number; totalOpen: number }> = {};
     for (const ch of CHANNEL_ORDER) snapshots[ch] = { reserva: 0, contrato: 0, totalOpen: 0 };
 
+    // Try today's snapshot first, fallback to most recent
     const { data: pdSnap } = await admin
       .from("pipedrive_daily_snapshot")
-      .select("total_open, by_stage")
+      .select("date, total_open, by_stage")
       .eq("pipeline_id", 37)
-      .eq("date", today)
+      .order("date", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (pdSnap) {
@@ -230,7 +244,9 @@ export async function GET() {
       snapshots["Funil Completo"].totalOpen = pdSnap.total_open || 0;
       snapshots["Funil Completo"].reserva = byStage["305"] || 0;
       snapshots["Funil Completo"].contrato = byStage["271"] || 0;
+      console.log(`[mktp/resultados] Using pipedrive_daily_snapshot from ${pdSnap.date}: totalOpen=${pdSnap.total_open}`);
     } else {
+      console.warn("[mktp/resultados] No pipedrive_daily_snapshot for pipeline 37 — open deal count will be approximate");
       // Fallback: mktp_deals table
       const snapshotDeals = await paginate((o, ps) =>
         admin.from("mktp_deals").select("stage_id, canal").eq("status", "open").in("stage_id", [STAGE_RESERVA, STAGE_CONTRATO]).range(o, o + ps - 1)
@@ -318,8 +334,8 @@ export async function GET() {
 
     for (const d of histDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const addDay = d.add_time?.substring(0, 10) || "";
-      const closeDay = d.status === "won" ? d.won_time?.substring(0, 10) : d.status === "lost" ? d.lost_time?.substring(0, 10) : null;
+      const addDay = toDateBRT(d.add_time) || "";
+      const closeDay = d.status === "won" ? toDateBRT(d.won_time) : d.status === "lost" ? toDateBRT(d.lost_time) : null;
       const mso = d.max_stage_order || 0;
       const group = getCanalGroup(String(d.canal || ""));
 
@@ -364,14 +380,45 @@ export async function GET() {
       cumulativeHist[ch] = arr;
     }
 
-    // Override Funil Completo's last chart data point with snapshot total_open
-    if (pdSnap && cumulativeHist["Funil Completo"].length > 0) {
-      const last = cumulativeHist["Funil Completo"][cumulativeHist["Funil Completo"].length - 1];
-      last.total = snapshots["Funil Completo"].totalOpen;
-    }
+    // DON'T override with snapshot — use the live mktp_deals computed total (dealsHistory).
+    // The snapshot total_open from pipedrive_daily_snapshot may be stale
+    // (e.g. 414 from before a sync run), causing the chart to show wrong numbers
+    // vs what Pipedrive shows live. The delta-based history is authoritative.
 
-    /* ── 7. Build response ─────────────────────────────────── */
-    const metas = MKTP_RESULTADOS_METAS[monthKey] || {};
+    /* ── 7. Build metas per channel ──────────────────────────── */
+    // Use mktp_metas if available, otherwise fallback to hardcoded
+    const legacyMetas = MKTP_RESULTADOS_METAS[monthKey] || {};
+    const metas: Record<string, ChannelMetas> = {};
+
+    if (hasMetasData) {
+      // Derive channel metas from total using hardcoded ratios
+      // Hardcoded won: Funil Completo=15, Vendas Diretas=9, Parcerias=6 (2026-03) → ~60%/40% split
+      const wonTotal = legacyMetas["Funil Completo"]?.won || legacyMetas["Vendas Diretas"]?.won || totalWonMeta || 15;
+      const wonRatioVD = wonTotal > 0 ? ((legacyMetas["Vendas Diretas"]?.won || 9) / wonTotal) : 0.6;
+      const wonRatioP = wonTotal > 0 ? ((legacyMetas["Parcerias"]?.won || 6) / wonTotal) : 0.4;
+
+      const mqlTotal = totalMetasByTab.mql || legacyMetas["Funil Completo"]?.mql || 1707;
+      const sqlTotal = totalMetasByTab.sql || legacyMetas["Funil Completo"]?.sql || 406;
+      const oppTotal = totalMetasByTab.opp || legacyMetas["Funil Completo"]?.opp || 128;
+      const wonFromMeta = totalMetasByTab.won || legacyMetas["Funil Completo"]?.won || 15;
+
+      metas["Funil Completo"] = {
+        mql: mqlTotal, sql: sqlTotal, opp: oppTotal, won: wonFromMeta,
+        reserva: totalMetasByTab.reserva || legacyMetas["Funil Completo"]?.reserva,
+        contrato: totalMetasByTab.contrato || legacyMetas["Funil Completo"]?.contrato,
+      };
+      metas["Vendas Diretas"] = {
+        mql: Math.round(mqlTotal * wonRatioVD), sql: Math.round(sqlTotal * wonRatioVD),
+        opp: Math.round(oppTotal * wonRatioVD), won: Math.round(wonFromMeta * wonRatioVD),
+      };
+      metas["Parcerias"] = {
+        mql: Math.round(mqlTotal * wonRatioP), sql: Math.round(sqlTotal * wonRatioP),
+        opp: Math.round(oppTotal * wonRatioP), won: Math.round(wonFromMeta * wonRatioP),
+      };
+    } else {
+      // Fallback to hardcoded table
+      Object.assign(metas, legacyMetas);
+    }
 
     const channels: ChannelResult[] = CHANNEL_ORDER.map((name) => {
       const counts = channelCounts[name] || {};

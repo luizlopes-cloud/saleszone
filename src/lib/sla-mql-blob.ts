@@ -43,7 +43,7 @@ const SEED: SlaData = {
     { id: 3,  vertical: "SZI",         nome: "Jurerê Spot II",          status: true,  commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F2, mql_pagamentos: P },
     { id: 4,  vertical: "SZI",         nome: "Jurerê Spot III",         status: true,  commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F2, mql_pagamentos: P },
     { id: 5,  vertical: "SZI",         nome: "Marista 144 Spot",        status: false, commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: ["R$ 100.001 a R$ 200.000 em até 54 meses", ...F3], mql_pagamentos: P },
-    { id: 6,  vertical: "SZI",         nome: "Caraguá Spot",            status: false, commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
+    { id: 6,  vertical: "SZI",         nome: "Caraguá Spot",            status: false, commercial_squad: "szi_02", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
     { id: 7,  vertical: "SZI",         nome: "Ponta das Canas Spot II", status: true,  commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
     { id: 8,  vertical: "SZI",         nome: "Barra Grande Spot",       status: true,  commercial_squad: "szi_02", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
     { id: 9,  vertical: "SZI",         nome: "Natal Spot",              status: true,  commercial_squad: "szi_02", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
@@ -56,7 +56,7 @@ const SEED: SlaData = {
     { id: 13, vertical: "Serviços", nome: "Seazone Serviços", status: true, commercial_squad: "",
       mql_intencoes: ["Sim","Não","Parcialmente mobiliado"],
       mql_faixas: ["Disponível imediatamente","Alugado com contrato anual","Em reforma / preparação","Já opera por temporada"],
-      mql_pagamentos: ["Sim","Não","Não, mas estou disposto a instalar caso seja necessário"] },
+      mql_pagamentos: ["Sim","Não, mas estou disposto a instalar caso seja necessário"] },
   ],
   forms: {
     SZI: [

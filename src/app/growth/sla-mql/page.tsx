@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { T } from "@/lib/constants"
+import { T, SQUADS, SQUAD_FROM_COMMERCIAL } from "@/lib/constants"
 import { createClient } from "@/lib/supabase/client"
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ const CONFIG: Record<string, ColDef[]> = {
         "R$ 200.001 a R$ 300.000 em até 54 meses",
         "R$ 300.001 a R$ 400.000 em até 54 meses",
         "Acima de R$ 400.000 em até 54 meses",
-        "À vista via PIX ou boleto",
+        "Não consigo atender a essas condições",
       ],
     },
     {
@@ -121,6 +121,7 @@ const SHORT: Record<string, string> = {
   "R$ 200.001 a R$ 300.000 em até 54 meses":                "200k – 300k",
   "R$ 300.001 a R$ 400.000 em até 54 meses":                "300k – 400k",
   "Acima de R$ 400.000 em até 54 meses":                    "Acima 400k",
+  "Não consigo atender a essas condições":                  "Não atende",
   "Até R$ 30.000":                                          "Até 30k",
   "R$ 30.001 a R$ 50.000":                                  "30k – 50k",
   "R$ 50.001 a R$ 80.000":                                  "50k – 80k",
@@ -148,6 +149,12 @@ const VERTICAL_COLOR: Record<string, string> = {
   Marketplace: T.roxo600,
   Serviços:    T.teal600,
 }
+
+const SQUAD_OPTIONS: { value: string; label: string }[] = [
+  { value: "",       label: "— sem squad" },
+  { value: "szi_01", label: "Luana" },
+  { value: "szi_02", label: "Filipe" },
+]
 
 const VERTICAL_TABLE: Record<string, string> = {
   SZI:         "squad_baserow_empreendimentos",
@@ -179,7 +186,7 @@ const FORMS_CONFIG: Record<string, FormQuestion[]> = {
     },
     {
       pergunta: "Qual o valor total que você pretende investir dentro de 54 meses?",
-      opcoes: ["R$ 50.000 a R$ 100.000 em até 54 meses", "R$ 100.001 a R$ 200.000 em até 54 meses", "R$ 200.001 a R$ 300.000 em até 54 meses", "R$ 300.001 a R$ 400.000 em até 54 meses", "Acima de R$ 400.000 em até 54 meses", "À vista via PIX ou boleto"],
+      opcoes: ["R$ 50.000 a R$ 100.000 em até 54 meses", "R$ 100.001 a R$ 200.000 em até 54 meses", "R$ 200.001 a R$ 300.000 em até 54 meses", "R$ 300.001 a R$ 400.000 em até 54 meses", "Acima de R$ 400.000 em até 54 meses", "Não consigo atender a essas condições"],
     },
     {
       pergunta: "Qual a forma de pagamento?",
@@ -229,7 +236,7 @@ const DEFAULT_ROWS: SlaRow[] = [
   { id:  3, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Jurerê Spot II",         status: true,  commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F2, mql_pagamentos: P },
   { id:  4, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Jurerê Spot III",        status: true,  commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F2, mql_pagamentos: P },
   { id:  5, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Marista 144 Spot",       status: false, commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: ["R$ 100.001 a R$ 200.000 em até 54 meses", ...F3], mql_pagamentos: P },
-  { id:  6, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Caraguá Spot",           status: false, commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
+  { id:  6, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Caraguá Spot",           status: false, commercial_squad: "szi_02", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
   { id:  7, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Ponta das Canas Spot II",status: true,  commercial_squad: "szi_01", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
   { id:  8, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Barra Grande Spot",      status: true,  commercial_squad: "szi_02", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
   { id:  9, vertical: "SZI", table: "squad_baserow_empreendimentos", nome: "Natal Spot",             status: true,  commercial_squad: "szi_02", mql_intencoes: I, mql_faixas: F3, mql_pagamentos: P },
@@ -245,10 +252,37 @@ const DEFAULT_ROWS: SlaRow[] = [
     mql_pagamentos: ["Sim","Não","Não, mas estou disposto a instalar caso seja necessário"] },
 ]
 
+function migrateSquads(rows: SlaRow[]): SlaRow[] {
+  let changed = false
+  const out = rows.map(r => {
+    if (r.nome === "Caraguá Spot" && r.commercial_squad === "szi_01") {
+      changed = true
+      return { ...r, commercial_squad: "szi_02" }
+    }
+    return r
+  })
+  return changed ? out : rows
+}
+
+function migrateFaixas(rows: SlaRow[]): SlaRow[] {
+  const OLD = "À vista via PIX ou boleto"
+  const NEW = "Não consigo atender a essas condições"
+  let changed = false
+  for (const r of rows) {
+    const idx = r.mql_faixas.indexOf(OLD)
+    if (idx !== -1) { r.mql_faixas[idx] = NEW; changed = true }
+  }
+  return changed ? [...rows] : rows
+}
+
 function loadRows(): SlaRow[] {
   try {
     const s = localStorage.getItem(LS_KEY)
-    if (s) return JSON.parse(s) as SlaRow[]
+    if (s) {
+      const rows = migrateFaixas(JSON.parse(s) as SlaRow[])
+      persist(rows)
+      return rows
+    }
   } catch {}
   return DEFAULT_ROWS
 }
@@ -365,6 +399,7 @@ export default function SlaPage() {
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [draft, setDraft]           = useState<Draft | null>(null)
   const [editStatus, setEditStatus] = useState(true)
+  const [editSquad, setEditSquad]   = useState("")
   const [saving, setSaving]         = useState(false)
   const [saveError, setSaveError]   = useState<string | null>(null)
 
@@ -377,6 +412,11 @@ export default function SlaPage() {
 
   // Adição de opção inline
   const [addingOption, setAddingOption] = useState<{ field: keyof Draft; value: string } | null>(null)
+
+  // Agenda dos closers SZI (próximos 2 dias úteis)
+  type AgendaDay  = { date: string; label: string; pct: number }
+  type AgendaCloser = { name: string; days: AgendaDay[] }
+  const [agenda, setAgenda] = useState<AgendaCloser[]>([])
 
   // Carrega do localStorage na montagem + dados da API + usuário logado
   useEffect(() => {
@@ -392,7 +432,28 @@ export default function SlaPage() {
           fetch("/api/sla-mql").then(r => r.json()),
           fetch("/api/sla-mql/log").then(r => r.json()),
         ])
-        if (dataRes.rows) { setRows(dataRes.rows); persist(dataRes.rows) }
+        if (dataRes.rows) {
+          let migrated = migrateFaixas(dataRes.rows)
+          const afterSquad = migrateSquads(migrated)
+          if (afterSquad !== migrated) {
+            // Caraguá Spot tinha squad errado no blob — corrige agora (fire-and-forget)
+            const fixed = afterSquad.find(r => r.nome === "Caraguá Spot")
+            if (fixed) {
+              fetch(`/api/sla-mql/${fixed.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  status: fixed.status, commercial_squad: fixed.commercial_squad,
+                  mql_intencoes: fixed.mql_intencoes, mql_faixas: fixed.mql_faixas,
+                  mql_pagamentos: fixed.mql_pagamentos, allRows: afterSquad,
+                }),
+              }).catch(() => {})
+            }
+            migrated = afterSquad
+          }
+          setRows(migrated)
+          persist(migrated)
+        }
         if (dataRes.forms) { setForms(dataRes.forms); persistForms(dataRes.forms) }
         if (logRes.entries) {
           const entries = (logRes.entries as Array<{
@@ -406,6 +467,39 @@ export default function SlaPage() {
       }
     }
     fetchAll()
+
+    // Agenda dos closers SZI (Luana + Filipe) — próximos 2 dias úteis
+    fetch("/api/dashboard/ociosidade")
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (!data?.closers?.length) return
+        const SZI_CLOSERS = ["luana", "filipe"]
+        const closers = (data.closers as Array<{ name: string; days: Array<{ date: string; occupancyPct: number }> }>)
+          .filter(c => SZI_CLOSERS.some(k => c.name.toLowerCase().includes(k)))
+        if (!closers.length) return
+        const next2: string[] = []
+        const cur = new Date()
+        cur.setDate(cur.getDate() + 1)
+        while (next2.length < 2) {
+          const day = cur.getDay()
+          if (day !== 0 && day !== 6) next2.push(cur.toISOString().slice(0, 10))
+          cur.setDate(cur.getDate() + 1)
+        }
+        const DAYS_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+        const dayLabel = (date: string) => {
+          const d = new Date(date + "T12:00:00")
+          return `${DAYS_PT[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`
+        }
+        setAgenda(closers.map(c => ({
+          name: c.name.split(" ")[0],
+          days: next2.map(date => ({
+            date,
+            label: dayLabel(date),
+            pct: c.days.find(d => d.date === date)?.occupancyPct ?? 0,
+          })),
+        })))
+      })
+      .catch(() => {})
 
     // Usuário logado
     const supabase = createClient()
@@ -459,6 +553,7 @@ export default function SlaPage() {
       mql_pagamentos: makeFieldDraft(get("mql_pagamentos"), row.mql_pagamentos),
     })
     setEditStatus(row.status)
+    setEditSquad(row.commercial_squad)
     setSaveError(null)
     setAddingOption(null)
   }
@@ -466,6 +561,7 @@ export default function SlaPage() {
   function cancelEdit() {
     setEditingKey(null)
     setDraft(null)
+    setEditSquad("")
     setSaveError(null)
     setAddingOption(null)
   }
@@ -504,16 +600,19 @@ export default function SlaPage() {
       const newFaixas     = Array.from(draft.mql_faixas.accepted)
       const newPagamentos = Array.from(draft.mql_pagamentos.accepted)
 
+      // Calcula estado completo ANTES do fetch para evitar race condition:
+      // se dois saves correm em paralelo, cada PATCH envia o array inteiro,
+      // eliminando a necessidade de read-modify-write no servidor.
+      const updated = rows.map(r =>
+        r.id === row.id ? { ...r, status: editStatus, commercial_squad: editSquad, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos } : r
+      )
+
       const res = await fetch(`/api/sla-mql/${row.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: editStatus, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos }),
+        body: JSON.stringify({ status: editStatus, commercial_squad: editSquad, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos, allRows: updated }),
       })
       if (!res.ok) { const j = await res.json(); throw new Error(j.error || "Erro ao salvar") }
-
-      const updated = rows.map(r =>
-        r.id === row.id ? { ...r, status: editStatus, mql_intencoes: newIntencoes, mql_faixas: newFaixas, mql_pagamentos: newPagamentos } : r
-      )
       setRows(updated)
       persist(updated)
 
@@ -534,6 +633,11 @@ export default function SlaPage() {
       }
       if (editStatus !== row.status)
         logEntries.push({ vertical: row.vertical, section: "criterios", action: "edit", entity: row.nome, detail: `Status: ${row.status ? "Ativo → Inativo" : "Inativo → Ativo"}` })
+      if (editSquad !== row.commercial_squad) {
+        const oldLabel = (SQUAD_OPTIONS.find(o => o.value === row.commercial_squad)?.label) ?? (row.commercial_squad || "—")
+        const newLabel = (SQUAD_OPTIONS.find(o => o.value === editSquad)?.label) ?? (editSquad || "—")
+        logEntries.push({ vertical: row.vertical, section: "criterios", action: "edit", entity: row.nome, detail: `Responsável: ${oldLabel} → ${newLabel}` })
+      }
       if (logEntries.length > 0) addLog(logEntries)
 
       cancelEdit()
@@ -1056,6 +1160,46 @@ export default function SlaPage() {
         {/* ── Aba: Critérios ─────────────────────────────────────────────────── */}
         {pageTab === "criterios" && (<>
 
+        {/* Painel agenda closers SZI */}
+        {agenda.length > 0 && (() => {
+          const allPcts = agenda.flatMap(c => c.days.map(d => d.pct))
+          const avgGeral = Math.round(allPcts.reduce((a, b) => a + b, 0) / allPcts.length)
+          const cor   = avgGeral >= 70 ? "#E7000B" : avgGeral >= 40 ? "#D97706" : "#5EA500"
+          const bgCor = avgGeral >= 70 ? "#FFF1F050" : avgGeral >= 40 ? "#FFFBEB50" : "#F0FDF450"
+          const rec   = avgGeral >= 70
+            ? "Agenda cheia — suba a régua e seja mais criterioso"
+            : avgGeral >= 40
+            ? "Agenda moderada — mantenha os critérios atuais"
+            : "Agenda livre — desça a régua e aceite mais leads"
+          const barColor = (pct: number) => pct >= 70 ? "#E7000B" : pct >= 40 ? "#D97706" : "#5EA500"
+          return (
+            <div style={{ marginBottom: 24, padding: "14px 16px", borderRadius: 10, background: bgCor, border: `1px solid ${cor}40` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: cor, fontFamily: T.font }}>
+                  Agenda closers — SZI
+                </span>
+                <span style={{ fontSize: 12, color: cor, fontWeight: 500, fontFamily: T.font }}>· {rec}</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {agenda.map(closer => (
+                  <div key={closer.name} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: T.fg, fontFamily: T.font, minWidth: 56 }}>{closer.name}</span>
+                    {closer.days.map(({ label, pct }) => (
+                      <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, background: "#fff", border: `1px solid ${T.border}`, borderRadius: 8, padding: "5px 12px" }}>
+                        <span style={{ fontSize: 11, color: T.mutedFg, fontFamily: T.font, minWidth: 52 }}>{label}</span>
+                        <div style={{ width: 64, height: 5, borderRadius: 3, background: T.border, overflow: "hidden" }}>
+                          <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: barColor(pct), borderRadius: 3 }} />
+                        </div>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: barColor(pct), fontFamily: T.font, minWidth: 34 }}>{pct}%</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
+
         {/* Vertical tabs */}
         <div style={{
           display: "flex", gap: 6, marginBottom: 24, background: T.cinza50,
@@ -1138,6 +1282,9 @@ export default function SlaPage() {
                       <span style={{ color: accentColor }}>{c.label}</span>
                     </th>
                   ))}
+                  <th style={{ ...thStyle(), textAlign: "center", minWidth: 60 }}>
+                    <span style={{ color: accentColor }}>% Qual.</span>
+                  </th>
                   <th style={{ ...thStyle(), minWidth: 130 }}>Ação</th>
                 </tr>
               </thead>
@@ -1146,7 +1293,9 @@ export default function SlaPage() {
                   const key       = `${row.table}:${row.id}`
                   const isEditing = editingKey === key
                   const rowBg     = i % 2 === 0 ? T.card : T.cinza50
-                  const squad     = (row.commercial_squad || "").replace("_", "-").toUpperCase()
+                  const squadId   = SQUAD_FROM_COMMERCIAL[row.commercial_squad]
+                  const squadData = SQUADS.find(s => s.id === squadId)
+                  const squadLabel = squadData ? squadData.venda.split(" ")[0] : ""
                   const curStatus = isEditing ? editStatus : row.status
 
                   return (
@@ -1172,16 +1321,31 @@ export default function SlaPage() {
                           <span style={{ fontSize: 12.5, fontWeight: 600, color: T.fg, fontFamily: T.font, letterSpacing: "-0.01em" }}>
                             {row.nome}
                           </span>
-                          {squad && (
+                          {isEditing && row.vertical === "SZI" ? (
+                            <select
+                              value={editSquad}
+                              onChange={e => setEditSquad(e.target.value)}
+                              style={{
+                                fontSize: 11, fontFamily: T.font, borderRadius: 4,
+                                border: `1px solid ${T.border}`, padding: "2px 6px",
+                                background: T.card, color: T.fg, cursor: "pointer",
+                                outline: "none",
+                              }}
+                            >
+                              {SQUAD_OPTIONS.map(o => (
+                                <option key={o.value} value={o.value}>{o.label}</option>
+                              ))}
+                            </select>
+                          ) : squadLabel ? (
                             <span style={{
                               fontSize: 9, fontWeight: 600, color: accentColor,
                               background: `${accentColor}12`, border: `1px solid ${accentColor}20`,
                               borderRadius: 4, padding: "1px 5px", fontFamily: T.font,
                               letterSpacing: "0.03em", flexShrink: 0,
                             }}>
-                              {squad}
+                              {squadLabel}
                             </span>
-                          )}
+                          ) : null}
                           {isEditing && (
                             <span style={{
                               fontSize: 10, color: curStatus ? "#15803D" : T.mutedFg,
@@ -1268,6 +1432,32 @@ export default function SlaPage() {
                           </td>
                         )
                       })}
+
+                      {/* % Qualificação */}
+                      {(() => {
+                        const totalOpts = cols.reduce((sum, c) => sum + c.options.length, 0)
+                        const greenCount = cols.reduce((sum, c) => {
+                          const accepted = isEditing && draft ? draft[c.field].accepted : new Set(row[c.field])
+                          return sum + c.options.filter(o => accepted.has(o)).length
+                        }, 0)
+                        const pct = totalOpts > 0 ? Math.round((greenCount / totalOpts) * 100) : 0
+                        const color = pct >= 70 ? "#15803D" : pct >= 40 ? "#D97706" : "#DC2626"
+                        const bg    = pct >= 70 ? "#DCFCE7" : pct >= 40 ? "#FEF3C7" : "#FEE2E2"
+                        return (
+                          <td style={{ ...tdBase(), textAlign: "center" }}>
+                            <span style={{
+                              fontSize: 13, fontWeight: 700, color,
+                              background: bg, borderRadius: 6, padding: "3px 8px",
+                              fontFamily: T.font,
+                            }}>
+                              {pct}%
+                            </span>
+                            <div style={{ fontSize: 10, color: T.mutedFg, marginTop: 3, fontFamily: T.font }}>
+                              {greenCount}/{totalOpts}
+                            </div>
+                          </td>
+                        )
+                      })()}
 
                       {/* Ação */}
                       <td style={tdBase()}>

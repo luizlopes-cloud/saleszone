@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { SQUADS, PV_COLS, V_COLS, SQUAD_V_MAP } from "@/lib/constants";
+import { paginate } from "@/lib/paginate";
+import type { MisalignedDeal } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+// SZI Pipeline 28 stage_ids (from nekt_pipedrive_stages)
+const SZI_STAGE_IDS = new Set([392, 184, 186, 338, 346, 339, 187, 340, 208, 312, 313, 311, 191, 192]);
 
 const PIPEDRIVE_DOMAIN = "seazone-fd92b9.pipedrive.com";
 
@@ -26,21 +31,22 @@ function buildSquadMap() {
   return map;
 }
 
-interface MisalignedDeal {
-  deal_id: number;
-  title: string;
-  empreendimento: string;
-  owner_name: string;
-  link: string;
-}
 
 export async function GET() {
   try {
-    const { data: deals, error } = await supabase
-      .from("squad_alignment_deals")
-      .select("deal_id, title, empreendimento, owner_name");
+    const admin = createSquadSupabaseAdmin();
 
-    if (error) throw new Error(`Supabase error: ${error.message}`);
+    // Read all open deals from squad_deals for SZI pipeline
+    // Note: lost_reason is NOT filtered in the Supabase query because .not("eq", "X")
+    // excludes rows where lost_reason IS NULL — and most deals have NULL. Filter in JS instead.
+    const deals = await paginate((o, ps) =>
+      admin
+        .from("squad_deals")
+        .select("deal_id, title, owner_name, stage_id, stage_order, empreendimento, lost_reason")
+        .eq("status", "open")
+        .in("stage_id", [...SZI_STAGE_IDS])
+        .range(o, o + ps - 1),
+    );
 
     const squadMap = buildSquadMap();
 
@@ -55,7 +61,9 @@ export async function GET() {
     // Group misaligned deals by person (PV or V column name)
     const byPerson = new Map<string, { role: "pv" | "v"; deals: MisalignedDeal[] }>();
 
-    for (const deal of uniqueDeals) {
+    for (const deal of deals) {
+      if (deal.lost_reason === "Duplicado/Erro") continue;
+      if (!deal.empreendimento) continue;
       const info = squadMap.get(deal.empreendimento);
       if (!info) continue;
 

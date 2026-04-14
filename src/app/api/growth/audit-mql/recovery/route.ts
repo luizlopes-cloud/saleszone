@@ -2,11 +2,11 @@
 // POST { date: "2026-04-05" } → compara com Blob e salva o que falta
 
 import { NextRequest, NextResponse } from "next/server"
-import { LeadRecord, dateKey, readLeads, writeLeads, appendLeadSafe, extractVertical } from "@/lib/audit-mql"
+import { LeadRecord, dateKey, readLeads, writeLeads, extractVertical } from "@/lib/audit-mql"
 import { runCheck } from "@/lib/audit-mql-check"
 import crypto from "crypto"
 
-export const maxDuration = 120
+export const maxDuration = 300
 export const dynamic = "force-dynamic"
 
 const META_TOKEN = process.env.META_ADS_TOKEN || ""
@@ -122,8 +122,11 @@ async function recoverDate(targetDate: string, pageTokens: Map<string, string>) 
   let skipped    = 0
   let errors     = 0
   const recoveredLeads: string[] = []
-  // leadgen_id → form_values + form_fields a retroalimentar em leads já existentes
+  const newLeads: LeadRecord[] = []
+  const seenIds = new Set<string>()
   const toBackfill = new Map<string, { form_values: string[]; form_fields: { name: string; value: string }[] }>()
+  // Cache de campaign_name por ad_id — evita chamadas duplicadas à Meta API
+  const campaignCache = new Map<string, string>()
 
   for (const pageId of PAGE_IDS) {
     const pageToken = pageTokens.get(pageId)
@@ -137,10 +140,16 @@ async function recoverDate(targetDate: string, pageTokens: Map<string, string>) 
       try { metaLeads = await getLeadsForForm(form.id, minUnix, maxUnix, pageToken) } catch { continue }
 
       for (const ml of metaLeads) {
+        // Rejeita leads com mais de 48h — captura lixo histórico quando o filtro
+        // de data da Meta API falha, sem perder leads legítimos da fronteira de dia
+        if (ml.created_time) {
+          const age = Date.now() - new Date(ml.created_time).getTime()
+          if (age > 48 * 60 * 60 * 1000) { skipped++; continue }
+        }
+
         const blobLead = existingMap.get(ml.leadgen_id)
 
         if (blobLead) {
-          // Lead já existe — backfill se faltar form_values ou form_fields
           const needsBackfill = (!blobLead.form_values?.length || !blobLead.form_fields?.length) && ml.parsed.form_values?.length
           if (needsBackfill) {
             toBackfill.set(ml.leadgen_id, { form_values: ml.parsed.form_values!, form_fields: ml.parsed.form_fields! })
@@ -150,66 +159,85 @@ async function recoverDate(targetDate: string, pageTokens: Map<string, string>) 
           continue
         }
 
-        // Lead ausente — salvar
+        // Já coletado neste batch — skip
+        if (seenIds.has(ml.leadgen_id)) { skipped++; continue }
+
+        // Campaign com cache por ad_id
         let campaign = ""
-        if (ml.parsed.ad_id) {
-          try {
-            const adData = await metaFetch(
-              `https://graph.facebook.com/v19.0/${ml.parsed.ad_id}?fields=campaign{name}&access_token=${META_TOKEN}`
-            )
-            campaign = adData?.campaign?.name || ""
-          } catch { /* sem campanha */ }
+        const adId = ml.parsed.ad_id || ""
+        if (adId) {
+          if (campaignCache.has(adId)) {
+            campaign = campaignCache.get(adId)!
+          } else {
+            try {
+              const adData = await metaFetch(
+                `https://graph.facebook.com/v19.0/${adId}?fields=campaign{name}&access_token=${META_TOKEN}`
+              )
+              campaign = adData?.campaign?.name || ""
+            } catch { /* sem campanha */ }
+            campaignCache.set(adId, campaign)
+          }
         }
+
+        const createdAt = ml.created_time || new Date().toISOString()
+        const leadAge = Date.now() - new Date(createdAt).getTime()
+        const isOldLead = leadAge > 15 * 60 * 1000 // >15 min
 
         const record: LeadRecord = {
           id:            crypto.randomUUID(),
           leadgen_id:    ml.leadgen_id,
           form_id:       ml.parsed.form_id || form.id,
-          ad_id:         ml.parsed.ad_id   || "",
+          ad_id:         adId,
           page_id:       ml.parsed.page_id || pageId,
           name:          ml.parsed.name    || "",
           email:         ml.parsed.email   || "",
           phone:         ml.parsed.phone   || "",
           campaign_name: campaign,
           vertical:      extractVertical(campaign),
-          created_at:    ml.created_time || new Date().toISOString(),
+          created_at:    createdAt,
           status:        "aguardando",
           form_values:   ml.parsed.form_values,
           form_fields:   ml.parsed.form_fields,
+          // Leads antigos (>15min) já recuperados não devem disparar alerta Slack
+          ...(isOldLead ? { notified: true } : {}),
         }
 
-        try {
-          const saved = await appendLeadSafe(targetDate, record)
-          if (saved) {
-            recovered++
-            existingMap.set(ml.leadgen_id, record)
-            recoveredLeads.push(`${record.name || record.email} (${record.vertical})`)
-          }
-        } catch { errors++ }
+        newLeads.push(record)
+        seenIds.add(ml.leadgen_id)
+        existingMap.set(ml.leadgen_id, record)
+        recovered++
+        recoveredLeads.push(`${record.name || record.email} (${record.vertical})`)
       }
     }
   }
 
-  // Backfill em lote: um único read→write para todos os leads sem form_values
-  if (toBackfill.size > 0) {
-    try {
-      const allLeads = await readLeads(targetDate)
-      let changed = false
+  // Batch write: re-lê blob fresco antes de gravar para não sobrescrever atualizações
+  // feitas por runCheck() concorrente (GH Actions */15min) durante as chamadas Meta API acima.
+  // Sem isso, leads processados como sem_mia com notified=true seriam revertidos para
+  // aguardando/notified=false, causando Slack duplicado no runCheck() seguinte.
+  if (newLeads.length > 0 || toBackfill.size > 0) {
+    const fresh = await readLeads(targetDate)
+    const freshMap = new Map(fresh.map(l => [l.leadgen_id, l]))
+    // Filtra newLeads para não duplicar leads adicionados pelo webhook enquanto rodávamos
+    const actuallyNew = newLeads.filter(l => !freshMap.has(l.leadgen_id))
+    const allLeads = [...fresh, ...actuallyNew]
+
+    if (toBackfill.size > 0) {
       for (const lead of allLeads) {
         const bf = toBackfill.get(lead.leadgen_id)
-        if (bf) { lead.form_values = bf.form_values; lead.form_fields = bf.form_fields; backfilled++; changed = true }
+        if (bf) { lead.form_values = bf.form_values; lead.form_fields = bf.form_fields; backfilled++ }
       }
-      if (changed) await writeLeads(targetDate, allLeads)
-    } catch (err) { console.error("[recovery] backfill write failed:", err) }
+    }
+
+    try {
+      await writeLeads(targetDate, allLeads)
+    } catch (err) {
+      console.error("[recovery] writeLeads failed:", err)
+      errors++
+    }
   }
 
-  return { date: targetDate, recovered, backfilled, skipped, errors, recoveredLeads, existingBefore: existing.length }
-}
-
-function yesterdayKey() {
-  const d = new Date(Date.now() - 3 * 60 * 60 * 1000)
-  d.setDate(d.getDate() - 1)
-  return d.toISOString().slice(0, 10)
+  return { date: targetDate, recovered, backfilled, skipped, errors, existingBefore: existing.length, recoveredLeads }
 }
 
 async function recoverAndCheck(targetDate: string, pageTokens: Map<string, string>) {
@@ -227,8 +255,8 @@ export async function GET(req: NextRequest) {
   }
 
   const pageTokens = await getPageTokens()
-  const [r1, r2] = await Promise.all([recoverAndCheck(yesterdayKey(), pageTokens), recoverAndCheck(dateKey(), pageTokens)])
-  return NextResponse.json({ yesterday: r1, today: r2 })
+  const r = await recoverAndCheck(dateKey(), pageTokens)
+  return NextResponse.json({ today: r })
 }
 
 export async function POST(req: NextRequest) {
@@ -246,6 +274,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(await recoverAndCheck(targetDate, pageTokens))
   }
 
-  const [r1, r2] = await Promise.all([recoverAndCheck(yesterdayKey(), pageTokens), recoverAndCheck(dateKey(), pageTokens)])
-  return NextResponse.json({ yesterday: r1, today: r2 })
+  const r = await recoverAndCheck(dateKey(), pageTokens)
+  return NextResponse.json({ today: r })
 }

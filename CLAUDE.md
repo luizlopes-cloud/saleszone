@@ -8,7 +8,7 @@ Dashboard de acompanhamento de vendas por squads para a Seazone (Pipeline SZI). 
 
 - **Deploy:** Vercel (saleszone.vercel.app) — auto-deploy via push em `main`
 - **GitHub:** `seazone-socios/saleszone`
-- **Supabase:** projeto `ewgqbkdriflarmmifrvs` (plano Pro)
+- **Supabase:** projeto `iobxudcyihqfdwiggohz` (plano Pro) — auth, user_profiles, nekt_meta26_metas
 
 ## Stack
 - **Framework:** Next.js 16 (App Router, Turbopack), React 19, TypeScript 5

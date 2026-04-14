@@ -130,8 +130,6 @@ export async function GET(req: NextRequest) {
         admin
           .from("squad_deals")
           .select("empreendimento, max_stage_order, status, lost_reason")
-          .eq("is_marketing", true)
-          .not("empreendimento", "is", null)
           .in("status", ["won", "lost"])
           .or(`won_time.gte.${startDate},lost_time.gte.${startDate}`)
           .range(o, o + ps - 1),
@@ -290,11 +288,16 @@ export async function GET(req: NextRequest) {
     for (const d of paidLeadsDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const key = d.empreendimento || "__sem_emp__";
-      // Reserva/Contrato acumulados — só deals com empreendimento (mesma lógica Resultados SZNI)
+      // Reserva/Contrato acumulados — deals SEM empreendimento contam no total
       if (d.empreendimento) {
         const mso = d.max_stage_order ?? 0;
         if (mso >= 13) paidReservaMap.set(key, (paidReservaMap.get(key) || 0) + 1);
         if (mso >= 14) paidContratoMap.set(key, (paidContratoMap.get(key) || 0) + 1);
+      } else {
+        // Deals sem empreendimento: acumulam no total Geral
+        const mso = d.max_stage_order ?? 0;
+        if (mso >= 13) paidReservaMap.set("__geral__", (paidReservaMap.get("__geral__") || 0) + 1);
+        if (mso >= 14) paidContratoMap.set("__geral__", (paidContratoMap.get("__geral__") || 0) + 1);
       }
       // Leads/MQL só contam deals criados no mês (add_time >= startDate)
       if (d.add_time && d.add_time >= startDate) {
@@ -321,10 +324,10 @@ export async function GET(req: NextRequest) {
     // Agregar eventos por stage — deals fechados no mês (mesma coorte)
     // OPP = max_stage_order >= 9, Reserva = >= 13, Contrato = >= 14, WON = status won
     // Exclui Duplicado/Erro em JS (neq no Supabase exclui NULLs, removendo WONs)
+    // Inclui deals SEM empreendimento (key = "__sem_emp__") para contar na conversão total
     const eventoMap = new Map<string, { oppEvento: number; reservaEvento: number; contratoEvento: number; wonEvento: number }>();
     for (const d of dealsRes) {
-      const emp = d.empreendimento;
-      if (!emp) continue;
+      const emp = d.empreendimento || "__sem_emp__";
       if (d.lost_reason === "Duplicado/Erro") continue;
       if (!eventoMap.has(emp)) eventoMap.set(emp, { oppEvento: 0, reservaEvento: 0, contratoEvento: 0, wonEvento: 0 });
       const cur = eventoMap.get(emp)!;
@@ -345,11 +348,16 @@ export async function GET(req: NextRequest) {
     for (const d of allLeadsDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const key = d.empreendimento || "__sem_emp__";
-      // Reserva/Contrato acumulados — só deals com empreendimento (mesma lógica Resultados SZNI)
+      // Reserva/Contrato acumulados — deals SEM empreendimento contam no total
       if (d.empreendimento) {
         const mso = d.max_stage_order ?? 0;
         if (mso >= 13) allReservaMap.set(key, (allReservaMap.get(key) || 0) + 1);
         if (mso >= 14) allContratoMap.set(key, (allContratoMap.get(key) || 0) + 1);
+      } else {
+        // Deals sem empreendimento: acumulam no total Geral
+        const mso = d.max_stage_order ?? 0;
+        if (mso >= 13) allReservaMap.set("__geral__", (allReservaMap.get("__geral__") || 0) + 1);
+        if (mso >= 14) allContratoMap.set("__geral__", (allContratoMap.get("__geral__") || 0) + 1);
       }
       // Leads/MQL só contam deals criados no mês (add_time >= startDate)
       if (d.add_time && d.add_time >= startDate) {
