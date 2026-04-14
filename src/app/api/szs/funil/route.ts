@@ -85,6 +85,15 @@ const CANAL_NUM_TO_GROUP: Record<string, string> = {
   "3189": "Spots",
   "4551": "Monica",
 };
+// canal_group label → squad ID (built from CANAL_NUM_TO_SQUAD values)
+const CANAL_GROUP_TO_SQUAD: Record<string, number> = {
+  "Marketing": 1,
+  "Ind. Corretor": 2,
+  "Ind. Franquia": 2,
+  "Expansão": 3,
+  "Spots": 3,
+  "Monica": 3,
+};
 const DEFAULT_GROUP = "Outros";
 
 export async function GET(req: NextRequest) {
@@ -170,7 +179,7 @@ export async function GET(req: NextRequest) {
     // Build counts by squadId|canalGroup from countsByCanal
     const squadCanalCounts = new Map<string, { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number }>();
     for (const [canalGroup, counts] of countsByCanal.entries()) {
-      const squadId = CANAL_NUM_TO_SQUAD[canalGroup] ?? 3;
+      const squadId = CANAL_GROUP_TO_SQUAD[canalGroup] ?? 3;
       const gKey = `${squadId}|${canalGroup}`;
       squadCanalCounts.set(gKey, counts);
     }
