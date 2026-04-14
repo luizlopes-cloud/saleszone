@@ -102,13 +102,11 @@ export async function GET(req: NextRequest) {
 
     if (metaRes?.error) throw new Error(`Meta query error: ${metaRes.error.message}`);
 
-    // Agregar por mês — exclui indicação e Duplicado/Erro
+    // Agregar por mês — exclui apenas Duplicado/Erro (indicações incluídas no Geral)
     function aggregateByMonth(deals: Record<string, string | null>[], dateField: string): Map<string, number> {
       const map = new Map<string, number>();
       for (const d of deals) {
         if (d.lost_reason === "Duplicado/Erro") continue;
-        const canal = (d.canal || "").toLowerCase();
-        if (canal.includes("indica")) continue;
         const dateVal = d[dateField];
         if (!dateVal) continue;
         const monthKey = dateVal.substring(0, 7);
