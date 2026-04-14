@@ -94,8 +94,6 @@ export async function GET(req: NextRequest) {
     const empDaily: Record<string, Record<string, Record<string, number>>> = {};
     for (const d of dealRows) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const isMarketing = d.is_marketing || d.canal === "12";
-      if (!isMarketing) continue;
       const rdLower = (d.rd_source || "").toLowerCase();
       if (paidOnly && !rdLower.includes("pag")) continue;
       if (ctwaOnly && !rdLower.includes("whats")) continue;
