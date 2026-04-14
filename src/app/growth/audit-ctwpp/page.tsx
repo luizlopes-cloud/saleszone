@@ -241,7 +241,7 @@ function LeadRow({ lead, odd }: { lead: AuditCTWPPLead; odd: boolean }) {
         <td style={td}>
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ fontWeight: 600, color: T.fg }}>{lead.deal_title}</span>
-            <a href={`https://seazone.pipedrive.com/deal/${lead.deal_id}`}
+            <a href={`https://seazone-fd92b9.pipedrive.com/deal/${lead.deal_id}`}
               target="_blank" rel="noopener noreferrer"
               onClick={e => e.stopPropagation()}
               style={{ color: T.mutedFg, display: "flex", alignItems: "center" }}>
@@ -288,7 +288,7 @@ function LeadRow({ lead, odd }: { lead: AuditCTWPPLead; odd: boolean }) {
                   <ExternalLink size={12} /> Ver conversa na Morada
                 </a>
               )}
-              <a href={`https://seazone.pipedrive.com/deal/${lead.deal_id}`}
+              <a href={`https://seazone-fd92b9.pipedrive.com/deal/${lead.deal_id}`}
                 target="_blank" rel="noopener noreferrer"
                 onClick={e => e.stopPropagation()}
                 style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 600, color: T.mutedFg, textDecoration: "none" }}>
