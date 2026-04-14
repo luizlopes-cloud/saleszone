@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo } from "react"
 import Link from "next/link"
 import { ShieldAlert, CheckCircle2, XCircle, Clock, ChevronLeft, ChevronRight, RefreshCw, AlertTriangle, ChevronDown } from "lucide-react"
 import type { LeadRecord } from "@/lib/audit-mql"
@@ -352,6 +352,10 @@ export default function AuditMQL() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [log, setLog]               = useState<LogEntry[]>([])
   const [logLoading, setLogLoading] = useState(false)
+  const [logSortColumn, setLogSortColumn] = useState<string | null>(null)
+  const [logSortOrder, setLogSortOrder]   = useState<'asc' | 'desc'>('desc')
+  const [leadsSortColumn, setLeadsSortColumn] = useState<string | null>(null)
+  const [leadsSortOrder, setLeadsSortOrder]   = useState<'asc' | 'desc'>('desc')
   const [verticalFilter, setVerticalFilter] = useState<string | null>(null)
   const [statusFilter, setStatusFilter]     = useState<Status | "sem_baserow" | "sem_nekt" | null>(null)
   const [expandedId, setExpandedId]         = useState<string | null>(null)
@@ -487,6 +491,62 @@ export default function AuditMQL() {
     return true
   })
 
+  const sortedLog = useMemo(() => {
+    if (!logSortColumn) return log
+    const sorted = [...log]
+    sorted.sort((a, b) => {
+      let aVal: any = (a as any)[logSortColumn]
+      let bVal: any = (b as any)[logSortColumn]
+      if (aVal == null) aVal = 0
+      if (bVal == null) bVal = 0
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return logSortOrder === 'asc' ? aVal - bVal : bVal - aVal
+      }
+      if (typeof aVal === 'string') {
+        return logSortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+      }
+      return 0
+    })
+    return sorted
+  }, [log, logSortColumn, logSortOrder])
+
+  const sortedLeads = useMemo(() => {
+    if (!leadsSortColumn) return visibleLeads
+    const sorted = [...visibleLeads]
+    sorted.sort((a, b) => {
+      let aVal: any = (a as any)[leadsSortColumn]
+      let bVal: any = (b as any)[leadsSortColumn]
+      if (aVal == null) aVal = 0
+      if (bVal == null) bVal = 0
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return leadsSortOrder === 'asc' ? aVal - bVal : bVal - aVal
+      }
+      if (typeof aVal === 'string') {
+        return leadsSortOrder === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal)
+      }
+      return 0
+    })
+    return sorted
+  }, [visibleLeads, leadsSortColumn, leadsSortOrder])
+
+  const handleLogSort = (column: string) => {
+    if (logSortColumn === column) {
+      setLogSortOrder(logSortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setLogSortColumn(column)
+      setLogSortOrder('desc')
+    }
+  }
+
+  const handleLeadsSort = (column: string) => {
+    if (leadsSortColumn === column) {
+      setLeadsSortOrder(leadsSortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setLeadsSortColumn(column)
+      setLeadsSortOrder('desc')
+    }
+  }
+
   // Anota form_values de um lead fora_sla com status de aprovação por critério SLA
   function annotateSla(formValues: string[], vertical: string): Array<{ val: string; ok: boolean | null }> {
     if (!slaData) return formValues.map(val => ({ val, ok: null }))
@@ -582,16 +642,42 @@ export default function AuditMQL() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: T.muted }}>
-                  {["Data", "Leads", "Pipedrive", "MIA", "Erros", "Por vertical"].map(h => (
-                    <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
-                      fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
-                      letterSpacing: "0.07em", whiteSpace: "nowrap",
-                      borderBottom: `1px solid ${T.border}` }}>{h}</th>
-                  ))}
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}` }}>Data</th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => handleLogSort('total')}>
+                    Leads {logSortColumn === 'total' && <span style={{ color: T.primary, fontSize: 11 }}>{logSortOrder === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => handleLogSort('pipedrive')}>
+                    Pipedrive {logSortColumn === 'pipedrive' && <span style={{ color: T.primary, fontSize: 11 }}>{logSortOrder === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => handleLogSort('mia')}>
+                    MIA {logSortColumn === 'mia' && <span style={{ color: T.primary, fontSize: 11 }}>{logSortOrder === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => handleLogSort('erros')}>
+                    Erros {logSortColumn === 'erros' && <span style={{ color: T.primary, fontSize: 11 }}>{logSortOrder === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}` }}>Por vertical</th>
                 </tr>
               </thead>
               <tbody>
-                {log.map(entry => {
+                {sortedLog.map(entry => {
                   const [y, m, d] = entry.key.split("-")
                   const hasError = entry.erros > 0
                   return (
@@ -786,16 +872,58 @@ export default function AuditMQL() {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
                 <tr style={{ background: T.muted }}>
-                  {["Data/Horário", "Lead", "Vertical", "Campanha", "Meta", "Baserow", "Nekt", "Pipedrive", "MIA", "Status"].map(h => (
-                    <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
-                      fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
-                      letterSpacing: "0.07em", whiteSpace: "nowrap",
-                      borderBottom: `1px solid ${T.border}` }}>{h}</th>
-                  ))}
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => handleLeadsSort('created_at')}>
+                    Data/Horário {leadsSortColumn === 'created_at' && <span style={{ color: T.primary, fontSize: 11 }}>{leadsSortOrder === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => handleLeadsSort('name')}>
+                    Lead {leadsSortColumn === 'name' && <span style={{ color: T.primary, fontSize: 11 }}>{leadsSortOrder === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => handleLeadsSort('vertical')}>
+                    Vertical {leadsSortColumn === 'vertical' && <span style={{ color: T.primary, fontSize: 11 }}>{leadsSortOrder === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}` }}>Campanha</th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}` }}>Meta</th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}` }}>Baserow</th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}` }}>Nekt</th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}` }}>Pipedrive</th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}` }}>MIA</th>
+                  <th style={{ padding: "9px 14px", textAlign: "left", fontSize: 10,
+                    fontWeight: 700, color: T.mutedFg, textTransform: "uppercase",
+                    letterSpacing: "0.07em", whiteSpace: "nowrap",
+                    borderBottom: `1px solid ${T.border}`, cursor: "pointer" }} onClick={() => handleLeadsSort('status')}>
+                    Status {leadsSortColumn === 'status' && <span style={{ color: T.primary, fontSize: 11 }}>{leadsSortOrder === 'asc' ? '↑' : '↓'}</span>}
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {visibleLeads.map(lead => {
+                {sortedLeads.map(lead => {
                   const st = STATUS_META[lead.status]
                   const isPending  = lead.status === "aguardando"
                   const isForaSla  = lead.status === "fora_sla"

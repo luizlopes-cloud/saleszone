@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { LeadRecord, dateKey, readLeads, writeLeads } from "@/lib/audit-mql"
 import { checkSla, enrichBaserow, BASEROW_START } from "@/lib/audit-mql-check"
 import { readData } from "@/lib/sla-mql-blob"
+import { MOCK_LEADS } from "@/lib/audit-mql-mock"
 
 export const maxDuration = 60
 export const dynamic = "force-dynamic"
@@ -205,6 +206,14 @@ export async function GET(req: NextRequest) {
   const date = searchParams.get("date") || dateKey()
 
   let leads = await readLeads(date)
+
+  // Em desenvolvimento ou quando não há dados, retorna mock
+  if (leads.length === 0 && process.env.NODE_ENV === "development") {
+    leads = MOCK_LEADS.filter(l => l.created_at.startsWith(date))
+    if (leads.length === 0) {
+      leads = MOCK_LEADS // Se não tiver dados para a data específica, retorna todos os mock
+    }
+  }
 
   // Limpa in_baserow de leads anteriores ao BASEROW_START (marcados false pelo sync Supabase quebrado)
   let cleared = false
