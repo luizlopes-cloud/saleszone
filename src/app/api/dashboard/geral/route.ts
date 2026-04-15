@@ -123,13 +123,19 @@ export async function GET(req: NextRequest) {
       ),
     ]);
 
-    function countAll(deals: { canal: string; lost_reason: string }[]): number {
-      let count = 0;
+    // Count by date AND by macro channel from the same deal sets
+    // This ensures Geral = VD + Parceiros + Expansão + Spot (all date-based)
+    function countByChannel(deals: { canal: string; lost_reason: string }[]): Record<string, number> {
+      const counts: Record<string, number> = { Geral: 0, "Vendas Diretas": 0, Parceiros: 0 };
       for (const d of deals) {
         if (d.lost_reason === "Duplicado/Erro") continue;
-        count++;
+        counts.Geral++;
+        const macro = getMacroChannel(d.canal);
+        if (macro === "Vendas Diretas") counts["Vendas Diretas"]++;
+        else if (macro === "Parceiros") counts.Parceiros++;
+        // Expansão e Spot só contam no Geral
       }
-      return count;
+      return counts;
     }
 
     // Leads = todos os canais, sem Duplicado/Erro
@@ -139,28 +145,35 @@ export async function GET(req: NextRequest) {
       totalLeadsAll++;
     }
 
-    let totalCounts: Record<string, number>;
+    // Count MQL/SQL/OPP/WON per channel (all date-based, consistent)
+    const channelCounts: Record<string, Record<string, number>> = {};
+    for (const ch of CHANNEL_ORDER) channelCounts[ch] = { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 };
+
     if (hasServiceRole() && geralMqlDeals.length > 0) {
-      totalCounts = {
-        mql: countAll(geralMqlDeals),
-        sql: countAll(geralSqlDeals),
-        opp: countAll(geralOppDeals),
-        won: countAll(geralWonDeals),
-      };
+      const mqlByChannel = countByChannel(geralMqlDeals);
+      const sqlByChannel = countByChannel(geralSqlDeals);
+      const oppByChannel = countByChannel(geralOppDeals);
+      const wonByChannel = countByChannel(geralWonDeals);
+      for (const ch of CHANNEL_ORDER) {
+        channelCounts[ch].mql = mqlByChannel[ch] || 0;
+        channelCounts[ch].sql = sqlByChannel[ch] || 0;
+        channelCounts[ch].opp = oppByChannel[ch] || 0;
+        channelCounts[ch].won = wonByChannel[ch] || 0;
+      }
     } else {
-      // Fallback: squad_daily_counts (anon key)
+      // Fallback: squad_daily_counts (anon key) — only Geral, no channel split
       console.warn("[geral] Fallback to squad_daily_counts (no service role or empty squad_deals)");
       const countsRows = await paginate((o, ps) =>
         supabase.from("squad_daily_counts").select("tab, count").in("tab", ["mql", "sql", "opp", "won"]).gte("date", startDate).range(o, o + ps - 1),
       );
-      totalCounts = { mql: 0, sql: 0, opp: 0, won: 0 };
-      for (const r of countsRows) totalCounts[r.tab] = (totalCounts[r.tab] || 0) + (r.count || 0);
-      totalLeadsAll = totalCounts.mql;
+      for (const r of countsRows) channelCounts.Geral[r.tab] = (channelCounts.Geral[r.tab] || 0) + (r.count || 0);
+      totalLeadsAll = channelCounts.Geral.mql;
     }
-    console.log(`[geral] Geral: mql=${totalCounts.mql}, sql=${totalCounts.sql}, opp=${totalCounts.opp}, won=${totalCounts.won}`);
+    console.log(`[geral] channelCounts Geral: mql=${channelCounts.Geral.mql}, sql=${channelCounts.Geral.sql}, opp=${channelCounts.Geral.opp}, won=${channelCounts.Geral.won}`);
+    console.log(`[geral] channelCounts VD: mql=${channelCounts["Vendas Diretas"].mql}, sql=${channelCounts["Vendas Diretas"].sql}, opp=${channelCounts["Vendas Diretas"].opp}, won=${channelCounts["Vendas Diretas"].won}`);
+    console.log(`[geral] channelCounts Parceiros: mql=${channelCounts.Parceiros.mql}, sql=${channelCounts.Parceiros.sql}, opp=${channelCounts.Parceiros.opp}, won=${channelCounts.Parceiros.won}`);
 
-    // ── 2. Canal split from squad_deals (MQL/SQL/OPP/WON by canal) ──
-    // Vendas Diretas = tudo exceto Parceiros (indicação), Expansão e Spot
+    // ── 2. Reserva/Contrato acumulado from squad_deals (stage-based, não date-based) ──
     const deals = await paginate((o, ps) =>
       admin
         .from("squad_deals")
@@ -169,49 +182,24 @@ export async function GET(req: NextRequest) {
         .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
         .range(o, o + ps - 1),
     );
-    console.log(`[geral] squad_deals returned ${deals.length} deals`);
-
-    // Count by macro channel
-    const channelCounts: Record<string, Record<string, number>> = {};
-    for (const ch of CHANNEL_ORDER) channelCounts[ch] = { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 };
+    console.log(`[geral] squad_deals returned ${deals.length} deals (for reserva/contrato)`);
 
     for (const d of deals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const mso = d.max_stage_order ?? d.stage_order ?? 0;
       const macro = getMacroChannel(d.canal);
-
-      // Geral = todos os canais (mesma base de deals que VD/Parceiros)
-      if (mso >= TH_MQL) channelCounts.Geral.mql++;
-      if (mso >= TH_SQL) channelCounts.Geral.sql++;
-      if (mso >= TH_OPP) channelCounts.Geral.opp++;
+      // Reserva/Contrato acumulado (stage-based) — todos os canais no Geral
       if (mso >= TH_RESERVA) channelCounts.Geral.reserva++;
       if (mso >= TH_CONTRATO) channelCounts.Geral.contrato++;
-      if (d.status === "won") channelCounts.Geral.won++;
-
-      // Parceiros = indicações de parceiros
       if (macro === "Parceiros") {
-        if (mso >= TH_MQL) channelCounts.Parceiros.mql++;
-        if (mso >= TH_SQL) channelCounts.Parceiros.sql++;
-        if (mso >= TH_OPP) channelCounts.Parceiros.opp++;
         if (mso >= TH_RESERVA) channelCounts.Parceiros.reserva++;
         if (mso >= TH_CONTRATO) channelCounts.Parceiros.contrato++;
-        if (d.status === "won") channelCounts.Parceiros.won++;
       }
-
-      // Vendas Diretas = tudo que NÃO é Parceiros, Expansão ou Spot
       if (macro === "Vendas Diretas") {
-        if (mso >= TH_MQL) channelCounts["Vendas Diretas"].mql++;
-        if (mso >= TH_SQL) channelCounts["Vendas Diretas"].sql++;
-        if (mso >= TH_OPP) channelCounts["Vendas Diretas"].opp++;
         if (mso >= TH_RESERVA) channelCounts["Vendas Diretas"].reserva++;
         if (mso >= TH_CONTRATO) channelCounts["Vendas Diretas"].contrato++;
-        if (d.status === "won") channelCounts["Vendas Diretas"].won++;
       }
-      // Expansão e Spot só contam no Geral (não aparecem em VD nem Parceiros)
     }
-    console.log(`[geral] channelCounts Geral: mql=${channelCounts.Geral.mql}, sql=${channelCounts.Geral.sql}, opp=${channelCounts.Geral.opp}, won=${channelCounts.Geral.won}`);
-    console.log(`[geral] channelCounts VD: mql=${channelCounts["Vendas Diretas"].mql}, won=${channelCounts["Vendas Diretas"].won}`);
-    console.log(`[geral] channelCounts Parceiros: mql=${channelCounts.Parceiros.mql}, won=${channelCounts.Parceiros.won}`);
 
     // ── 3. Previous month WON ──
     const prevRows = await paginate((o, ps) =>
