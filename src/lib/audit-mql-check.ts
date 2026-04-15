@@ -80,12 +80,12 @@ async function notify(lead: LeadRecord, key: string, problem: "sem_pipedrive" | 
 
   const text =
     problem === "sem_pipedrive"
-      ? `🚨 *Lead sem deal no Pipedrive* — ${time}\n` +
+      ? `<@U09TS4BLYRY> 🚨 *Lead sem deal no Pipedrive* — ${time}\n` +
         `*Nome:* ${lead.name || "—"}  |  *Vertical:* ${lead.vertical || "—"}\n` +
         `*Email:* ${lead.email || "—"}  |  *Tel:* ${lead.phone || "—"}\n` +
         `*Campanha:* ${lead.campaign_name || "—"}\n` +
         `*LeadGen ID:* \`${lead.leadgen_id}\`\nO lead chegou pelo Meta Ads mas não foi encontrado no Pipedrive após 2 minutos.`
-      : `⚠️ *Lead sem atendimento MIA* — ${time}\n` +
+      : `<@U09TS4BLYRY> ⚠️ *Lead sem atendimento MIA* — ${time}\n` +
         `*Nome:* ${lead.name || "—"}  |  *Vertical:* ${lead.vertical || "—"}\n` +
         `*Deal:* ${dealLink || "—"}  |  *Campanha:* ${lead.campaign_name || "—"}\n` +
         `O deal existe no Pipedrive mas o campo *Link da Conversa* não foi preenchido pela Morada IA.`
@@ -94,7 +94,7 @@ async function notify(lead: LeadRecord, key: string, problem: "sem_pipedrive" | 
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ text }),
-  })
+  }).catch(err => console.error("[audit-mql-notify] Slack error:", err))
 }
 
 // ─── Verificação SLA ──────────────────────────────────────────────────────────
@@ -383,82 +383,97 @@ export async function enrichBaserow(leads: LeadRecord[]): Promise<boolean> {
 // ─── runCheck (usado pelo check/route.ts e summary/route.ts) ─────────────────
 
 export async function runCheck(key: string): Promise<{ checked: number; resolved: number }> {
-  const leads = await readLeads(key)
-  if (leads.length === 0) return { checked: 0, resolved: 0 }
+  try {
+    const leads = await readLeads(key)
+    if (leads.length === 0) return { checked: 0, resolved: 0 }
 
-  const now = Date.now()
-  const pending = leads.filter(l => {
-    if (l.status === "descartado") return false
-    // Aguardando: checa após 5 min (webhook já esperou 7min, GH Actions é o fallback)
-    if (l.status === "aguardando" && now - new Date(l.created_at).getTime() > FIVE_MINUTES) return true
-    // Sem MIA: re-checa por até 4h desde a criação (janela fixa — não renova a cada check)
-    if (l.status === "sem_mia" && now - new Date(l.created_at).getTime() < FOUR_HOURS) return true
-    // Sem Pipedrive: re-checa por até 4h — Pipedrive tem lag de indexação, deal pode aparecer depois
-    if (l.status === "sem_pipedrive" && now - new Date(l.created_at).getTime() < FOUR_HOURS) return true
-    return false
-  })
+    const now = Date.now()
+    const pending = leads.filter(l => {
+      if (l.status === "descartado") return false
+      // Aguardando: checa após 5 min (webhook já esperou 7min, GH Actions é o fallback)
+      if (l.status === "aguardando" && now - new Date(l.created_at).getTime() > FIVE_MINUTES) return true
+      // Sem MIA: re-checa por até 4h desde a criação (janela fixa — não renova a cada check)
+      if (l.status === "sem_mia" && now - new Date(l.created_at).getTime() < FOUR_HOURS) return true
+      // Sem Pipedrive: re-checa por até 4h — Pipedrive tem lag de indexação, deal pode aparecer depois
+      if (l.status === "sem_pipedrive" && now - new Date(l.created_at).getTime() < FOUR_HOURS) return true
+      return false
+    })
 
-  if (pending.length === 0) return { checked: 0, resolved: 0 }
+    if (pending.length === 0) return { checked: 0, resolved: 0 }
 
-  // Mais recentes primeiro — garante que leads novos não ficam bloqueados por backlog antigo
-  pending.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  const batch = pending.slice(0, 30)
+    // Mais recentes primeiro — garante que leads novos não ficam bloqueados por backlog antigo
+    pending.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    const batch = pending.slice(0, 30)
 
-  // Carrega SLA uma vez para todos os leads
-  const slaData = await readData().catch(() => null)
+    // Carrega SLA uma vez para todos os leads
+    const slaData = await readData().catch(() => null)
 
-  let resolved = 0
-  for (const lead of batch) {
-    lead.checked_at = new Date().toISOString()
+    let resolved = 0
+    for (const lead of batch) {
+      lead.checked_at = new Date().toISOString()
 
-    // Verificação SLA ANTES de buscar Pipedrive — lead fora do SLA não deveria
-    // estar no Pipe, então não faz sentido alertar "sem deal" para ele
-    if (slaData) {
-      lead.sla_ok = checkSla(lead, slaData)
-    }
-    if (lead.sla_ok === false) {
-      lead.status = "fora_sla"
-      lead.notified = true
-      continue
-    }
+      // Verificação SLA ANTES de buscar Pipedrive — lead fora do SLA não deveria
+      // estar no Pipe, então não faz sentido alertar "sem deal" para ele
+      if (slaData) {
+        lead.sla_ok = checkSla(lead, slaData)
+      }
+      if (lead.sla_ok === false) {
+        lead.status = "fora_sla"
+        lead.notified = true
+        continue
+      }
 
-    const personId = await findPerson(lead.email, lead.phone)
-    if (!personId) {
-      lead.status = "sem_pipedrive"
-      await notify(lead, key, "sem_pipedrive")
-      lead.notified = true
-    } else {
-      const deal = await getLatestDeal(personId)
-      if (!deal) {
+      const personId = await findPerson(lead.email, lead.phone)
+      if (!personId) {
         lead.status = "sem_pipedrive"
         await notify(lead, key, "sem_pipedrive")
         lead.notified = true
       } else {
-        lead.pipedrive_deal_id = deal.deal_id
-        if (!deal.mia_link) {
-          lead.status = "sem_mia"
-          await notify(lead, key, "sem_mia")
+        const deal = await getLatestDeal(personId)
+        if (!deal) {
+          lead.status = "sem_pipedrive"
+          await notify(lead, key, "sem_pipedrive")
           lead.notified = true
         } else {
-          lead.mia_link = deal.mia_link
-          lead.status = "ok"
-          lead.notified = true
-          resolved++
+          lead.pipedrive_deal_id = deal.deal_id
+          if (!deal.mia_link) {
+            lead.status = "sem_mia"
+            await notify(lead, key, "sem_mia")
+            lead.notified = true
+          } else {
+            lead.mia_link = deal.mia_link
+            lead.status = "ok"
+            lead.notified = true
+            resolved++
+          }
         }
       }
     }
+
+    const pendingMap = new Map(batch.map(l => [l.id, l]))
+    const updatedLeads = leads.map(l => pendingMap.get(l.id) || l)
+
+    // Enriquece Baserow só para a data de hoje — não toca em histórico
+    const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    if (key === today) await enrichBaserow(updatedLeads)
+
+    await writeLeads(key, updatedLeads)
+
+    return { checked: batch.length, resolved }
+  } catch (err) {
+    console.error(`[audit-mql-check] runCheck(${key}) error:`, err)
+    // Notifica erro ao Slack
+    if (SLACK_WEBHOOK) {
+      await fetch(SLACK_WEBHOOK, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: `<@U09TS4BLYRY> ❌ *Erro no Audit MQL* — ${key}\n\`\`\`${err instanceof Error ? err.message : String(err)}\`\`\``,
+        }),
+      }).catch(e => console.error("[audit-mql-check] Slack error notification failed:", e))
+    }
+    return { checked: 0, resolved: 0 }
   }
-
-  const pendingMap = new Map(batch.map(l => [l.id, l]))
-  const updatedLeads = leads.map(l => pendingMap.get(l.id) || l)
-
-  // Enriquece Baserow só para a data de hoje — não toca em histórico
-  const today = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10)
-  if (key === today) await enrichBaserow(updatedLeads)
-
-  await writeLeads(key, updatedLeads)
-
-  return { checked: batch.length, resolved }
 }
 
 type RecheckChange = {
