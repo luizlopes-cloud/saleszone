@@ -513,7 +513,7 @@ export async function GET(req: NextRequest) {
 
       // Geral: reservaHistory (latest accumulated values)
       if (name === "Geral") {
-        result.reservaHistory = [{ date: monthKey, reserva: geralReserva, contrato: geralContrato }];
+        result.reservaHistory = [{ date: monthKey, reserva: channelCounts.Geral.reserva, contrato: channelCounts.Geral.contrato }];
       }
 
       return result;
