@@ -475,7 +475,6 @@ export async function runCheck(key: string): Promise<{ checked: number; resolved
     return { checked: 0, resolved: 0 }
   }
 }
-}
 
 type RecheckChange = {
   id: string; name: string; vertical: string; status_before: string; status_after: string
