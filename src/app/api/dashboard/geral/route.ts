@@ -17,10 +17,12 @@ const CANAL_IDS_SPOT = new Set(["3189"]);
 function getMacroChannel(canal: string | null): "Vendas Diretas" | "Parceiros" | "Expansao" | "Spot" {
   if (!canal) return "Vendas Diretas"; // null canal → sem canal → Vendas Diretas
   const lower = canal.toLowerCase();
-  if (CANAL_IDS_PARCEIROS.has(canal) || lower.includes("indica")) return "Parceiros";
+  // Parceiros = Corretor (582), Franquia (583), Outros Parceiros (2876)
+  // NÃO inclui Colaborador, Clientes, Embaixador, Hóspede (esses são VD)
+  if (CANAL_IDS_PARCEIROS.has(canal) || lower.includes("corretor") || lower.includes("franquia") || lower.includes("outros parceiros")) return "Parceiros";
   if (CANAL_IDS_EXPANSAO.has(canal) || lower.includes("expans")) return "Expansao";
   if (CANAL_IDS_SPOT.has(canal) || lower.includes("spot")) return "Spot";
-  return "Vendas Diretas"; // Marketing, Mônica, e qualquer outro canal = Vendas Diretas
+  return "Vendas Diretas"; // Marketing, Mônica, Colaborador, Clientes, e qualquer outro canal = Vendas Diretas
 }
 
 const CHANNEL_ORDER = ["Geral", "Vendas Diretas", "Parceiros"] as const;

@@ -18,7 +18,9 @@ function getCanalGroup(canal: string): "Vendas Diretas" | "Parcerias" {
   // Match by ID or by name (mktp_deals stores names from Nekt, not IDs)
   if (PARCERIA_CANAL_IDS.has(canal)) return "Parcerias";
   const lower = canal.toLowerCase();
-  if (lower.includes("indica") || lower.includes("parceiro")) return "Parcerias";
+  // Só Corretor, Franquia e Outros Parceiros são Parcerias (IDs 582, 583, 2876)
+  // NÃO inclui Colaborador, Clientes, Embaixador, Hóspede (esses são VD)
+  if (lower.includes("corretor") || lower.includes("franquia") || lower.includes("outros parceiros")) return "Parcerias";
   return "Vendas Diretas";
 }
 
