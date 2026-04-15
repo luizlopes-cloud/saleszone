@@ -83,12 +83,10 @@ interface ResultadosMKTPData {
 
 export const dynamic = "force-dynamic";
 
-/* ── Timezone helper: extract BRT date (UTC-3) from UTC timestamp ── */
-function toDateBRT(ts: string | null | undefined): string | null {
+/* ── Extract date from timestamp (no timezone shift — Pipedrive dates are already local) ── */
+function toDate(ts: string | null | undefined): string | null {
   if (!ts) return null;
-  const d = new Date(ts);
-  const brt = new Date(d.getTime() - 3 * 60 * 60 * 1000);
-  return brt.toISOString().substring(0, 10);
+  return ts.substring(0, 10);
 }
 
 /* ── Tab → date column in mktp_deals ─────────────────────── */
@@ -156,7 +154,7 @@ export async function GET() {
       const group = getCanalGroup(String(deal.canal || ""));
       for (const tab of TABS) {
         const dateCol = TAB_DATE_COL[tab];
-        const day = toDateBRT(deal[dateCol]);
+        const day = toDate(deal[dateCol]);
         if (!day || day < startDate) continue; // only current month (BRT)
         channelCounts[group][tab] = (channelCounts[group][tab] || 0) + 1;
         channelCounts["Funil Completo"][tab] = (channelCounts["Funil Completo"][tab] || 0) + 1;
@@ -167,7 +165,7 @@ export async function GET() {
     const prevWon: Record<string, number> = {};
     for (const deal of deals) {
       if (deal.status !== "won") continue;
-      const wonDate = toDateBRT(deal.won_time);
+      const wonDate = toDate(deal.won_time);
       if (!wonDate || wonDate < prevStart || wonDate > prevEnd) continue;
       const group = getCanalGroup(String(deal.canal || ""));
       prevWon[group] = (prevWon[group] || 0) + 1;
@@ -187,7 +185,7 @@ export async function GET() {
     for (const deal of deals) {
       if (deal.lost_reason === "Duplicado/Erro") continue;
       // Deal must have closed in current month (won or lost)
-      const closeDate = deal.status === "won" ? toDateBRT(deal.won_time) : toDateBRT(deal.lost_time);
+      const closeDate = deal.status === "won" ? toDate(deal.won_time) : toDate(deal.lost_time);
       const isOpen = deal.status === "open";
       // Include open deals too (they're currently in the funnel)
       if (!isOpen && (!closeDate || closeDate < startDate)) continue;
@@ -340,8 +338,8 @@ export async function GET() {
 
     for (const d of histDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const addDay = toDateBRT(d.add_time) || "";
-      const closeDay = d.status === "won" ? toDateBRT(d.won_time) : d.status === "lost" ? toDateBRT(d.lost_time) : null;
+      const addDay = toDate(d.add_time) || "";
+      const closeDay = d.status === "won" ? toDate(d.won_time) : d.status === "lost" ? toDate(d.lost_time) : null;
       const mso = d.max_stage_order || 0;
       const group = getCanalGroup(String(d.canal || ""));
 
