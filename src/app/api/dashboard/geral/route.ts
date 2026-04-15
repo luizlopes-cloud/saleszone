@@ -180,6 +180,14 @@ export async function GET(req: NextRequest) {
       const mso = d.max_stage_order ?? d.stage_order ?? 0;
       const macro = getMacroChannel(d.canal);
 
+      // Geral = todos os canais (mesma base de deals que VD/Parceiros)
+      if (mso >= TH_MQL) channelCounts.Geral.mql++;
+      if (mso >= TH_SQL) channelCounts.Geral.sql++;
+      if (mso >= TH_OPP) channelCounts.Geral.opp++;
+      if (mso >= TH_RESERVA) channelCounts.Geral.reserva++;
+      if (mso >= TH_CONTRATO) channelCounts.Geral.contrato++;
+      if (d.status === "won") channelCounts.Geral.won++;
+
       // Parceiros = indicações de parceiros
       if (macro === "Parceiros") {
         if (mso >= TH_MQL) channelCounts.Parceiros.mql++;
@@ -201,26 +209,9 @@ export async function GET(req: NextRequest) {
       }
       // Expansão e Spot só contam no Geral (não aparecem em VD nem Parceiros)
     }
+    console.log(`[geral] channelCounts Geral: mql=${channelCounts.Geral.mql}, sql=${channelCounts.Geral.sql}, opp=${channelCounts.Geral.opp}, won=${channelCounts.Geral.won}`);
     console.log(`[geral] channelCounts VD: mql=${channelCounts["Vendas Diretas"].mql}, won=${channelCounts["Vendas Diretas"].won}`);
     console.log(`[geral] channelCounts Parceiros: mql=${channelCounts.Parceiros.mql}, won=${channelCounts.Parceiros.won}`);
-
-    // Geral = from squad_daily_counts for MQL/SQL/OPP/WON, squad_deals for reserva/contrato (accumulated)
-    // Reserva/contrato from daily_counts is snapshot (4/2), but accumulated from deals is much higher
-    let geralReserva = 0, geralContrato = 0;
-    for (const d of deals) {
-      if (d.lost_reason === "Duplicado/Erro") continue;
-      const mso = d.max_stage_order ?? d.stage_order ?? 0;
-      if (mso >= TH_RESERVA) geralReserva++;
-      if (mso >= TH_CONTRATO) geralContrato++;
-    }
-    channelCounts.Geral = {
-      mql: totalCounts.mql || 0,
-      sql: totalCounts.sql || 0,
-      opp: totalCounts.opp || 0,
-      won: totalCounts.won || 0,
-      reserva: geralReserva,
-      contrato: geralContrato,
-    };
 
     // ── 3. Previous month WON ──
     const prevRows = await paginate((o, ps) =>
@@ -522,7 +513,7 @@ export async function GET(req: NextRequest) {
 
       // Geral: reservaHistory (latest accumulated values)
       if (name === "Geral") {
-        result.reservaHistory = [{ date: monthKey, reserva: geralReserva, contrato: geralContrato }];
+        result.reservaHistory = [{ date: monthKey, reserva: channelCounts.Geral.reserva, contrato: channelCounts.Geral.contrato }];
       }
 
       return result;
