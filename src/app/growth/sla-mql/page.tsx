@@ -413,10 +413,12 @@ export default function SlaPage() {
   // Adição de opção inline
   const [addingOption, setAddingOption] = useState<{ field: keyof Draft; value: string } | null>(null)
 
-  // Agenda dos closers SZI (próximos 2 dias úteis)
+  // Agenda dos closers por vertical (próximos 2 dias úteis)
   type AgendaDay  = { date: string; label: string; pct: number }
   type AgendaCloser = { name: string; days: AgendaDay[] }
-  const [agenda, setAgenda] = useState<AgendaCloser[]>([])
+  const [agendaSZI,       setAgendaSZI]       = useState<AgendaCloser[]>([])
+  const [agendaSZS,       setAgendaSZS]       = useState<AgendaCloser[]>([])
+  const [agendaMarketplace, setAgendaMarketplace] = useState<AgendaCloser[]>([])
 
   // Carrega do localStorage na montagem + dados da API + usuário logado
   useEffect(() => {
@@ -468,38 +470,42 @@ export default function SlaPage() {
     }
     fetchAll()
 
-    // Agenda dos closers SZI (Luana + Filipe) — próximos 2 dias úteis
-    fetch("/api/dashboard/ociosidade")
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (!data?.closers?.length) return
-        const SZI_CLOSERS = ["luana", "filipe"]
-        const closers = (data.closers as Array<{ name: string; days: Array<{ date: string; occupancyPct: number }> }>)
-          .filter(c => SZI_CLOSERS.some(k => c.name.toLowerCase().includes(k)))
-        if (!closers.length) return
-        const next2: string[] = []
-        const cur = new Date()
-        cur.setDate(cur.getDate() + 1)
-        while (next2.length < 2) {
-          const day = cur.getDay()
-          if (day !== 0 && day !== 6) next2.push(cur.toISOString().slice(0, 10))
-          cur.setDate(cur.getDate() + 1)
-        }
-        const DAYS_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
-        const dayLabel = (date: string) => {
-          const d = new Date(date + "T12:00:00")
-          return `${DAYS_PT[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`
-        }
-        setAgenda(closers.map(c => ({
-          name: c.name.split(" ")[0],
-          days: next2.map(date => ({
-            date,
-            label: dayLabel(date),
-            pct: c.days.find(d => d.date === date)?.occupancyPct ?? 0,
-          })),
-        })))
-      })
-      .catch(() => {})
+    // Agenda dos closers — próximos 2 dias úteis (SZI + SZS + Marketplace em paralelo)
+    const next2: string[] = []
+    const cur = new Date()
+    cur.setDate(cur.getDate() + 1)
+    while (next2.length < 2) {
+      const day = cur.getDay()
+      if (day !== 0 && day !== 6) next2.push(cur.toISOString().slice(0, 10))
+      cur.setDate(cur.getDate() + 1)
+    }
+    const DAYS_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"]
+    const dayLabel = (date: string) => {
+      const d = new Date(date + "T12:00:00")
+      return `${DAYS_PT[d.getDay()]} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`
+    }
+    const parseClosers = (data: { closers?: Array<{ name: string; days: Array<{ date: string; occupancyPct: number }> }> } | null): AgendaCloser[] => {
+      if (!data?.closers?.length) return []
+      return data.closers.map(c => ({
+        name: c.name.split(" ")[0],
+        days: next2.map(date => ({
+          date,
+          label: dayLabel(date),
+          pct: c.days.find(d => d.date === date)?.occupancyPct ?? 0,
+        })),
+      }))
+    }
+    const SZI_CLOSERS = ["luana", "filipe"]
+    Promise.all([
+      fetch("/api/dashboard/ociosidade").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/szs/ociosidade").then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch("/api/mktp/ociosidade").then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([szi, szs, mktp]) => {
+      const sziData = szi ? { ...szi, closers: (szi.closers ?? []).filter((c: { name: string }) => SZI_CLOSERS.some(k => c.name.toLowerCase().includes(k))) } : null
+      setAgendaSZI(parseClosers(sziData))
+      setAgendaSZS(parseClosers(szs))
+      setAgendaMarketplace(parseClosers(mktp))
+    }).catch(() => {})
 
     // Usuário logado
     const supabase = createClient()
@@ -1160,28 +1166,51 @@ export default function SlaPage() {
         {/* ── Aba: Critérios ─────────────────────────────────────────────────── */}
         {pageTab === "criterios" && (<>
 
-        {/* Painel agenda closers SZI */}
-        {agenda.length > 0 && (() => {
-          const allPcts = agenda.flatMap(c => c.days.map(d => d.pct))
+        {/* Painel agenda closers — varia por vertical */}
+        {(() => {
+          const agendaMap: Record<string, AgendaCloser[]> = {
+            SZI: agendaSZI, "Serviços": agendaSZS, Marketplace: agendaMarketplace,
+          }
+          const agendaAtual = agendaMap[vertical] ?? []
+          if (!agendaAtual.length) return null
+
+          const barColor = (pct: number) =>
+            pct >= 80 ? "#EF4444" : pct >= 66 ? "#F59E0B" : pct >= 45 ? "#22C55E" : pct >= 30 ? "#F97316" : "#EF4444"
+
+          const allPcts = agendaAtual.flatMap(c => c.days.map(d => d.pct))
           const avgGeral = Math.round(allPcts.reduce((a, b) => a + b, 0) / allPcts.length)
-          const cor   = avgGeral >= 70 ? "#E7000B" : avgGeral >= 40 ? "#D97706" : "#5EA500"
-          const bgCor = avgGeral >= 70 ? "#FFF1F050" : avgGeral >= 40 ? "#FFFBEB50" : "#F0FDF450"
-          const rec   = avgGeral >= 70
-            ? "Agenda cheia — suba a régua e seja mais criterioso"
-            : avgGeral >= 40
-            ? "Agenda moderada — mantenha os critérios atuais"
-            : "Agenda livre — desça a régua e aceite mais leads"
-          const barColor = (pct: number) => pct >= 70 ? "#E7000B" : pct >= 40 ? "#D97706" : "#5EA500"
+          const cor   = avgGeral >= 80 ? "#EF4444" : avgGeral >= 66 ? "#F59E0B" : avgGeral >= 45 ? "#22C55E" : avgGeral >= 30 ? "#F97316" : "#EF4444"
+          const bgCor = avgGeral >= 66 ? "#FFFBEB50" : avgGeral >= 45 ? "#F0FDF450" : "#FFF7ED50"
+          const rec   = avgGeral >= 80
+            ? "Agenda sobrecarregada — suba a régua"
+            : avgGeral >= 66
+            ? "Agenda acima do ideal — seja mais criterioso"
+            : avgGeral >= 45
+            ? "Agenda ideal — mantenha os critérios atuais"
+            : avgGeral >= 30
+            ? "Agenda ociosa — desça a régua levemente"
+            : "Agenda muito ociosa — desça a régua"
+
+          const FAIXAS = [
+            { label: "0–29% Muito ocioso", color: "#EF4444" },
+            { label: "30–44% Ocioso",      color: "#F97316" },
+            { label: "45–65% Ideal",       color: "#22C55E" },
+            { label: "66–79% Acima",       color: "#F59E0B" },
+            { label: "80%+ Sobrecarregado",color: "#EF4444" },
+          ]
+
+          const verticalLabel = vertical === "Serviços" ? "SZS" : vertical
+
           return (
             <div style={{ marginBottom: 24, padding: "14px 16px", borderRadius: 10, background: bgCor, border: `1px solid ${cor}40` }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", color: cor, fontFamily: T.font }}>
-                  Agenda closers — SZI
+                  Agenda closers — {verticalLabel}
                 </span>
                 <span style={{ fontSize: 12, color: cor, fontWeight: 500, fontFamily: T.font }}>· {rec}</span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {agenda.map(closer => (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                {agendaAtual.map(closer => (
                   <div key={closer.name} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: T.fg, fontFamily: T.font, minWidth: 56 }}>{closer.name}</span>
                     {closer.days.map(({ label, pct }) => (
@@ -1193,6 +1222,16 @@ export default function SlaPage() {
                         <span style={{ fontSize: 13, fontWeight: 700, color: barColor(pct), fontFamily: T.font, minWidth: 34 }}>{pct}%</span>
                       </div>
                     ))}
+                  </div>
+                ))}
+              </div>
+              {/* Legenda de faixas */}
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", paddingTop: 8, borderTop: `1px solid ${cor}30` }}>
+                <span style={{ fontSize: 10, color: T.mutedFg, fontWeight: 500, fontFamily: T.font }}>Faixas:</span>
+                {FAIXAS.map(f => (
+                  <div key={f.label} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 2, background: f.color }} />
+                    <span style={{ fontSize: 10, color: T.mutedFg, fontFamily: T.font }}>{f.label}</span>
                   </div>
                 ))}
               </div>
