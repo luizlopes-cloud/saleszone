@@ -144,9 +144,9 @@ function evaluateStatus(
     const rateOk = r.sql < 3 || rate_sql_opp >= s.taxa_sql_opp
     const mqlAlsoHigh = isFinite(cost_per_mql) && cost_per_mql > s.mql_meta
     if (costOk && rateOk) return "MANTER"
-    if (!costOk && !rateOk) return "PAUSAR"
-    if (!costOk && rateOk) return mqlAlsoHigh ? "PAUSAR" : "MONITORAR"
-    return "MONITORAR"
+    if (!costOk) return "PAUSAR"   // custo alto → pausa direto, taxa não salva
+    // costOk=true mas rateOk=false: taxa SQL→OPP ruim. Se mql também caro → PAUSAR
+    return mqlAlsoHigh ? "PAUSAR" : "MONITORAR"
   }
 
   // Day OPP+ sem OPP → PAUSAR (checkpoint expirou)
