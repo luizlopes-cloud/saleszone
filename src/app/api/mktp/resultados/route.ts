@@ -14,8 +14,12 @@ const CHANNEL_FILTERS: Record<MktpChannel, string> = {
 
 const PARCERIA_CANAL_IDS = new Set(["582", "583", "2876"]);
 
-function getCanalGroup(canalId: string): "Vendas Diretas" | "Parcerias" {
-  return PARCERIA_CANAL_IDS.has(canalId) ? "Parcerias" : "Vendas Diretas";
+function getCanalGroup(canal: string): "Vendas Diretas" | "Parcerias" {
+  // Match by ID or by name (mktp_deals stores names from Nekt, not IDs)
+  if (PARCERIA_CANAL_IDS.has(canal)) return "Parcerias";
+  const lower = canal.toLowerCase();
+  if (lower.includes("indica") || lower.includes("parceiro")) return "Parcerias";
+  return "Vendas Diretas";
 }
 
 /* ── Stage IDs (pipeline 37) ─────────────────────────────── */
