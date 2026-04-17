@@ -1,4 +1,4 @@
-import { put } from "@vercel/blob"
+import { getBlob, putBlob } from "@/lib/blob-storage"
 
 export interface LeadRecord {
   id: string
@@ -33,8 +33,6 @@ export function extractVertical(campaignName: string): string {
   return "Outros"
 }
 
-const BLOB_STORE_URL = process.env.BLOB_URL || ""
-
 export function dateKey(date?: Date): string {
   const d = date || new Date()
   // BRT = UTC-3
@@ -43,27 +41,11 @@ export function dateKey(date?: Date): string {
 }
 
 export async function readLeads(key: string): Promise<LeadRecord[]> {
-  if (!BLOB_STORE_URL) return []
-  const token = process.env.BLOB_READ_WRITE_TOKEN || ""
-  try {
-    const res = await fetch(`${BLOB_STORE_URL}/audit-mql/${key}.json`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      cache: "no-store",
-    })
-    if (!res.ok) return []
-    return await res.json()
-  } catch {
-    return []
-  }
+  return (await getBlob<LeadRecord[]>(`audit-mql/${key}.json`)) ?? []
 }
 
 export async function writeLeads(key: string, leads: LeadRecord[]) {
-  await put(`audit-mql/${key}.json`, JSON.stringify(leads), {
-    access: "private",
-    addRandomSuffix: false,
-    allowOverwrite: true,
-    token: process.env.BLOB_READ_WRITE_TOKEN,
-  })
+  await putBlob(`audit-mql/${key}.json`, JSON.stringify(leads))
 }
 
 // Append seguro contra race condition: read → dedup → write → verify → retry

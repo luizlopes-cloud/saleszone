@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server"
-import { put } from "@vercel/blob"
+import { getBlob, putBlob } from "@/lib/blob-storage"
 import { readLeads } from "@/lib/audit-mql"
 import { runCheck } from "@/lib/audit-mql-check"
 
 export const maxDuration = 120
 export const dynamic = "force-dynamic"
 
-const SLACK_WEBHOOK  = process.env.SLACK_WEBHOOK_AUDIT_MQL || ""
-const BLOB_STORE_URL = process.env.BLOB_URL                || ""
+const SLACK_WEBHOOK = process.env.SLACK_WEBHOOK_AUDIT_MQL || ""
+const LOG_KEY = "audit-mql/log.json"
 
 function offsetKey(days: number) {
   const d = new Date(Date.now() - 3 * 60 * 60 * 1000)
@@ -166,17 +166,7 @@ async function sendSlack(summary: NonNullable<Awaited<ReturnType<typeof buildSum
 }
 
 async function saveLog(summary: NonNullable<Awaited<ReturnType<typeof buildSummary>>>) {
-  const token = process.env.BLOB_READ_WRITE_TOKEN || ""
-  let logs: typeof summary[] = []
-  if (BLOB_STORE_URL) {
-    try {
-      const res = await fetch(`${BLOB_STORE_URL}/audit-mql/log.json`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        cache: "no-store",
-      })
-      if (res.ok) logs = await res.json()
-    } catch { /* vazio */ }
-  }
+  let logs = (await getBlob<typeof summary[]>(LOG_KEY)) ?? []
 
   const idx = logs.findIndex(l => l.key === summary.key)
   if (idx >= 0) logs[idx] = summary
@@ -184,10 +174,7 @@ async function saveLog(summary: NonNullable<Awaited<ReturnType<typeof buildSumma
 
   logs = logs.slice(0, 90)
 
-  await put("audit-mql/log.json", JSON.stringify(logs), {
-    access: "private", addRandomSuffix: false, allowOverwrite: true,
-    token: process.env.BLOB_READ_WRITE_TOKEN,
-  })
+  await putBlob(LOG_KEY, JSON.stringify(logs))
 }
 
 // GET — cron diário (com Authorization) ou leitura do log histórico (sem auth)
@@ -215,18 +202,8 @@ export async function GET(req: NextRequest) {
   }
 
   // Sem auth → retorna o log histórico (UI)
-  if (!BLOB_STORE_URL) return NextResponse.json([])
-  const token = process.env.BLOB_READ_WRITE_TOKEN || ""
-  try {
-    const res = await fetch(`${BLOB_STORE_URL}/audit-mql/log.json`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      cache: "no-store",
-    })
-    if (!res.ok) return NextResponse.json([])
-    return NextResponse.json(await res.json(), { headers: { "Cache-Control": "no-store" } })
-  } catch {
-    return NextResponse.json([])
-  }
+  const logs = await getBlob(LOG_KEY)
+  return NextResponse.json(logs ?? [], { headers: { "Cache-Control": "no-store" } })
 }
 
 // POST — gera e envia o resumo (cron diário ou manual via CRON_SECRET)

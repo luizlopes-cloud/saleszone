@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
 import crypto from "crypto"
-import { waitUntil } from "@vercel/functions"
 import { LeadRecord, dateKey, appendLeadSafe, extractVertical } from "@/lib/audit-mql"
 
 export const maxDuration = 480 // 8 min: 7min de espera + margem para o check
@@ -186,9 +185,9 @@ export async function POST(req: NextRequest) {
 
   const newLeadSaved = await processPayload(parsed, baseUrl)
 
-  // Se salvou lead novo: em background, espera 3 min e checa Pipedrive+MIA
+  // Em Node server (Coolify) o handler segue rodando após o response — fire-and-forget
   if (newLeadSaved) {
-    waitUntil(delayedCheck(baseUrl))
+    delayedCheck(baseUrl).catch(err => console.error("[audit-mql/webhook] delayedCheck failed", err))
   }
 
   return NextResponse.json({ ok: true })
