@@ -188,6 +188,49 @@ ${where}
   `.trim();
 }
 
+// ---- Mode: cleanup (remove orphan deals not in Nekt pipeline 28) ----
+async function cleanupOrphanDeals(nektApiKey: string, supabase: any) {
+  console.log("cleanupOrphanDeals: fetching all deal IDs from Nekt pipeline 28...");
+
+  const sql = `SELECT DISTINCT CAST(id AS BIGINT) as id FROM nekt_silver.pipedrive_deals_readable WHERE pipeline_id = 28`;
+  const nektRows = await queryNekt(nektApiKey, sql);
+  const nektIds = new Set(nektRows.map((r) => parseInt(r.id || "0")).filter((id) => id > 0));
+  console.log(`  Nekt has ${nektIds.size} deals in pipeline 28`);
+
+  // Get all deal_ids from squad_deals
+  const dbIds: number[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("squad_deals")
+      .select("deal_id")
+      .range(offset, offset + 999);
+    if (error) { console.error("DB read error:", error.message); break; }
+    if (!data || data.length === 0) break;
+    for (const d of data) dbIds.push(d.deal_id);
+    if (data.length < 1000) break;
+    offset += 1000;
+  }
+  console.log(`  squad_deals has ${dbIds.length} deals`);
+
+  // Find orphans: in DB but not in Nekt
+  const orphanIds = dbIds.filter((id) => !nektIds.has(id));
+  console.log(`  Found ${orphanIds.length} orphan deals to delete`);
+
+  if (orphanIds.length > 0) {
+    for (let i = 0; i < orphanIds.length; i += 100) {
+      const batch = orphanIds.slice(i, i + 100);
+      const { error: delErr } = await supabase
+        .from("squad_deals")
+        .delete()
+        .in("deal_id", batch);
+      if (delErr) console.error("Delete error:", delErr.message);
+    }
+  }
+
+  return { nektCount: nektIds.size, dbCount: dbIds.length, orphansDeleted: orphanIds.length };
+}
+
 // ---- Batch upsert helper ----
 async function upsertBatch(supabase: any, rows: any[]) {
   for (let i = 0; i < rows.length; i += 500) {
@@ -567,6 +610,15 @@ Deno.serve(async (req) => {
           .filter((f: any) => (f.name || "").toLowerCase().includes(search))
           .map((f: any) => ({ key: f.key, name: f.name, field_type: f.field_type, options: f.options?.slice(0, 10) }));
         result = { fields };
+        break;
+      }
+      case "cleanup": {
+        // Remove deals from squad_deals that no longer exist in Nekt pipeline 28
+        const { data: nektKey, error: nektErr } = await supabase.rpc("vault_read_secret", {
+          secret_name: "NEKT_API_KEY",
+        });
+        if (nektErr || !nektKey) throw new Error(`Vault error (NEKT_API_KEY): ${nektErr?.message}`);
+        result = await cleanupOrphanDeals(nektKey, supabase);
         break;
       }
       default:

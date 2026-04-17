@@ -1,6 +1,7 @@
 // Decor (Decor) module
 import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { createSquadSupabaseAdmin } from "@/lib/squad/supabase";
 import { getModuleConfig } from "@/lib/modules";
 import type { FunilData, FunilSquad, FunilEmpreendimento } from "@/lib/types";
 
@@ -76,6 +77,34 @@ function sumFunil(rows: FunilEmpreendimento[], label: string): FunilEmpreendimen
   return buildFunil(label, impressions, clicks, leads, mql, sql, opp, won, reserva, contrato, spend);
 }
 
+async function fetchAll(query: any): Promise<any[]> {
+  const all: any[] = [];
+  let offset = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data, error } = await query.range(offset, offset + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break;
+    offset += PAGE;
+  }
+  return all;
+}
+
+// Classifica stage_order atual em bucket do funil
+// Pipeline 44 (Decor): MQL=1-4, SQL=5-8, OPP=9-12, Reserva=13, Contrato=14
+type SnapBucket = "mql" | "sql" | "opp" | "reserva" | "contrato";
+function classifyStage(so: number): SnapBucket | null {
+  if (so >= 1 && so <= 4) return "mql";
+  if (so >= 5 && so <= 8) return "sql";
+  if (so >= 9 && so <= 12) return "opp";
+  if (so === 13) return "reserva";
+  if (so === 14) return "contrato";
+  return null;
+}
+const EMPTY_SNAP = (): Record<SnapBucket, number> => ({ mql: 0, sql: 0, opp: 0, reserva: 0, contrato: 0 });
+
 export async function GET(req: NextRequest) {
   try {
     const monthParam = req.nextUrl.searchParams.get("month");
@@ -85,25 +114,27 @@ export async function GET(req: NextRequest) {
     const month = monthParam || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
     const startDate = `${month}-01`;
 
-    const [metaRes, countsRes, stageRes] = await Promise.all([
+    const admin = createSquadSupabaseAdmin();
+
+    const [metaRes, countsRes, wonDealsRes, openDealsSnapshot] = await Promise.all([
       supabase
         .from("decor_meta_ads")
         .select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month")
         .gte("snapshot_date", startDate),
+      // WON do mês from daily_counts (fallback)
       supabase
         .from("decor_daily_counts")
         .select("tab, empreendimento, count")
-        .in("tab", ["mql", "sql", "opp", "won"])
+        .eq("tab", "won")
         .gte("date", startDate),
-      supabase
-        .from("decor_daily_counts")
-        .select("tab, empreendimento, count")
-        .in("tab", ["reserva", "contrato"]),
+      // WON deals by won_time from decor_deals
+      fetchAll(admin.from("decor_deals").select("empreendimento, lost_reason").gte("won_time", startDate)),
+      // Open deals snapshot — MQL/SQL/OPP/Reserva/Contrato por stage_order atual (só abertos)
+      fetchAll(admin.from("decor_deals").select("empreendimento, stage_order, lost_reason").eq("status", "open")),
     ]);
 
     if (metaRes.error) throw new Error(`Meta Ads query error: ${metaRes.error.message}`);
     if (countsRes.error) throw new Error(`Daily counts query error: ${countsRes.error.message}`);
-    if (stageRes.error) throw new Error(`Stage counts query error: ${stageRes.error.message}`);
 
     // Agregar Meta Ads: max spend_month/leads_month por ad
     const adMax = new Map<string, { empreendimento: string; impressions: number; clicks: number; leads_month: number; spend_month: number }>();
@@ -129,53 +160,57 @@ export async function GET(req: NextRequest) {
       metaMap.set(ad.empreendimento, cur);
     }
 
-    const countsMap = new Map<string, Record<string, number>>();
-    for (const row of countsRes.data || []) {
-      const key = row.empreendimento;
-      if (!countsMap.has(key)) countsMap.set(key, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      const cur = countsMap.get(key)!;
-      cur[row.tab] = (cur[row.tab] || 0) + (row.count || 0);
+    // WON counts from decor_deals (preferred) or decor_daily_counts (fallback)
+    const wonByEmp = new Map<string, number>();
+    if (wonDealsRes.length > 0) {
+      for (const d of wonDealsRes) {
+        if (d.lost_reason === "Duplicado/Erro") continue;
+        const key = d.empreendimento || "Outros";
+        wonByEmp.set(key, (wonByEmp.get(key) || 0) + 1);
+      }
+    } else {
+      for (const row of countsRes.data || []) {
+        wonByEmp.set(row.empreendimento, (wonByEmp.get(row.empreendimento) || 0) + (row.count || 0));
+      }
     }
 
-    for (const row of stageRes.data || []) {
-      const key = row.empreendimento;
-      if (!countsMap.has(key)) countsMap.set(key, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      const cur = countsMap.get(key)!;
-      cur[row.tab] = (cur[row.tab] || 0) + (row.count || 0);
+    // Open deals snapshot: classificar por stage_order atual
+    // MQL = deals abertos em Lead-In até antes de Qualificado (stage_order 1-4)
+    // SQL = Qualificado até antes de Reunião Realizada (stage_order 5-8)
+    // OPP = Reunião Realizada até antes de Reserva (stage_order 9-12)
+    // Reserva = stage_order 13
+    // Contrato = stage_order 14
+    const snapByEmp = new Map<string, Record<SnapBucket, number>>();
+    for (const d of openDealsSnapshot) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const key = d.empreendimento || "Outros";
+      const bucket = classifyStage(d.stage_order || 0);
+      if (!bucket) continue;
+
+      if (!snapByEmp.has(key)) snapByEmp.set(key, EMPTY_SNAP());
+      snapByEmp.get(key)![bucket]++;
     }
 
     // Collect all known empreendimentos from DB data
-    const allDbEmps = new Set([...countsMap.keys(), ...metaMap.keys()]);
+    const allDbEmps = new Set([...snapByEmp.keys(), ...wonByEmp.keys(), ...metaMap.keys()]);
 
     const squads: FunilSquad[] = mc.squads.map((sq) => {
       const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...allDbEmps].sort();
       const empRows: FunilEmpreendimento[] = emps.map((emp) => {
         const meta = metaMap.get(emp) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
-        const counts = countsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 };
+        const snap = snapByEmp.get(emp) || EMPTY_SNAP();
+        const won = wonByEmp.get(emp) || 0;
 
-        let leads: number, mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
+        let leads: number;
 
         if (paidOnly) {
           leads = meta.leads;
-          mql = Math.min(counts.mql, meta.leads);
-          const ratio = counts.mql > 0 ? mql / counts.mql : 0;
-          sql = Math.round(counts.sql * ratio);
-          opp = Math.round(counts.opp * ratio);
-          won = Math.round(counts.won * ratio);
-          reserva = Math.round((counts.reserva || 0) * ratio);
-          contrato = Math.round((counts.contrato || 0) * ratio);
         } else {
-          const mqiNaoPago = Math.max(counts.mql - meta.leads, 0);
+          const mqiNaoPago = Math.max(snap.mql - meta.leads, 0);
           leads = meta.leads + mqiNaoPago;
-          mql = counts.mql;
-          sql = counts.sql;
-          opp = counts.opp;
-          won = counts.won;
-          reserva = counts.reserva || 0;
-          contrato = counts.contrato || 0;
         }
 
-        return buildFunil(emp, meta.impressions, meta.clicks, leads, mql, sql, opp, won, reserva, contrato, meta.spend);
+        return buildFunil(emp, meta.impressions, meta.clicks, leads, snap.mql, snap.sql, snap.opp, won, snap.reserva, snap.contrato, meta.spend);
       });
 
       return {

@@ -92,6 +92,19 @@ async function fetchAll(query: any): Promise<any[]> {
   return all;
 }
 
+// Classifica stage_order atual em bucket do funil
+// Pipeline 37 (MKTP): MQL=1-3, SQL=4-7, OPP=8-11, Reserva=12, Contrato=13
+type SnapBucket = "mql" | "sql" | "opp" | "reserva" | "contrato";
+function classifyStage(so: number): SnapBucket | null {
+  if (so >= 1 && so <= 3) return "mql";
+  if (so >= 4 && so <= 7) return "sql";
+  if (so >= 8 && so <= 11) return "opp";
+  if (so === 12) return "reserva";
+  if (so === 13) return "contrato";
+  return null;
+}
+const EMPTY_SNAP = (): Record<SnapBucket, number> => ({ mql: 0, sql: 0, opp: 0, reserva: 0, contrato: 0 });
+
 export async function GET(req: NextRequest) {
   try {
     const monthParam = req.nextUrl.searchParams.get("month");
@@ -103,7 +116,7 @@ export async function GET(req: NextRequest) {
 
     const admin = createSquadSupabaseAdmin();
 
-    const [metaRes, metasRes, allDealsRes] = await Promise.all([
+    const [metaRes, metasRes, wonDealsRes, openDealsSnapshot] = await Promise.all([
       supabase
         .from("mktp_meta_ads")
         .select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month")
@@ -112,40 +125,38 @@ export async function GET(req: NextRequest) {
         .from("mktp_metas")
         .select("squad_id, tab, meta")
         .eq("month", `${month}-01`),
-      // All deals for counts by empreendimento
-      fetchAll(admin.from("mktp_deals").select("empreendimento, max_stage_order, status, lost_reason")),
+      // WON deals by won_time
+      fetchAll(admin.from("mktp_deals").select("empreendimento, lost_reason").gte("won_time", startDate)),
+      // Open deals snapshot — MQL/SQL/OPP/Reserva/Contrato por stage_order atual (só abertos)
+      fetchAll(admin.from("mktp_deals").select("empreendimento, stage_order, lost_reason").eq("status", "open")),
     ]);
 
     if (metaRes.error) throw new Error(`Meta Ads query error: ${metaRes.error.message}`);
     if (metasRes.error) console.warn(`Metas query warning: ${metasRes.error.message}`);
 
-    // Fetch MQL/SQL/OPP/WON from mktp_deals (not mktp_daily_counts — avoids aggregation gap)
-    const [mqlDealsRes, sqlDealsRes, oppDealsRes, wonDealsRes] = await Promise.all([
-      fetchAll(admin.from("mktp_deals").select("empreendimento, lost_reason").gte("add_time", startDate)),
-      fetchAll(admin.from("mktp_deals").select("empreendimento, lost_reason").gte("qualificacao_date", startDate)),
-      fetchAll(admin.from("mktp_deals").select("empreendimento, lost_reason").gte("reuniao_date", startDate)),
-      fetchAll(admin.from("mktp_deals").select("empreendimento, lost_reason").gte("won_time", startDate)),
-    ]);
-
-    // Build counts by empreendimento from mktp_deals
-    const countsMap = new Map<string, { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number }>();
-    function addToEmp(emp: string, mql = 0, sql = 0, opp = 0, won = 0, reserva = 0, contrato = 0) {
-      const key = emp || "Outros";
-      if (!countsMap.has(key)) countsMap.set(key, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      const c = countsMap.get(key)!;
-      c.mql += mql; c.sql += sql; c.opp += opp; c.won += won; c.reserva += reserva; c.contrato += contrato;
-    }
-    for (const d of mqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToEmp(d.empreendimento, 1, 0, 0, 0, 0, 0); }
-    for (const d of sqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToEmp(d.empreendimento, 0, 1, 0, 0, 0, 0); }
-    for (const d of oppDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToEmp(d.empreendimento, 0, 0, 1, 0, 0, 0); }
-    for (const d of wonDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToEmp(d.empreendimento, 0, 0, 0, 1, 0, 0); }
-    // Reserva (stage_order >= 13) / Contrato (stage_order >= 14) from all closed deals
-    const closedDeals = allDealsRes.filter(d => d.status === "won" || d.status === "lost");
-    for (const d of closedDeals) {
+    // Build WON counts by empreendimento
+    const wonByEmp = new Map<string, number>();
+    for (const d of wonDealsRes) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const mso = d.max_stage_order || 0;
-      if (mso >= 13) addToEmp(d.empreendimento, 0, 0, 0, 0, 1, 0);
-      if (mso >= 14) addToEmp(d.empreendimento, 0, 0, 0, 0, 0, 1);
+      const key = d.empreendimento || "Outros";
+      wonByEmp.set(key, (wonByEmp.get(key) || 0) + 1);
+    }
+
+    // Open deals snapshot: classificar por stage_order atual
+    // MQL = deals abertos em Lead-In até antes de Qualificado (stage_order 1-3)
+    // SQL = Qualificado até antes de Reunião Realizada (stage_order 4-7)
+    // OPP = Reunião Realizada até antes de Reserva (stage_order 8-11)
+    // Reserva = stage_order 12
+    // Contrato = stage_order 13
+    const snapByEmp = new Map<string, Record<SnapBucket, number>>();
+    for (const d of openDealsSnapshot) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const key = d.empreendimento || "Outros";
+      const bucket = classifyStage(d.stage_order || 0);
+      if (!bucket) continue;
+
+      if (!snapByEmp.has(key)) snapByEmp.set(key, EMPTY_SNAP());
+      snapByEmp.get(key)![bucket]++;
     }
 
     // Agregar Meta Ads: max spend_month/leads_month por ad
@@ -173,37 +184,25 @@ export async function GET(req: NextRequest) {
     }
 
     // Collect all known empreendimentos from DB data
-    const allDbEmps = new Set([...countsMap.keys(), ...metaMap.keys()]);
+    const allDbEmps = new Set([...snapByEmp.keys(), ...wonByEmp.keys(), ...metaMap.keys()]);
 
     const squads: FunilSquad[] = mc.squads.map((sq) => {
       const emps = sq.empreendimentos.length > 0 ? sq.empreendimentos : [...allDbEmps].sort();
       const empRows: FunilEmpreendimento[] = emps.map((emp) => {
         const meta = metaMap.get(emp) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
-        const counts = countsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 };
+        const snap = snapByEmp.get(emp) || EMPTY_SNAP();
+        const won = wonByEmp.get(emp) || 0;
 
-        let leads: number, mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
+        let leads: number;
 
         if (paidOnly) {
           leads = meta.leads;
-          mql = Math.min(counts.mql, meta.leads);
-          const ratio = counts.mql > 0 ? mql / counts.mql : 0;
-          sql = Math.round(counts.sql * ratio);
-          opp = Math.round(counts.opp * ratio);
-          won = Math.round(counts.won * ratio);
-          reserva = Math.round((counts.reserva || 0) * ratio);
-          contrato = Math.round((counts.contrato || 0) * ratio);
         } else {
-          const mqiNaoPago = Math.max(counts.mql - meta.leads, 0);
+          const mqiNaoPago = Math.max(snap.mql - meta.leads, 0);
           leads = meta.leads + mqiNaoPago;
-          mql = counts.mql;
-          sql = counts.sql;
-          opp = counts.opp;
-          won = counts.won;
-          reserva = counts.reserva || 0;
-          contrato = counts.contrato || 0;
         }
 
-        return buildFunil(emp, meta.impressions, meta.clicks, leads, mql, sql, opp, won, reserva, contrato, meta.spend);
+        return buildFunil(emp, meta.impressions, meta.clicks, leads, snap.mql, snap.sql, snap.opp, won, snap.reserva, snap.contrato, meta.spend);
       });
 
       return {

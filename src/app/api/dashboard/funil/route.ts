@@ -91,6 +91,19 @@ function sumFunil(rows: FunilEmpreendimento[], label: string): FunilEmpreendimen
   return buildFunil(label, impressions, clicks, leads, mql, sql, opp, won, reserva, contrato, eventos, spend);
 }
 
+// Classifica stage_order atual em bucket do funil
+// Pipeline 28: MQL=1-4, SQL=5-8, OPP=9-12, Reserva=13, Contrato=14
+type SnapBucket = "mql" | "sql" | "opp" | "reserva" | "contrato";
+function classifyStage(so: number): SnapBucket | null {
+  if (so >= 1 && so <= 4) return "mql";
+  if (so >= 5 && so <= 8) return "sql";
+  if (so >= 9 && so <= 12) return "opp";
+  if (so === 13) return "reserva";
+  if (so === 14) return "contrato";
+  return null;
+}
+const EMPTY_SNAP = (): Record<SnapBucket, number> => ({ mql: 0, sql: 0, opp: 0, reserva: 0, contrato: 0 });
+
 export async function GET(req: NextRequest) {
   try {
     const admin = createSquadSupabaseAdmin();
@@ -107,23 +120,18 @@ export async function GET(req: NextRequest) {
       : `${yearStr}-${String(mesNum + 1).padStart(2, "0")}-01`;
 
     // Queries paralelas
-    const [metaRes, countsRes, stageSnapshotRes, dealsRes, baserowLeadsRes, paidLeadsDeals, paidSqlDeals, paidOppDeals, paidWonDeals, metasRes, allLeadsDeals, allSqlDeals, allOppDeals, allWonDeals] = await Promise.all([
+    const [metaRes, countsRes, dealsRes, baserowLeadsRes, paidLeadsDeals, paidWonDeals, metasRes, allLeadsDeals, allWonDeals, openDealsSnapshot] = await Promise.all([
       // Meta Ads — spend_month/leads_month
       supabase
         .from("squad_meta_ads")
         .select("ad_id, empreendimento, impressions, clicks, leads_month, spend_month")
         .gte("snapshot_date", startDate),
-      // MQL/SQL/OPP/WON do mês (eventos acumulados)
+      // MQL/SQL/OPP/WON do mês — fallback sem service role (WON + Leads max constraint)
       supabase
         .from("squad_daily_counts")
         .select("tab, empreendimento, count")
         .in("tab", ["mql", "sql", "opp", "won"])
         .gte("date", startDate),
-      // Reserva/Contrato snapshot (sem filtro de data — estado atual dos stages)
-      supabase
-        .from("squad_daily_counts")
-        .select("tab, empreendimento, count")
-        .in("tab", ["reserva", "contrato"]),
       // Deals fechados no mês (won + lost) — para conversões OPP→Reserva→Contrato→WON
       // Mesma coorte: todos os deals que fecharam no mês, contados por max_stage_order
       paginate((o, ps) =>
@@ -137,9 +145,9 @@ export async function GET(req: NextRequest) {
       // Baserow leads — formulários preenchidos no mês (fonte real de Leads)
       // Usa service_role porque baserow_leads tem RLS sem policy para anon
       (() => {
-        const admin = createSquadSupabaseAdmin();
+        const admin2 = createSquadSupabaseAdmin();
         return paginate((o, ps) =>
-          admin
+          admin2
             .from("baserow_leads")
             .select("nome_empreendimento")
             .gte("data_criacao_ads", startDate)
@@ -147,31 +155,13 @@ export async function GET(req: NextRequest) {
             .range(o, o + ps - 1),
         );
       })(),
-      // Mídia Paga — Leads/MQL + Reserva/Contrato acumulados (rd_source contendo "pag")
-      paginate((o, ps) =>
-        admin
-          .from("squad_deals")
-          .select("empreendimento, canal, lost_reason, max_stage_order, status, add_time")
-          .ilike("rd_source", "%pag%")
-          .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
-          .range(o, o + ps - 1),
-      ),
-      // Mídia Paga — SQL por qualificacao_date
+      // Mídia Paga — Leads (deals criados no mês com rd_source pag)
       paginate((o, ps) =>
         admin
           .from("squad_deals")
           .select("empreendimento, lost_reason")
           .ilike("rd_source", "%pag%")
-          .gte("qualificacao_date", startDate)
-          .range(o, o + ps - 1),
-      ),
-      // Mídia Paga — OPP por reuniao_date
-      paginate((o, ps) =>
-        admin
-          .from("squad_deals")
-          .select("empreendimento, lost_reason")
-          .ilike("rd_source", "%pag%")
-          .gte("reuniao_date", startDate)
+          .gte("add_time", startDate)
           .range(o, o + ps - 1),
       ),
       // Mídia Paga — WON por won_time
@@ -188,28 +178,12 @@ export async function GET(req: NextRequest) {
         .from("squad_metas")
         .select("squad_id, tab, meta")
         .eq("month", `${month}-01`),
-      // Todos — Leads/MQL por add_time + Reserva/Contrato acumulados (todos os canais)
-      paginate((o, ps) =>
-        admin
-          .from("squad_deals")
-          .select("empreendimento, canal, lost_reason, max_stage_order, status, add_time")
-          .or(`status.eq.open,won_time.gte.${startDate},lost_time.gte.${startDate},add_time.gte.${startDate}`)
-          .range(o, o + ps - 1),
-      ),
-      // Todos — SQL por qualificacao_date
+      // Todos — Leads (deals criados no mês, todos os canais)
       paginate((o, ps) =>
         admin
           .from("squad_deals")
           .select("empreendimento, lost_reason")
-          .gte("qualificacao_date", startDate)
-          .range(o, o + ps - 1),
-      ),
-      // Todos — OPP por reuniao_date
-      paginate((o, ps) =>
-        admin
-          .from("squad_deals")
-          .select("empreendimento, lost_reason")
-          .gte("reuniao_date", startDate)
+          .gte("add_time", startDate)
           .range(o, o + ps - 1),
       ),
       // Todos — WON por won_time
@@ -220,11 +194,18 @@ export async function GET(req: NextRequest) {
           .gte("won_time", startDate)
           .range(o, o + ps - 1),
       ),
+      // Open deals snapshot — MQL/SQL/OPP/Reserva/Contrato por stage_order atual (só abertos)
+      paginate((o, ps) =>
+        admin
+          .from("squad_deals")
+          .select("empreendimento, stage_order, rd_source, lost_reason")
+          .eq("status", "open")
+          .range(o, o + ps - 1),
+      ),
     ]);
 
     if (metaRes.error) throw new Error(`Meta Ads query error: ${metaRes.error.message}`);
     if (countsRes.error) throw new Error(`Daily counts query error: ${countsRes.error.message}`);
-    if (stageSnapshotRes.error) throw new Error(`Stage snapshot query error: ${stageSnapshotRes.error.message}`);
     if (metasRes.error) console.warn(`Metas query warning: ${metasRes.error.message}`);
 
     // Agregar Meta Ads: max spend_month/leads_month por ad
@@ -251,22 +232,13 @@ export async function GET(req: NextRequest) {
       metaMap.set(ad.empreendimento, cur);
     }
 
-    // Agregar Pipedrive counts por tab/empreendimento (MQL/SQL/OPP/WON — eventos do mês)
+    // Agregar Pipedrive counts por tab/empreendimento (fallback sem service role)
     const countsMap = new Map<string, Record<string, number>>();
     for (const row of countsRes.data || []) {
       const key = row.empreendimento;
       if (!countsMap.has(key)) countsMap.set(key, { mql: 0, sql: 0, opp: 0, won: 0 });
       const cur = countsMap.get(key)!;
       cur[row.tab] = (cur[row.tab] || 0) + (row.count || 0);
-    }
-
-    // Agregar snapshot reserva/contrato (estado atual)
-    const snapshotMap = new Map<string, { reserva: number; contrato: number }>();
-    for (const row of stageSnapshotRes.data || []) {
-      const key = row.empreendimento;
-      if (!snapshotMap.has(key)) snapshotMap.set(key, { reserva: 0, contrato: 0 });
-      const cur = snapshotMap.get(key)!;
-      cur[row.tab as "reserva" | "contrato"] = (cur[row.tab as "reserva" | "contrato"] || 0) + (row.count || 0);
     }
 
     // Agregar Baserow leads por empreendimento (formulários preenchidos no mês)
@@ -277,43 +249,13 @@ export async function GET(req: NextRequest) {
       baserowLeadsMap.set(emp, (baserowLeadsMap.get(emp) || 0) + 1);
     }
 
-    // Agregar deals pagos (rd_source contendo "pag") — cada etapa por sua data
+    // Agregar deals pagos — Leads e WON
     const paidLeadsMap = new Map<string, number>();
-    const paidMqlMap = new Map<string, number>();
-    const paidSqlMap = new Map<string, number>();
-    const paidOppMap = new Map<string, number>();
     const paidWonMap = new Map<string, number>();
-    const paidReservaMap = new Map<string, number>();
-    const paidContratoMap = new Map<string, number>();
     for (const d of paidLeadsDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const key = d.empreendimento || "__sem_emp__";
-      // Reserva/Contrato acumulados — deals SEM empreendimento contam no total
-      if (d.empreendimento) {
-        const mso = d.max_stage_order ?? 0;
-        if (mso >= 13) paidReservaMap.set(key, (paidReservaMap.get(key) || 0) + 1);
-        if (mso >= 14) paidContratoMap.set(key, (paidContratoMap.get(key) || 0) + 1);
-      } else {
-        // Deals sem empreendimento: acumulam no total Geral
-        const mso = d.max_stage_order ?? 0;
-        if (mso >= 13) paidReservaMap.set("__geral__", (paidReservaMap.get("__geral__") || 0) + 1);
-        if (mso >= 14) paidContratoMap.set("__geral__", (paidContratoMap.get("__geral__") || 0) + 1);
-      }
-      // Leads/MQL só contam deals criados no mês (add_time >= startDate)
-      if (d.add_time && d.add_time >= startDate) {
-        paidLeadsMap.set(key, (paidLeadsMap.get(key) || 0) + 1);
-        paidMqlMap.set(key, (paidMqlMap.get(key) || 0) + 1);
-      }
-    }
-    for (const d of paidSqlDeals) {
-      if (d.lost_reason === "Duplicado/Erro") continue;
-      const key = d.empreendimento || "__sem_emp__";
-      paidSqlMap.set(key, (paidSqlMap.get(key) || 0) + 1);
-    }
-    for (const d of paidOppDeals) {
-      if (d.lost_reason === "Duplicado/Erro") continue;
-      const key = d.empreendimento || "__sem_emp__";
-      paidOppMap.set(key, (paidOppMap.get(key) || 0) + 1);
+      paidLeadsMap.set(key, (paidLeadsMap.get(key) || 0) + 1);
     }
     for (const d of paidWonDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
@@ -337,43 +279,13 @@ export async function GET(req: NextRequest) {
       if (d.status === "won") cur.wonEvento++;
     }
 
-    // Agregar deals por etapa — modo "Todos" (cada etapa usa sua data específica)
+    // Agregar deals todos — Leads e WON
     const allLeadsMap = new Map<string, number>();
-    const allMqlMap = new Map<string, number>();
-    const allSqlMap = new Map<string, number>();
-    const allOppMap = new Map<string, number>();
     const allWonMap = new Map<string, number>();
-    const allReservaMap = new Map<string, number>();
-    const allContratoMap = new Map<string, number>();
     for (const d of allLeadsDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
       const key = d.empreendimento || "__sem_emp__";
-      // Reserva/Contrato acumulados — deals SEM empreendimento contam no total
-      if (d.empreendimento) {
-        const mso = d.max_stage_order ?? 0;
-        if (mso >= 13) allReservaMap.set(key, (allReservaMap.get(key) || 0) + 1);
-        if (mso >= 14) allContratoMap.set(key, (allContratoMap.get(key) || 0) + 1);
-      } else {
-        // Deals sem empreendimento: acumulam no total Geral
-        const mso = d.max_stage_order ?? 0;
-        if (mso >= 13) allReservaMap.set("__geral__", (allReservaMap.get("__geral__") || 0) + 1);
-        if (mso >= 14) allContratoMap.set("__geral__", (allContratoMap.get("__geral__") || 0) + 1);
-      }
-      // Leads/MQL só contam deals criados no mês (add_time >= startDate)
-      if (d.add_time && d.add_time >= startDate) {
-        allLeadsMap.set(key, (allLeadsMap.get(key) || 0) + 1);
-        allMqlMap.set(key, (allMqlMap.get(key) || 0) + 1);
-      }
-    }
-    for (const d of allSqlDeals) {
-      if (d.lost_reason === "Duplicado/Erro") continue;
-      const key = d.empreendimento || "__sem_emp__";
-      allSqlMap.set(key, (allSqlMap.get(key) || 0) + 1);
-    }
-    for (const d of allOppDeals) {
-      if (d.lost_reason === "Duplicado/Erro") continue;
-      const key = d.empreendimento || "__sem_emp__";
-      allOppMap.set(key, (allOppMap.get(key) || 0) + 1);
+      allLeadsMap.set(key, (allLeadsMap.get(key) || 0) + 1);
     }
     for (const d of allWonDeals) {
       if (d.lost_reason === "Duplicado/Erro") continue;
@@ -381,52 +293,58 @@ export async function GET(req: NextRequest) {
       allWonMap.set(key, (allWonMap.get(key) || 0) + 1);
     }
 
+    // Open deals snapshot: classificar por stage_order atual
+    // MQL = deals abertos em Lead-In até antes de Qualificado (stage_order 1-4)
+    // SQL = Qualificado até antes de Reunião Realizada (stage_order 5-8)
+    // OPP = Reunião Realizada até antes de Reserva (stage_order 9-12)
+    // Reserva = etapa Reserva (stage_order 13)
+    // Contrato = etapa Contrato (stage_order 14)
+    const allSnapMap = new Map<string, Record<SnapBucket, number>>();
+    const paidSnapMap = new Map<string, Record<SnapBucket, number>>();
+    for (const d of openDealsSnapshot) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const emp = d.empreendimento || "__sem_emp__";
+      const bucket = classifyStage(d.stage_order || 0);
+      if (!bucket) continue;
+
+      if (!allSnapMap.has(emp)) allSnapMap.set(emp, EMPTY_SNAP());
+      allSnapMap.get(emp)![bucket]++;
+
+      if (d.rd_source && d.rd_source.toLowerCase().includes("pag")) {
+        if (!paidSnapMap.has(emp)) paidSnapMap.set(emp, EMPTY_SNAP());
+        paidSnapMap.get(emp)![bucket]++;
+      }
+    }
+
     // Build por squad
     const squads: FunilSquad[] = SQUADS.map((sq) => {
       const empRows: FunilEmpreendimento[] = sq.empreendimentos.map((emp) => {
         const meta = metaMap.get(emp) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
-        const counts = countsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
-        const snapshot = snapshotMap.get(emp) || { reserva: 0, contrato: 0 };
         const ev = eventoMap.get(emp) || { oppEvento: 0, reservaEvento: 0, contratoEvento: 0, wonEvento: 0 };
 
-        let leads: number, mql: number, sql: number, opp: number, won: number;
-        let reserva: number, contrato: number;
-        let eventos: EventoCoorte;
+        // Snapshot de deals abertos para MQL/SQL/OPP/Reserva/Contrato
+        const snap = paidOnly
+          ? (paidSnapMap.get(emp) || EMPTY_SNAP())
+          : (allSnapMap.get(emp) || EMPTY_SNAP());
+
+        let leads: number, won: number;
+        const eventos: EventoCoorte = ev;
 
         if (paidOnly) {
-          // Mídia Paga: rd_source contendo "pag", cada etapa pela data correta
           leads = paidLeadsMap.get(emp) || 0;
-          mql = paidMqlMap.get(emp) || 0;
-          sql = paidSqlMap.get(emp) || 0;
-          opp = paidOppMap.get(emp) || 0;
           won = paidWonMap.get(emp) || 0;
-          reserva = paidReservaMap.get(emp) || 0;
-          contrato = paidContratoMap.get(emp) || 0;
-          eventos = ev;
         } else if (hasServiceRole()) {
-          // Todos: cada etapa pela data correta de squad_deals (requer service role)
           leads = allLeadsMap.get(emp) || 0;
-          mql = allMqlMap.get(emp) || 0;
-          sql = allSqlMap.get(emp) || 0;
-          opp = allOppMap.get(emp) || 0;
           won = allWonMap.get(emp) || 0;
-          reserva = allReservaMap.get(emp) || 0;
-          contrato = allContratoMap.get(emp) || 0;
-          eventos = ev;
         } else {
-          // Fallback sem service role: squad_daily_counts + baserow/meta ads
+          // Fallback sem service role
           const baserowLeads = baserowLeadsMap.get(emp) || 0;
+          const counts = countsMap.get(emp) || { mql: 0, won: 0 };
           leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, counts.mql);
-          mql = counts.mql;
-          sql = counts.sql;
-          opp = counts.opp;
           won = counts.won;
-          reserva = snapshot.reserva;
-          contrato = snapshot.contrato;
-          eventos = ev;
         }
 
-        return buildFunil(emp, meta.impressions, meta.clicks, leads, mql, sql, opp, won, reserva, contrato, eventos, meta.spend);
+        return buildFunil(emp, meta.impressions, meta.clicks, leads, snap.mql, snap.sql, snap.opp, won, snap.reserva, snap.contrato, eventos, meta.spend);
       });
 
       return {
@@ -440,29 +358,20 @@ export async function GET(req: NextRequest) {
     // Build extra empreendimento rows (not in any squad, but counted in grand total)
     const extraRows: FunilEmpreendimento[] = EXTRA_EMPREENDIMENTOS.map((emp) => {
       const meta = metaMap.get(emp) || { impressions: 0, clicks: 0, leads: 0, spend: 0 };
-      const counts = countsMap.get(emp) || { mql: 0, sql: 0, opp: 0, won: 0 };
-      const snapshot = snapshotMap.get(emp) || { reserva: 0, contrato: 0 };
       const ev = eventoMap.get(emp) || { oppEvento: 0, reservaEvento: 0, contratoEvento: 0, wonEvento: 0 };
 
-      let leads: number, mql: number, sql: number, opp: number, won: number;
-      let reserva: number, contrato: number;
+      const snap = paidOnly
+        ? (paidSnapMap.get(emp) || EMPTY_SNAP())
+        : (allSnapMap.get(emp) || EMPTY_SNAP());
+
+      let leads: number, won: number;
       let eventos: EventoCoorte;
 
       if (paidOnly) {
-        const baserowLeads = baserowLeadsMap.get(emp) || 0;
-        const paidMql = paidMqlMap.get(emp) || 0;
-        const paidSql = paidSqlMap.get(emp) || 0;
-        const paidOpp = paidOppMap.get(emp) || 0;
-        const paidWon = paidWonMap.get(emp) || 0;
-        const leadsBase = baserowLeads > 0 ? baserowLeads : meta.leads;
-        leads = Math.max(leadsBase, paidMql);
-        mql = paidMql;
-        sql = paidSql;
-        opp = paidOpp;
-        won = paidWon;
-        const ratio = counts.mql > 0 ? paidMql / counts.mql : 0;
-        reserva = Math.round(snapshot.reserva * ratio);
-        contrato = Math.round(snapshot.contrato * ratio);
+        leads = paidLeadsMap.get(emp) || 0;
+        won = paidWonMap.get(emp) || 0;
+        const allMql = (allSnapMap.get(emp) || EMPTY_SNAP()).mql;
+        const ratio = allMql > 0 ? snap.mql / allMql : 0;
         eventos = {
           oppEvento: Math.round(ev.oppEvento * ratio),
           reservaEvento: Math.round(ev.reservaEvento * ratio),
@@ -471,32 +380,35 @@ export async function GET(req: NextRequest) {
         };
       } else {
         const baserowLeads = baserowLeadsMap.get(emp) || 0;
-        leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, counts.mql);
-        mql = counts.mql;
-        sql = counts.sql;
-        opp = counts.opp;
-        won = counts.won;
-        reserva = snapshot.reserva;
-        contrato = snapshot.contrato;
+        leads = Math.max(baserowLeads > 0 ? baserowLeads : meta.leads, snap.mql);
+        won = (countsMap.get(emp) || { won: 0 }).won;
         eventos = ev;
       }
 
-      return buildFunil(emp, meta.impressions, meta.clicks, leads, mql, sql, opp, won, reserva, contrato, eventos, meta.spend);
+      return buildFunil(emp, meta.impressions, meta.clicks, leads, snap.mql, snap.sql, snap.opp, won, snap.reserva, snap.contrato, eventos, meta.spend);
     });
 
     const allEmps = [...squads.flatMap((sq) => sq.empreendimentos), ...extraRows];
     const grand = sumFunil(allEmps, "Total");
 
-    // Sobrescrever grand com totais reais de squad_deals (só quando service role disponível)
+    // Sobrescrever grand com totais reais de squad_deals (inclui deals sem empreendimento)
     if (hasServiceRole()) {
-      const maps = paidOnly
-        ? { leads: paidLeadsMap, mql: paidMqlMap, sql: paidSqlMap, opp: paidOppMap, won: paidWonMap, reserva: paidReservaMap, contrato: paidContratoMap }
-        : { leads: allLeadsMap, mql: allMqlMap, sql: allSqlMap, opp: allOppMap, won: allWonMap, reserva: allReservaMap, contrato: allContratoMap };
-      for (const key of ["leads", "mql", "sql", "opp", "won", "reserva", "contrato"] as const) {
-        let total = 0;
-        for (const [, v] of maps[key]) total += v;
-        (grand as unknown as Record<string, number>)[key] = total;
-      }
+      const snapMap = paidOnly ? paidSnapMap : allSnapMap;
+      const leadsMap = paidOnly ? paidLeadsMap : allLeadsMap;
+      const wonMap = paidOnly ? paidWonMap : allWonMap;
+
+      let totalLeads = 0, totalMql = 0, totalSql = 0, totalOpp = 0, totalWon = 0, totalReserva = 0, totalContrato = 0;
+      for (const [, v] of leadsMap) totalLeads += v;
+      for (const [, v] of snapMap) { totalMql += v.mql; totalSql += v.sql; totalOpp += v.opp; totalReserva += v.reserva; totalContrato += v.contrato; }
+      for (const [, v] of wonMap) totalWon += v;
+
+      (grand as unknown as Record<string, number>).leads = totalLeads;
+      (grand as unknown as Record<string, number>).mql = totalMql;
+      (grand as unknown as Record<string, number>).sql = totalSql;
+      (grand as unknown as Record<string, number>).opp = totalOpp;
+      (grand as unknown as Record<string, number>).won = totalWon;
+      (grand as unknown as Record<string, number>).reserva = totalReserva;
+      (grand as unknown as Record<string, number>).contrato = totalContrato;
     }
 
     // Build metas object from nekt_meta26_metas (service role - RLS blocks anon)

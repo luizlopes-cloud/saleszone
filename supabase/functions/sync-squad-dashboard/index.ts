@@ -334,7 +334,7 @@ async function syncDailyByStatus(nektApiKey: string, supabase: any, svcKey: stri
 
   const dateFilter = status === "won"
     ? `AND ganho_em >= TIMESTAMP '${cutoffStr}'`
-    : `AND data_de_perda >= TIMESTAMP '${cutoffStr}'`;
+    : `AND (data_de_perda >= TIMESTAMP '${cutoffStr}' OR data_de_perda IS NULL)`;
 
   const sql = `
     SELECT id, pipeline_id, status, etapa, canal, empreendimento,

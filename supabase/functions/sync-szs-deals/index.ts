@@ -116,6 +116,86 @@ async function pipedriveGet(apiToken: string, path: string, params: Record<strin
   throw new Error(`Pipedrive ${path}: max retries exceeded`);
 }
 
+// ---- Nekt Data API helpers ----
+async function queryNekt(nektApiKey: string, sql: string): Promise<Record<string, string | null>[]> {
+  const queryRes = await fetch("https://api.nekt.ai/api/v1/sql-query/", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": nektApiKey,
+    },
+    body: JSON.stringify({ sql, mode: "csv" }),
+  });
+
+  if (!queryRes.ok) {
+    const body = await queryRes.text();
+    throw new Error(`Nekt API error (${queryRes.status}): ${body}`);
+  }
+
+  const queryData = await queryRes.json();
+
+  let presignedUrl: string | undefined;
+  if (queryData.presigned_url) {
+    presignedUrl = queryData.presigned_url;
+  } else if (queryData.presigned_urls && Array.isArray(queryData.presigned_urls) && queryData.presigned_urls.length > 0) {
+    presignedUrl = queryData.presigned_urls[0];
+  } else if (queryData.url) {
+    presignedUrl = queryData.url;
+  }
+
+  if (!presignedUrl) {
+    throw new Error(`Nekt API: no presigned_url in response — ${JSON.stringify(queryData)}`);
+  }
+
+  const csvRes = await fetch(presignedUrl);
+  if (!csvRes.ok) throw new Error(`Failed to download CSV: ${csvRes.status}`);
+  const csvText = await csvRes.text();
+
+  return parseCSV(csvText);
+}
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === "," && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function parseCSV(csv: string): Record<string, string | null>[] {
+  const lines = csv.trim().split("\n");
+  if (lines.length < 2) return [];
+
+  const columns = parseCSVLine(lines[0]).map((h) => h.trim().toLowerCase());
+
+  return lines.slice(1).map((line) => {
+    const values = parseCSVLine(line);
+    const row: Record<string, string | null> = {};
+    for (let i = 0; i < columns.length; i++) {
+      const col = columns[i];
+      const val = (values[i] ?? "").trim();
+      row[col] = val === "" || val === "null" || val === "NULL" ? null : val;
+    }
+    return row;
+  });
+}
+
 const CIDADE_MAP: Record<string, string> = {
   "1465": "Alagoinhas, BA",
   "607": "Alfredo Wagner, SC",
@@ -808,6 +888,39 @@ async function syncDealsFlow(apiToken: string, supabase: any) {
   };
 }
 
+// ---- Mode: cleanup (remove orphan deals not in Nekt pipeline 14) ----
+async function cleanupOrphanDeals(nektApiKey: string, supabase: any) {
+  console.log("cleanupOrphanDeals: fetching all deal IDs from Nekt pipeline 14...");
+  const sql = `SELECT DISTINCT CAST(id AS BIGINT) as id FROM nekt_silver.pipedrive_deals_readable WHERE pipeline_id = 14`;
+  const nektRows = await queryNekt(nektApiKey, sql);
+  const nektIds = new Set(nektRows.map((r) => parseInt(r.id || "0")).filter((id) => id > 0));
+  console.log(`  Nekt has ${nektIds.size} deals in pipeline 14`);
+
+  const dbIds: number[] = [];
+  let offset = 0;
+  while (true) {
+    const { data, error } = await supabase.from("szs_deals").select("deal_id").range(offset, offset + 999);
+    if (error) { console.error("DB read error:", error.message); break; }
+    if (!data || data.length === 0) break;
+    for (const d of data) dbIds.push(d.deal_id);
+    if (data.length < 1000) break;
+    offset += 1000;
+  }
+  console.log(`  szs_deals has ${dbIds.length} deals`);
+
+  const orphanIds = dbIds.filter((id) => !nektIds.has(id));
+  console.log(`  Found ${orphanIds.length} orphan deals to delete`);
+
+  if (orphanIds.length > 0) {
+    for (let i = 0; i < orphanIds.length; i += 100) {
+      const batch = orphanIds.slice(i, i + 100);
+      const { error: delErr } = await supabase.from("szs_deals").delete().in("deal_id", batch);
+      if (delErr) console.error("Delete error:", delErr.message);
+    }
+  }
+  return { nektCount: nektIds.size, dbCount: dbIds.length, orphansDeleted: orphanIds.length };
+}
+
 // ---- Deno.serve handler ----
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -881,6 +994,12 @@ Deno.serve(async (req) => {
           empreendimento_options: (empField?.options || []).map((o: any) => ({ id: o.id, label: o.label })),
           canal_options: (canalField?.options || []).map((o: any) => ({ id: o.id, label: o.label })),
         };
+        break;
+      }
+      case "cleanup": {
+        const { data: nektKey, error: nektErr } = await supabase.rpc("vault_read_secret", { secret_name: "NEKT_API_KEY" });
+        if (nektErr || !nektKey) throw new Error(`Vault error (NEKT_API_KEY): ${nektErr?.message}`);
+        result = await cleanupOrphanDeals(nektKey, supabase);
         break;
       }
       default:

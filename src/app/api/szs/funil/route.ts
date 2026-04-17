@@ -67,15 +67,6 @@ async function fetchAll(query: any): Promise<any[]> {
   return all;
 }
 
-// canal (numeric) → squad ID mapping (from szs_deals.canal column)
-const CANAL_NUM_TO_SQUAD: Record<string, number> = {
-  "12": 1,   // Marketing
-  "582": 2,  // Ind. Corretor
-  "583": 2,  // Ind. Franquia
-  "1748": 3, // Expansão
-  "3189": 3, // Spots
-  "4551": 3, // Monica
-};
 // canal (numeric) → canal_group label for display
 const CANAL_NUM_TO_GROUP: Record<string, string> = {
   "12": "Marketing",
@@ -97,6 +88,19 @@ const CANAL_GROUP_TO_SQUAD: Record<string, number> = {
 };
 const DEFAULT_GROUP = "Outros";
 
+// Classifica stage_order atual em bucket do funil
+// Pipeline 14 (SZS): MQL=1-3, SQL=4-7, OPP=8-10, Reserva=11, Contrato=12
+type SnapBucket = "mql" | "sql" | "opp" | "reserva" | "contrato";
+function classifyStage(so: number): SnapBucket | null {
+  if (so >= 1 && so <= 3) return "mql";
+  if (so >= 4 && so <= 7) return "sql";
+  if (so >= 8 && so <= 10) return "opp";
+  if (so === 11) return "reserva";
+  if (so === 12) return "contrato";
+  return null;
+}
+const EMPTY_SNAP = (): Record<SnapBucket, number> => ({ mql: 0, sql: 0, opp: 0, reserva: 0, contrato: 0 });
+
 export async function GET(req: NextRequest) {
   try {
     const monthParam = req.nextUrl.searchParams.get("month");
@@ -110,46 +114,34 @@ export async function GET(req: NextRequest) {
     const mesFim = `${yearStr}-${String(Number(monthStr) + 1).padStart(2, "0")}-01`;
     const admin = createSquadSupabaseAdmin();
 
-    const [allDealsRes, paidDealsRes, baserowLeadsRes] = await Promise.all([
+    const [allDealsRes, wonDealsRes, baserowLeadsRes, openDealsSnapshot] = await Promise.all([
       // All deals for bridge cidade→canal (no canal filter for complete attribution)
-      fetchAll(admin.from("szs_deals").select("empreendimento, canal, max_stage_order, status, lost_reason").gte("add_time", startDate)),
-      // Paid deals (canal=12, paid source) for funnel metrics
-      fetchAll(admin.from("szs_deals").select("canal, max_stage_order, status, lost_reason").eq("canal", "12").ilike("rd_source", "%pag%").gte("add_time", startDate)),
+      fetchAll(admin.from("szs_deals").select("empreendimento, canal, lost_reason").gte("add_time", startDate)),
+      // WON deals by won_time
+      fetchAll(admin.from("szs_deals").select("canal, lost_reason").gte("won_time", startDate)),
       // All form fills from baserow (leads, not qualified)
       fetchAll(admin.from("baserow_szs_leads").select("cidade").gte("data_criacao_ads", startDate).lt("data_criacao_ads", mesFim)),
+      // Open deals snapshot — MQL/SQL/OPP/Reserva/Contrato por stage_order atual (só abertos)
+      fetchAll(admin.from("szs_deals").select("canal, stage_order, lost_reason, rd_source").eq("status", "open")),
     ]);
 
-    // Count MQL/SQL/OPP/WON from szs_deals directly (not szs_daily_counts — avoids aggregation gap)
-    const mqlDeals = fetchAll(admin.from("szs_deals").select("canal, lost_reason").gte("add_time", startDate));
-    const sqlDeals = fetchAll(admin.from("szs_deals").select("canal, lost_reason").gte("qualificacao_date", startDate));
-    const oppDeals = fetchAll(admin.from("szs_deals").select("canal, lost_reason").gte("reuniao_date", startDate));
-    const wonDeals = fetchAll(admin.from("szs_deals").select("canal, lost_reason").gte("won_time", startDate));
-    const [mqlDealsRes, sqlDealsRes, oppDealsRes, wonDealsRes] = await Promise.all([mqlDeals, sqlDeals, oppDeals, wonDeals]);
-
-    // Reserva/Contrato: deals with max_stage_order >= 13/14 (accumulated from szs_deals)
-    const allClosedDeals = allDealsRes.filter(d => d.status === "won" || d.status === "lost");
-
-    // Build counts by canal_group from szs_deals
-    const countsByCanal = new Map<string, { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number }>();
-    function addToCanal(canal: string, mql = 0, sql = 0, opp = 0, won = 0, reserva = 0, contrato = 0) {
-      const g = canal || DEFAULT_GROUP;
-      if (!countsByCanal.has(g)) countsByCanal.set(g, { mql: 0, sql: 0, opp: 0, won: 0, reserva: 0, contrato: 0 });
-      const c = countsByCanal.get(g)!;
-      c.mql += mql; c.sql += sql; c.opp += opp; c.won += won; c.reserva += reserva; c.contrato += contrato;
-    }
-    for (const d of mqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 1, 0, 0, 0, 0, 0); }
-    for (const d of sqlDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 1, 0, 0, 0, 0); }
-    for (const d of oppDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 0, 1, 0, 0, 0); }
-    for (const d of wonDealsRes) { if (d.lost_reason !== "Duplicado/Erro") addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 0, 0, 1, 0, 0); }
-    // Reserva/contrato counts use allDealsRes (has max_stage_order)
-    for (const d of allClosedDeals) {
+    // Build WON counts by canal_group
+    const wonByCanal = new Map<string, number>();
+    for (const d of wonDealsRes) {
       if (d.lost_reason === "Duplicado/Erro") continue;
-      const mso = d.max_stage_order || 0;
-      if (mso >= 13) addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 0, 0, 0, 1, 0);
-      if (mso >= 14) addToCanal(CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP, 0, 0, 0, 0, 0, 1);
+      const g = CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP;
+      wonByCanal.set(g, (wonByCanal.get(g) || 0) + 1);
     }
 
-    // Bridge: primary canal per cidade (canal with most qualified deals from that cidade)
+    // Build MQL counts by canal_group (deals created in month = Leads/MQL event count)
+    const mqlByCanal = new Map<string, number>();
+    for (const d of allDealsRes) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const g = CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP;
+      mqlByCanal.set(g, (mqlByCanal.get(g) || 0) + 1);
+    }
+
+    // Bridge: primary canal per cidade (canal with most deals from that cidade)
     const cidadeCanalCount = new Map<string, Map<string, number>>();
     for (const d of allDealsRes) {
       if (d.lost_reason === "Duplicado/Erro") continue;
@@ -177,60 +169,61 @@ export async function GET(req: NextRequest) {
       leadsPerCanal.set(canal, (leadsPerCanal.get(canal) || 0) + 1);
     }
 
-    // Build counts by squadId|canalGroup from countsByCanal
-    const squadCanalCounts = new Map<string, { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number }>();
-    for (const [canalGroup, counts] of countsByCanal.entries()) {
-      const squadId = CANAL_GROUP_TO_SQUAD[canalGroup] ?? 3;
-      const gKey = `${squadId}|${canalGroup}`;
-      squadCanalCounts.set(gKey, counts);
+    // Open deals snapshot: classificar por stage_order atual, agrupado por canal
+    // MQL = deals abertos em Lead-In até antes de Qualificado (stage_order 1-3)
+    // SQL = Qualificado até antes de Reunião Realizada (stage_order 4-7)
+    // OPP = Reunião Realizada até antes de Ag. Dados (stage_order 8-10)
+    // Reserva (Ag. Dados) = stage_order 11
+    // Contrato = stage_order 12
+    const allSnapByCanal = new Map<string, Record<SnapBucket, number>>();
+    const paidSnapByCanal = new Map<string, Record<SnapBucket, number>>();
+    for (const d of openDealsSnapshot) {
+      if (d.lost_reason === "Duplicado/Erro") continue;
+      const g = CANAL_NUM_TO_GROUP[d.canal] || DEFAULT_GROUP;
+      const bucket = classifyStage(d.stage_order || 0);
+      if (!bucket) continue;
+
+      if (!allSnapByCanal.has(g)) allSnapByCanal.set(g, EMPTY_SNAP());
+      allSnapByCanal.get(g)![bucket]++;
+
+      if (d.rd_source && d.rd_source.toLowerCase().includes("pag")) {
+        if (!paidSnapByCanal.has(g)) paidSnapByCanal.set(g, EMPTY_SNAP());
+        paidSnapByCanal.get(g)![bucket]++;
+      }
     }
 
-    // Paid deals by canal
-    const paidCountsMap = new Map<string, { mql: number; sql: number; opp: number; won: number }>();
-    for (const d of paidDealsRes) {
-      if (d.lost_reason === "Duplicado/Erro") continue;
-      const canal = d.canal === "12" ? "Marketing" : DEFAULT_GROUP;
-      if (!paidCountsMap.has(canal)) paidCountsMap.set(canal, { mql: 0, sql: 0, opp: 0, won: 0 });
-      const cur = paidCountsMap.get(canal)!;
-      cur.mql++;
-      if (d.max_stage_order >= 4) cur.sql++;
-      if (d.max_stage_order >= 9) cur.opp++;
-      if (d.status === "won") cur.won++;
+    // Build counts by squadId|canalGroup
+    const squadCanalSnap = new Map<string, Record<SnapBucket, number>>();
+    for (const [canalGroup, snap] of allSnapByCanal.entries()) {
+      const squadId = CANAL_GROUP_TO_SQUAD[canalGroup] ?? 3;
+      const gKey = `${squadId}|${canalGroup}`;
+      squadCanalSnap.set(gKey, snap);
     }
 
     // Build squads from mc.squads (3 squads: Marketing, Parceiros, Expansão)
     const squads: FunilSquad[] = mc.squads.map((sq) => {
-      const canalEntries: Array<{ canal: string; counts: { mql: number; sql: number; opp: number; won: number; reserva: number; contrato: number } }> = [];
-      for (const [gKey, counts] of squadCanalCounts.entries()) {
+      const canalEntries: Array<{ canal: string; snap: Record<SnapBucket, number> }> = [];
+      for (const [gKey, snap] of squadCanalSnap.entries()) {
         if (!gKey.startsWith(`${sq.id}|`)) continue;
-        canalEntries.push({ canal: gKey.split("|")[1], counts });
+        canalEntries.push({ canal: gKey.split("|")[1], snap });
       }
 
-      const totalGroupMql = canalEntries.reduce((s, c) => s + (c.counts.mql || 0), 0);
-
-      const empRows: FunilEmpreendimento[] = canalEntries.map(({ canal, counts }) => {
-        const mqlShare = totalGroupMql > 0 ? (counts.mql || 0) / totalGroupMql : (canalEntries.length > 0 ? 1 / canalEntries.length : 0);
-        const paid = paidCountsMap.get(canal) || { mql: 0, sql: 0, opp: 0, won: 0 };
-
-        let mql: number, sql: number, opp: number, won: number, reserva: number, contrato: number;
+      const empRows: FunilEmpreendimento[] = canalEntries.map(({ canal, snap }) => {
+        const won = wonByCanal.get(canal) || 0;
 
         let leads: number;
 
         if (paidOnly) {
+          const paidSnap = paidSnapByCanal.get(canal) || EMPTY_SNAP();
           const marketingLeads = leadsPerCanal.get("Marketing") || 0;
-          leads = Math.max(marketingLeads, Math.round(paid.mql * mqlShare));
-          mql = Math.round(paid.mql * mqlShare); sql = Math.round(paid.sql * mqlShare);
-          opp = Math.round(paid.opp * mqlShare); won = Math.round(paid.won * mqlShare);
-          reserva = 0; contrato = 0;
+          leads = Math.max(marketingLeads, paidSnap.mql);
+          return buildFunil(canal, 0, 0, leads, paidSnap.mql, paidSnap.sql, paidSnap.opp, won, paidSnap.reserva, paidSnap.contrato, 0);
         } else {
           // leads from baserow per canal (all form fills) >= MQL (only qualified)
           const canalLeads = leadsPerCanal.get(canal) || 0;
-          leads = Math.max(canalLeads, counts.mql || 0);
-          mql = counts.mql || 0; sql = counts.sql || 0; opp = counts.opp || 0; won = counts.won || 0;
-          reserva = counts.reserva || 0; contrato = counts.contrato || 0;
+          leads = Math.max(canalLeads, snap.mql);
+          return buildFunil(canal, 0, 0, leads, snap.mql, snap.sql, snap.opp, won, snap.reserva, snap.contrato, 0);
         }
-
-        return buildFunil(canal, 0, 0, leads, mql, sql, opp, won, reserva, contrato, 0);
       });
 
       empRows.sort((a, b) => (b.mql + b.sql + b.opp + b.won) - (a.mql + a.sql + a.opp + a.won));
